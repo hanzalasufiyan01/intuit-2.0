@@ -1,14 +1,18 @@
-# Local development PostgreSQL. Development use only.
+# OPTIONAL local PostgreSQL 16 in Docker. Not required and not the standard setup:
+# local development uses the native PostgreSQL 16 service on port 5432 (see docs/development.md).
+#
+# If you use this instead, stop the native service first (both use port 5432), then run
+# `pnpm db:bootstrap` against it exactly as for the native service. No passwords are stored
+# here: POSTGRES_PASSWORD must be provided from your environment.
 services:
   postgres:
     image: postgres:16
     container_name: intuit2-postgres
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: intuit_dev
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your environment}
     ports:
-      - "5432:5432"
+      - '5432:5432'
     volumes:
       - intuit2-pgdata:/var/lib/postgresql/data
 

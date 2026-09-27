@@ -3,13 +3,37 @@
   "private": true,
   "description": "Intuit 2.0 — cloud accounting and business-management platform (modular monolith).",
   "packageManager": "pnpm@10.28.0",
+  "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12"
   },
   "scripts": {
     "dev": "pnpm -r --parallel --filter \"./apps/*\" dev",
+    "dev:api": "pnpm --filter @intuit-2/api dev",
+    "dev:web": "pnpm --filter @intuit-2/web dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "test:api": "pnpm --filter @intuit-2/api test",
+    "test:web": "pnpm --filter @intuit-2/web test",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:bootstrap": "pnpm --filter @intuit-2/api db:bootstrap",
+    "db:migrate": "pnpm --filter @intuit-2/api db:migrate",
+    "db:seed": "pnpm --filter @intuit-2/api db:seed",
+    "db:setup": "pnpm --filter @intuit-2/api db:setup",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.20.4",
+    "eslint": "^10.11.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.9",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.70.1"
   }
 }

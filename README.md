@@ -2,17 +2,20 @@
 
 Cloud accounting and business-management platform. The initial market is the Maldives; the core is country- and industry-independent.
 
-> **Status:** Phase 1 (Foundation) — repository structure initialized. Backend and frontend are not yet runnable. See [Current status](#current-status).
+> **Status:** Phase 1 (Foundation) is implemented. It covers identity, sessions, organizations and memberships, RBAC, invitations, audit and security history, and a transactional outbox, with a React shell. There are no business or accounting modules yet.
 
 ## Architecture
 
 - **Modular monolith**: one Fastify backend with strict module boundaries, one PostgreSQL database, one React frontend.
-- The accounting ledger is the single financial source of truth.
-- Tenant isolation, authorization and audit are enforced on the server.
+- The accounting ledger will be the single financial source of truth. It is reserved for the accounting phase.
+- Tenant isolation, authorization and audit are enforced on the server. PostgreSQL Row-Level Security is a second line of defence.
 
 Read more:
 
 - [Architecture overview](docs/architecture.md)
+- [Local development](docs/development.md)
+- [Security architecture](docs/security.md)
+- [API conventions](docs/api.md)
 - [Module boundaries](docs/module-boundaries.md)
 - [Phase 1 decisions](docs/decisions/0001-phase-1-foundation.md)
 
@@ -26,22 +29,26 @@ packages/     Shared workspace packages (added as needed)
 docs/         Architecture, conventions and decision records
 ```
 
-## Prerequisites
+## Quick start
 
-- Node.js 22 (see `.nvmrc`)
-- pnpm 10
-- PostgreSQL 16 (a `docker-compose.yml` is provided for local development)
-
-## Configuration
-
-Copy `.env.example` to `.env` and fill in real values. The example file contains placeholders only. Environments: `development`, `testing`, `staging`, `production`.
-
-## Local database
+Prerequisites: Node.js 22.12+, pnpm 10.28, and PostgreSQL 16 running as the native local service on port 5432.
 
 ```sh
-docker compose up -d postgres
+pnpm install
+cp .env.example .env          # then replace every CHANGE_ME value
+pnpm db:bootstrap             # one time: creates roles intuit_owner/intuit_app and database intuit2_dev (prompts for the postgres password)
+pnpm db:setup                 # migrations + reference-data seed
+pnpm dev                      # API on :3000, web app on http://localhost:5173
 ```
 
-## Current status
+See [docs/development.md](docs/development.md) for details on each step, the environment variables and the database roles.
 
-Phase 1 foundation is being built in small, reviewable commits. Setup, migration, test and API-convention instructions will be added here as each part lands.
+## Common commands
+
+```sh
+pnpm verify        # format:check + lint + typecheck + test + build
+pnpm test          # all tests (API integration tests use the real intuit2_dev database)
+pnpm lint
+pnpm typecheck
+pnpm build
+```

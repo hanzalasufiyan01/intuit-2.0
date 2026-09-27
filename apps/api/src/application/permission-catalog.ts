@@ -1,0 +1,17 @@
+import {
+  accessControlPermissionDefinitions,
+  validatePermissionCatalog,
+  type PermissionDefinition,
+} from '../modules/access-control/index.js';
+import { auditPermissionDefinitions } from '../modules/audit/index.js';
+import { organizationPermissionDefinitions } from '../modules/organizations/index.js';
+
+/**
+ * The global permission catalog, aggregated from every module's contribution.
+ * Later phases add their module's definitions here.
+ */
+export const permissionCatalog: readonly PermissionDefinition[] = validatePermissionCatalog([
+  ...organizationPermissionDefinitions,
+  ...accessControlPermissionDefinitions,
+  ...auditPermissionDefinitions,
+]);
