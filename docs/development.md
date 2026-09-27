@@ -54,6 +54,7 @@ Choose strong, unique passwords for the two roles. `.env` is git-ignored. Never 
 | `LOGIN_BACKOFF_BASE_SECONDS` / `_MAX_SECONDS`   | `60` / `900`         | Progressive back-off                                             |
 | `INVITATION_EXPIRY_HOURS`                       | `72`                 | Invitation lifetime (approved)                                   |
 | `OUTBOX_POLL_INTERVAL_MS` / `OUTBOX_BATCH_SIZE` | `2000` / `20`        | Outbox dispatcher                                                |
+| `DEV_SEED_PASSWORD`                             | —                    | Password for `pnpm db:seed:dev` users (local only)               |
 | `EMAIL_PROVIDER` / `EMAIL_FROM`                 | `mock`               | Email provider (mock records messages in memory)                 |
 
 The API validates its configuration at startup and exits with a list of problems if anything is invalid.
@@ -83,6 +84,24 @@ pnpm db:setup      # = db:migrate + db:seed
 - `pnpm db:seed` upserts the permission catalog and the system role templates, and re-syncs every organization's Owner role to the full catalog. It contains no user data.
 
 Both commands are safe to run repeatedly.
+
+### Development seed (optional)
+
+```sh
+pnpm db:seed:dev
+```
+
+This creates the example organization "Maldives Demo Trading":
+
+- accounting set up with MVR and the Maldives template, plus the current fiscal year with monthly periods;
+- users `owner@`, `admin@` and `member@intuit2-dev.test` (Owner, Administrator, Member);
+- an approval policy for journals, a USD rate, one approved and posted journal, and one draft journal.
+
+Details:
+
+- Set `DEV_SEED_PASSWORD` in `.env` first. All seeded users share that password, and it is never printed or committed.
+- The command refuses to run unless `APP_ENV` is `development` or `testing`.
+- It is idempotent: if the seed owner already exists, it changes nothing.
 
 ## 5. Run
 

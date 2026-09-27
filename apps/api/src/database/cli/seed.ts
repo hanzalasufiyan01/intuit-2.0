@@ -12,7 +12,8 @@ if (!url) {
 try {
   const result = await runSeed(url);
   console.log(
-    `Seeded ${result.permissions} permission(s) and ${result.templates} role template(s); ` +
+    `Seeded ${result.permissions} permission(s), ${result.templates} role template(s) and ` +
+      `${result.coaTemplates} COA template(s); ` +
       `synced ${result.ownerRolesSynced} Owner role permission(s).`,
   );
   if (result.stalePermissions.length > 0) {

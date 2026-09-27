@@ -206,7 +206,7 @@ export class RoleService {
           if (isForeignKeyViolation(error)) {
             throw new ConflictError(
               'CONFLICT',
-              'This role is referenced by invitations and cannot be deleted.',
+              'This role is referenced by invitations or approval policies and cannot be deleted.',
             );
           }
           throw error;

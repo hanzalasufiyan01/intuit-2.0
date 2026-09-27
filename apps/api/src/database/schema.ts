@@ -8,3 +8,5 @@ export * from '../modules/organizations/schema.js';
 export * from '../modules/access-control/schema.js';
 export * from '../modules/audit/schema.js';
 export * from '../modules/outbox/schema.js';
+export * from '../modules/approvals/schema.js';
+export * from '../modules/accounting/schema.js';

@@ -41,6 +41,9 @@ importers:
       '@node-rs/argon2':
         specifier: ^2.2.1
         version: 2.2.1
+      decimal.js:
+        specifier: ^10.6.0
+        version: 10.6.0
       drizzle-orm:
         specifier: ^0.45.3
         version: 0.45.3(@types/pg@8.23.1)(pg@8.23.0)
@@ -75,6 +78,9 @@ importers:
       '@tanstack/react-query':
         specifier: ^5.104.0
         version: 5.104.0(react@19.3.0)
+      decimal.js:
+        specifier: ^10.6.0
+        version: 10.6.0
       react:
         specifier: ^19.3.0
         version: 19.3.0

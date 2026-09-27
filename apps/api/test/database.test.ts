@@ -102,6 +102,143 @@ describe('migrations', () => {
   });
 });
 
+const PHASE2_TABLES = [
+  'approval_policies',
+  'approval_policy_steps',
+  'approval_step_eligible_roles',
+  'approval_step_eligible_members',
+  'approval_requests',
+  'approval_decisions',
+  'accounting_settings',
+  'accounting_accounts',
+  'accounting_exchange_rates',
+  'accounting_fiscal_years',
+  'accounting_periods',
+  'accounting_journal_entries',
+  'accounting_journal_lines',
+  'accounting_journal_reversals',
+  'accounting_events',
+];
+
+describe('phase 2 migration', () => {
+  it('creates the accounting and approval tables with RLS enabled', async () => {
+    const { rows } = await owner.query(
+      `SELECT c.relname, c.relrowsecurity, pg_get_userbyid(c.relowner) AS owner
+       FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r'`,
+    );
+    const byName = new Map(rows.map((r) => [r.relname, r]));
+    for (const table of PHASE2_TABLES) {
+      expect(byName.get(table), table).toMatchObject({
+        relrowsecurity: true,
+        owner: 'intuit_owner',
+      });
+    }
+    for (const table of ['accounting_coa_templates', 'accounting_coa_template_accounts']) {
+      expect(byName.get(table)?.owner).toBe('intuit_owner');
+    }
+  });
+
+  it('grants the application role no DELETE on journals and no UPDATE/DELETE on decisions', async () => {
+    const { rows } = await owner.query(
+      `SELECT table_name, privilege_type FROM information_schema.role_table_grants
+       WHERE grantee = 'intuit_app' AND table_name IN ('accounting_journal_entries', 'approval_decisions',
+         'accounting_journal_reversals', 'accounting_exchange_rates')`,
+    );
+    const granted = rows.map((r) => `${r.table_name}:${r.privilege_type}`).sort();
+    expect(granted).toEqual([
+      'accounting_exchange_rates:INSERT',
+      'accounting_exchange_rates:SELECT',
+      'accounting_journal_entries:INSERT',
+      'accounting_journal_entries:SELECT',
+      'accounting_journal_entries:UPDATE',
+      'accounting_journal_reversals:INSERT',
+      'accounting_journal_reversals:SELECT',
+      'approval_decisions:INSERT',
+      'approval_decisions:SELECT',
+    ]);
+  });
+
+  it('accepts three-segment permission keys and still forbids invoices.delete', async () => {
+    const { rows } = await owner.query(
+      `SELECT count(*)::int AS n FROM permissions WHERE key LIKE 'accounting.%'`,
+    );
+    expect(rows[0].n).toBe(17);
+    await expectPgError(
+      owner.query(
+        `INSERT INTO permissions (key, module, description) VALUES ('invoices.delete', 't', 'x')`,
+      ),
+      '23514',
+    );
+  });
+
+  it('backfills pre-Phase-2 Administrator/Member roles additively (migration 0003)', async () => {
+    const backfillSql = readMigrationFiles().find(
+      (m) => m.version === '0003_phase2_permission_backfill',
+    )!.sql;
+    const client = ctx.client();
+    const { session } = await client.register();
+    const orgId = session.activeOrganization.id;
+    const customRole = await client.post('/organizations/current/roles', {
+      name: 'Custom viewer',
+      permissionKeys: ['organization.read'],
+    });
+    expect(customRole.status).toBe(201);
+
+    await owner.query('BEGIN');
+    try {
+      // Simulate an organization created before Phase 2: its template roles lack Phase 2 keys,
+      // and the Member role was customized with an extra Phase 1 permission.
+      await owner.query(
+        `DELETE FROM role_permissions WHERE organization_id = $1
+           AND (permission_key LIKE 'accounting.%' OR permission_key = 'approvals.manage')
+           AND role_id IN (SELECT id FROM roles WHERE organization_id = $1 AND NOT is_owner)`,
+        [orgId],
+      );
+      await owner.query(
+        `INSERT INTO role_permissions (role_id, organization_id, permission_key)
+         SELECT id, organization_id, 'audit.read' FROM roles WHERE organization_id = $1 AND template_key = 'member'`,
+        [orgId],
+      );
+      await owner.query(backfillSql);
+      // Idempotent: a second run adds nothing. (Its temp tables normally drop at commit.)
+      await owner.query('DROP TABLE phase2_backfill_grants, phase2_backfilled');
+      await owner.query(backfillSql);
+
+      const { rows } = await owner.query(
+        `SELECT r.name, array_agg(rp.permission_key ORDER BY rp.permission_key) AS keys
+         FROM roles r LEFT JOIN role_permissions rp ON rp.role_id = r.id
+         WHERE r.organization_id = $1 GROUP BY r.name`,
+        [orgId],
+      );
+      const keys = Object.fromEntries(rows.map((r) => [r.name, r.keys as string[]]));
+      expect(keys.Administrator).toHaveLength(26);
+      expect(keys.Member).toEqual([
+        'accounting.accounts.view',
+        'accounting.journals.view',
+        'accounting.ledger.view',
+        'accounting.periods.view',
+        'audit.read', // customization preserved: additive only
+        'members.read',
+        'organization.read',
+      ]);
+      expect(keys['Custom viewer']).toEqual(['organization.read']);
+      expect(keys.Owner).toHaveLength(26);
+
+      const audit = await owner.query(
+        `SELECT metadata FROM audit_events WHERE organization_id = $1 AND action = 'role.permissions_backfilled'`,
+        [orgId],
+      );
+      expect(audit.rows).toHaveLength(2); // second run added nothing
+      expect(audit.rows.map((r) => r.metadata.templateKey).sort()).toEqual([
+        'administrator',
+        'member',
+      ]);
+    } finally {
+      await owner.query('ROLLBACK');
+    }
+  });
+});
+
 describe('constraints', () => {
   it('reject the forbidden invoices.delete permission at the database level', async () => {
     await expectPgError(

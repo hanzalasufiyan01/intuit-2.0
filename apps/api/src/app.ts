@@ -4,9 +4,12 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { registerErrorHandling } from './api/http/errors.js';
 import { registerSessionSecurity } from './api/http/session.js';
 import { apiV1 } from './api/v1/index.js';
+import { AccountingService } from './application/accounting-service.js';
+import { ApprovalService } from './application/approval-service.js';
 import { AuthService } from './application/auth-service.js';
 import type { AppDependencies } from './application/dependencies.js';
 import { InvitationService } from './application/invitation-service.js';
+import { JournalService } from './application/journal-service.js';
 import { OrganizationService } from './application/organization-service.js';
 import { RoleService } from './application/role-service.js';
 import { loggerOptions, type LogDestination } from './infrastructure/logging/logger.js';
@@ -27,6 +30,9 @@ export interface BuiltApp {
     organizations: OrganizationService;
     invitations: InvitationService;
     roles: RoleService;
+    approvals: ApprovalService;
+    accounting: AccountingService;
+    journals: JournalService;
   };
 }
 
@@ -48,11 +54,15 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
 
   const deps: AppDependencies = { ...options.deps, logger: app.log };
   const auth = new AuthService(deps);
+  const approvals = new ApprovalService(deps);
   const services = {
     auth,
     organizations: new OrganizationService(deps),
     invitations: new InvitationService(deps, auth),
     roles: new RoleService(deps),
+    approvals,
+    accounting: new AccountingService(deps, approvals),
+    journals: new JournalService(deps, approvals),
   };
 
   // JSON only. Dropping the default text/plain parser also means every write needs a

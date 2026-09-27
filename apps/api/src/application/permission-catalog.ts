@@ -3,6 +3,8 @@ import {
   validatePermissionCatalog,
   type PermissionDefinition,
 } from '../modules/access-control/index.js';
+import { accountingPermissionDefinitions } from '../modules/accounting/index.js';
+import { approvalPermissionDefinitions } from '../modules/approvals/index.js';
 import { auditPermissionDefinitions } from '../modules/audit/index.js';
 import { organizationPermissionDefinitions } from '../modules/organizations/index.js';
 
@@ -14,4 +16,6 @@ export const permissionCatalog: readonly PermissionDefinition[] = validatePermis
   ...organizationPermissionDefinitions,
   ...accessControlPermissionDefinitions,
   ...auditPermissionDefinitions,
+  ...approvalPermissionDefinitions,
+  ...accountingPermissionDefinitions,
 ]);

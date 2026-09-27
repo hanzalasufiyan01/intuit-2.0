@@ -23,6 +23,7 @@
     "db:bootstrap": "pnpm --filter @intuit-2/api db:bootstrap",
     "db:migrate": "pnpm --filter @intuit-2/api db:migrate",
     "db:seed": "pnpm --filter @intuit-2/api db:seed",
+    "db:seed:dev": "pnpm --filter @intuit-2/api db:seed:dev",
     "db:setup": "pnpm --filter @intuit-2/api db:setup",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },

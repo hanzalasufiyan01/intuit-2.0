@@ -97,3 +97,20 @@ RLS is enabled on `organizations`, `memberships`, `roles`, `role_permissions`, `
 - Request bodies are never logged. Cookie, authorization and CSRF headers, and any `password`, `token` or `passwordHash` field, are redacted.
 - Client errors return stable codes. Unexpected errors return a generic `500 INTERNAL_ERROR` with no stack traces, SQL or driver messages; the details are logged on the server only.
 - Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`.
+
+## Accounting security (Phase 2)
+
+- **Tenant isolation:** every accounting and approval table carries `organization_id` and is protected by RLS. Composite foreign keys pin lines, accounts, periods, approvals and reversals to the same organization. A resource ID from another organization returns `404`.
+- **Authorization:** the accounting permissions in [ADR 0002](decisions/0002-phase-2-accounting.md) are checked on every endpoint. The frontend offers only the actions the user is allowed to perform.
+- **Sensitive actions** (re-authentication within 15 minutes):
+  - accounting setup and base-currency changes
+  - period close
+  - period reopen, including approving a reopen request
+  - journal post
+  - journal reverse
+  - approval-policy changes
+  - account deletion
+- **Approvals:** self-approval is prohibited (preparer and submitter), and each person can decide once per request. Every decision is recorded in the append-only `approval_decisions` table and in the audit log.
+- **Posted journal immutability:** the application exposes no edit or delete for posted journals, and database triggers reject such changes even for the owning database role. The application role has no DELETE privilege on journals.
+- **Audit:** every account, journal, period and approval-policy change writes an audit event with before/after context, for example `account.created`, `journal.posted`, `journal.reversed` and `period.reopened`. Audit history stays append-only (ADR 0001).
+- **Idempotency:** accounting events are deduplicated on (organization, source module, event key), and a conflicting replay is rejected.

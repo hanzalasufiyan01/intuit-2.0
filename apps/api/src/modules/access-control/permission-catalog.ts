@@ -3,14 +3,14 @@
  * definitions and the composition root aggregates them (see application/permission-catalog.ts).
  */
 export interface PermissionDefinition {
-  /** `<resource>.<action>`, lower snake case, e.g. `members.invite`. */
+  /** Dot-separated lower snake case, e.g. `members.invite`, `accounting.journals.post`. */
   key: string;
   /** Owning module name. */
   module: string;
   description: string;
 }
 
-const PERMISSION_KEY_PATTERN = /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/;
+const PERMISSION_KEY_PATTERN = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/;
 
 /**
  * Permissions that must never exist. Financial records are never physically deleted:

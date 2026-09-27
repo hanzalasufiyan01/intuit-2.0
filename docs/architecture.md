@@ -74,8 +74,38 @@ Emails that contain one-time links (password reset, invitation) are sent directl
 - [Security architecture](security.md): authentication, sessions, CSRF, authorization/RBAC, RLS, audit, logging
 - [API conventions](api.md): versioning, envelopes, errors, endpoints
 - [Module boundaries](module-boundaries.md)
-- [Decisions](decisions/0001-phase-1-foundation.md)
+- Decisions: [ADR 0001 (Phase 1)](decisions/0001-phase-1-foundation.md), [ADR 0002 (Phase 2)](decisions/0002-phase-2-accounting.md)
+
+## Accounting (Phase 2)
+
+```
+Operational module --(accounting event, idempotent)--+
+Manual journal (UI/API) -----------------------------+
+                                                     v
+                 Journal engine: DRAFT -> PENDING_APPROVAL -> POSTED -> REVERSED
+                 (double-entry validation, approvals, atomic posting)
+                                                     v
+                 Journal lines (posted, immutable) --> General Ledger (query view)
+```
+
+- **Accounting module:** chart of accounts (from COA templates), fiscal years and periods, exchange rates, the journal engine, accounting events and the ledger query. Details are in [ADR 0002](decisions/0002-phase-2-accounting.md).
+- **Approvals module:** the reusable Authority & Approval framework. It holds policies with AND-ed steps, eligible roles or members, per-request policy snapshots, and append-only decisions. Journal posting and period reopening use it today; later modules register their own actions.
+- **Posting is atomic.** One transaction runs the checks and then:
+  1. checks authorization and approvals;
+  2. validates the lines;
+  3. checks the currency and resolves the exchange rate;
+  4. locks the open period (`FOR SHARE`, so closing waits for in-flight postings);
+  5. converts to the base currency (largest-eligible-line rounding);
+  6. assigns the journal number;
+  7. marks the journal POSTED;
+  8. writes the audit event and the outbox event.
+
+  Any failure rolls back everything. Database triggers repeat the core invariants.
+
+- **Money** is exact: PostgreSQL `numeric`, `decimal.js` in TypeScript, and decimal strings in the API. JSON numbers are rejected for amounts.
 
 ## Phase status
 
-Phase 1 (Foundation) is implemented: identity, organizations, access control, audit and outbox. No accounting or other business modules exist yet. The financial source-of-truth (ledger) architecture remains reserved for the accounting phase.
+- **Phase 1 (Foundation):** identity, organizations, access control, audit, outbox.
+- **Phase 2 (Accounting Foundation & General Ledger):** accounting and approvals.
+- Full financial statements and all operational modules (invoicing, expenses, banking, inventory, payroll, tax, and so on) belong to later phases.

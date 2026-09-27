@@ -5,12 +5,15 @@ import {
   syncAccessControlCatalog,
   type CatalogSyncResult,
 } from '../modules/access-control/catalog-sync.js';
+import { syncCoaTemplates } from '../modules/accounting/index.js';
 
 /**
  * Seeds reference data required by every environment (permission catalog, role templates).
  * Runs as the migration role. Contains no user, organization or credential data.
  */
-export async function runSeed(connectionString: string): Promise<CatalogSyncResult> {
+export async function runSeed(
+  connectionString: string,
+): Promise<CatalogSyncResult & { coaTemplates: number }> {
   const client = new pg.Client({ connectionString, application_name: 'intuit2-seed' });
   await client.connect();
   try {
@@ -20,8 +23,9 @@ export async function runSeed(connectionString: string): Promise<CatalogSyncResu
       permissionCatalog,
       roleTemplateDefinitions,
     );
+    const coaTemplates = await syncCoaTemplates(client);
     await client.query('COMMIT');
-    return result;
+    return { ...result, coaTemplates };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

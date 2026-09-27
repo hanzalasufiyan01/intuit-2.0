@@ -2,12 +2,12 @@
 
 Cloud accounting and business-management platform. The initial market is the Maldives; the core is country- and industry-independent.
 
-> **Status:** Phase 1 (Foundation) is implemented. It covers identity, sessions, organizations and memberships, RBAC, invitations, audit and security history, and a transactional outbox, with a React shell. There are no business or accounting modules yet.
+> **Status:** Phase 1 (Foundation) and Phase 2 (Accounting Foundation & General Ledger) are implemented. Phase 2 adds the chart of accounts, fiscal years and periods, the double-entry journal engine with configurable approvals, posting and reversal, multi-currency, accounting events and the general ledger. There are no operational business modules yet (invoicing, expenses, banking and so on).
 
 ## Architecture
 
 - **Modular monolith**: one Fastify backend with strict module boundaries, one PostgreSQL database, one React frontend.
-- The accounting ledger will be the single financial source of truth. It is reserved for the accounting phase.
+- The accounting module (Phase 2) is the single financial source of truth. The general ledger is derived from posted journal lines only.
 - Tenant isolation, authorization and audit are enforced on the server. PostgreSQL Row-Level Security is a second line of defence.
 
 Read more:
@@ -18,6 +18,7 @@ Read more:
 - [API conventions](docs/api.md)
 - [Module boundaries](docs/module-boundaries.md)
 - [Phase 1 decisions](docs/decisions/0001-phase-1-foundation.md)
+- [Phase 2 decisions](docs/decisions/0002-phase-2-accounting.md)
 
 ## Repository layout
 
@@ -38,6 +39,7 @@ pnpm install
 cp .env.example .env          # then replace every CHANGE_ME value
 pnpm db:bootstrap             # one time: creates roles intuit_owner/intuit_app and database intuit2_dev (prompts for the postgres password)
 pnpm db:setup                 # migrations + reference-data seed
+pnpm db:seed:dev              # optional: example organization, users and journals (needs DEV_SEED_PASSWORD)
 pnpm dev                      # API on :3000, web app on http://localhost:5173
 ```
 

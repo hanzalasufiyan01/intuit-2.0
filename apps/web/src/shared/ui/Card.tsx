@@ -22,7 +22,13 @@ export function Card({
   );
 }
 
-export function PageHeader({ title, description }: { title: string; description?: string }) {
+export function PageHeader({
+  title,
+  description,
+}: {
+  title: string;
+  description?: string | undefined;
+}) {
   return (
     <header className="page-header">
       <h1>{title}</h1>

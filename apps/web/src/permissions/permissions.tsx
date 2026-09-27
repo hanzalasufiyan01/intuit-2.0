@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useAuth } from '../auth/auth-context';
 
-/** Phase 1 permission keys (mirrors the server catalog). */
+/** Permission keys (mirrors the server catalog). */
 export const Permission = {
   OrganizationRead: 'organization.read',
   OrganizationUpdate: 'organization.update',
@@ -11,6 +11,24 @@ export const Permission = {
   RolesRead: 'roles.read',
   RolesManage: 'roles.manage',
   AuditRead: 'audit.read',
+  ApprovalsManage: 'approvals.manage',
+  AccountingSetup: 'accounting.setup',
+  AccountsView: 'accounting.accounts.view',
+  AccountsCreate: 'accounting.accounts.create',
+  AccountsUpdate: 'accounting.accounts.update',
+  AccountsArchive: 'accounting.accounts.archive',
+  AccountsDelete: 'accounting.accounts.delete',
+  JournalsView: 'accounting.journals.view',
+  JournalsCreate: 'accounting.journals.create',
+  JournalsEditDraft: 'accounting.journals.edit_draft',
+  JournalsSubmit: 'accounting.journals.submit',
+  JournalsApprove: 'accounting.journals.approve',
+  JournalsPost: 'accounting.journals.post',
+  JournalsReverse: 'accounting.journals.reverse',
+  PeriodsView: 'accounting.periods.view',
+  PeriodsClose: 'accounting.periods.close',
+  PeriodsReopen: 'accounting.periods.reopen',
+  LedgerView: 'accounting.ledger.view',
 } as const;
 export type PermissionKey = (typeof Permission)[keyof typeof Permission];
 
@@ -21,6 +39,12 @@ export type PermissionKey = (typeof Permission)[keyof typeof Permission];
 export function usePermission(permission: PermissionKey): boolean {
   const { activeOrganization } = useAuth();
   return activeOrganization?.permissions.includes(permission) ?? false;
+}
+
+/** True if the active organization grants any of the permissions. */
+export function useAnyPermission(permissions: readonly PermissionKey[]): boolean {
+  const { activeOrganization } = useAuth();
+  return permissions.some((p) => activeOrganization?.permissions.includes(p) ?? false);
 }
 
 export function Can({

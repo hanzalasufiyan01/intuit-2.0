@@ -1,12 +1,13 @@
 import { NavLink, Outlet, useNavigate } from 'react-router';
 import { useAuth } from '../auth/auth-context';
-import { Can, Permission } from '../permissions/permissions';
+import { Can, Permission, useAnyPermission } from '../permissions/permissions';
 import { Button } from '../shared/ui/Button';
 import { OrganizationSwitcher } from './OrganizationSwitcher';
 
 export function AppLayout() {
   const { session, logout } = useAuth();
   const navigate = useNavigate();
+  const canAccounting = useAnyPermission([Permission.JournalsView, Permission.PeriodsView]);
 
   const signOut = async () => {
     await logout();
@@ -30,6 +31,10 @@ export function AppLayout() {
           </Can>
           <Can permission={Permission.AuditRead}>
             <NavLink to="/audit">Audit log</NavLink>
+          </Can>
+          {canAccounting ? <NavLink to="/accounting">Accounting</NavLink> : null}
+          <Can permission={Permission.ApprovalsManage}>
+            <NavLink to="/settings/approvals">Approval policies</NavLink>
           </Can>
         </nav>
       </aside>

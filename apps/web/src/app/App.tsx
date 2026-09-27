@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
 import { createBrowserRouter, RouterProvider, type createMemoryRouter } from 'react-router';
 import { AuthProvider } from '../auth/auth-context';
+import { ReauthProvider } from '../auth/reauth';
 import { ApiError } from '../services/api-client';
 import { routes } from './routes';
 
@@ -28,7 +29,9 @@ export function App({ router, queryClient }: { router?: AppRouter; queryClient?:
   return (
     <QueryClientProvider client={client}>
       <AuthProvider>
-        <RouterProvider router={appRouter} />
+        <ReauthProvider>
+          <RouterProvider router={appRouter} />
+        </ReauthProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

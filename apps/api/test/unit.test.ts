@@ -68,8 +68,27 @@ describe('permission catalog', () => {
     ).not.toThrow();
   });
 
-  it('defines the approved Phase 1 catalog and templates', () => {
-    expect(permissionCatalog.map((p) => p.key).sort()).toEqual([
+  it('defines the approved Phase 1 + Phase 2 catalog and templates', () => {
+    const keys = permissionCatalog.map((p) => p.key).sort();
+    expect(keys).toEqual([
+      'accounting.accounts.archive',
+      'accounting.accounts.create',
+      'accounting.accounts.delete',
+      'accounting.accounts.update',
+      'accounting.accounts.view',
+      'accounting.journals.approve',
+      'accounting.journals.create',
+      'accounting.journals.edit_draft',
+      'accounting.journals.post',
+      'accounting.journals.reverse',
+      'accounting.journals.submit',
+      'accounting.journals.view',
+      'accounting.ledger.view',
+      'accounting.periods.close',
+      'accounting.periods.reopen',
+      'accounting.periods.view',
+      'accounting.setup',
+      'approvals.manage',
       'audit.read',
       'members.invite',
       'members.manage',
@@ -82,8 +101,16 @@ describe('permission catalog', () => {
     const templates = Object.fromEntries(roleTemplateDefinitions.map((t) => [t.key, t]));
     expect(templates.owner?.permissions).toBe('all');
     expect(templates.owner?.isOwner).toBe(true);
-    expect(templates.administrator?.permissions).toHaveLength(8);
-    expect(templates.member?.permissions).toEqual(['organization.read', 'members.read']);
+    // Decision F25: Administrator gets every permission; Member gets accounting view access.
+    expect([...(templates.administrator?.permissions ?? [])].sort()).toEqual(keys);
+    expect([...(templates.member?.permissions ?? [])].sort()).toEqual([
+      'accounting.accounts.view',
+      'accounting.journals.view',
+      'accounting.ledger.view',
+      'accounting.periods.view',
+      'members.read',
+      'organization.read',
+    ]);
   });
 });
 

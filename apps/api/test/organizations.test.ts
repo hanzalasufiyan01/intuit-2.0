@@ -56,9 +56,17 @@ describe('organizations and ownership', () => {
     expect(names).toEqual(expect.arrayContaining(['Owner', 'Administrator', 'Member']));
     const ownerRole = roles.body.data.find((r: { isOwner: boolean }) => r.isOwner);
     expect(ownerRole.memberCount).toBe(1);
-    expect(ownerRole.permissionKeys).toHaveLength(8);
+    // Owner holds the whole catalog (Phase 1: 8 permissions; Phase 2 adds 18).
+    expect(ownerRole.permissionKeys).toHaveLength(26);
     const member = roles.body.data.find((r: { name: string }) => r.name === 'Member');
-    expect(member.permissionKeys).toEqual(['members.read', 'organization.read']);
+    expect(member.permissionKeys).toEqual([
+      'accounting.accounts.view',
+      'accounting.journals.view',
+      'accounting.ledger.view',
+      'accounting.periods.view',
+      'members.read',
+      'organization.read',
+    ]);
 
     const members = await owner.get('/organizations/current/members');
     expect(members.body.data).toHaveLength(1);
@@ -122,7 +130,14 @@ describe('invitations', () => {
     const { invitee, session } = await inviteAndJoin(owner, 'Member');
     expect(session.activeOrganization.id).toBe(ownerSession.activeOrganization.id);
     expect(session.activeOrganization.isOwner).toBe(false);
-    expect(session.activeOrganization.permissions).toEqual(['members.read', 'organization.read']);
+    expect(session.activeOrganization.permissions).toEqual([
+      'accounting.accounts.view',
+      'accounting.journals.view',
+      'accounting.ledger.view',
+      'accounting.periods.view',
+      'members.read',
+      'organization.read',
+    ]);
     expect((await invitee.get('/organizations/current')).body.data.name).toBe('Invite Org');
 
     const invitations = await owner.get('/organizations/current/invitations');
@@ -515,6 +530,10 @@ describe('cross-organization isolation', () => {
     // Bob's data is unchanged.
     const after = (await bob.get('/organizations/current/roles')).body.data;
     expect(after.find((r: { name: string }) => r.name === 'Member').permissionKeys).toEqual([
+      'accounting.accounts.view',
+      'accounting.journals.view',
+      'accounting.ledger.view',
+      'accounting.periods.view',
       'members.read',
       'organization.read',
     ]);

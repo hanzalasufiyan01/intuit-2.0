@@ -3,6 +3,8 @@ import {
   RoleTemplateKeys,
   type RoleTemplateDefinition,
 } from '../modules/access-control/index.js';
+import { AccountingPermissions, accountingViewPermissions } from '../modules/accounting/index.js';
+import { ApprovalPermissions } from '../modules/approvals/index.js';
 import { AuditPermissions } from '../modules/audit/index.js';
 import { OrganizationPermissions } from '../modules/organizations/index.js';
 
@@ -31,6 +33,9 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       AccessControlPermissions.RolesRead,
       AccessControlPermissions.RolesManage,
       AuditPermissions.AuditRead,
+      // Phase 2 (decision F25): all accounting and approval-policy permissions.
+      ...Object.values(AccountingPermissions),
+      ApprovalPermissions.ApprovalsManage,
     ],
   },
   {
@@ -39,6 +44,11 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
     description: 'Basic access to the organization.',
     isOwner: false,
     sortOrder: 2,
-    permissions: [OrganizationPermissions.OrganizationRead, OrganizationPermissions.MembersRead],
+    permissions: [
+      OrganizationPermissions.OrganizationRead,
+      OrganizationPermissions.MembersRead,
+      // Phase 2 (decision F25): accounting view permissions.
+      ...accountingViewPermissions,
+    ],
   },
 ];
