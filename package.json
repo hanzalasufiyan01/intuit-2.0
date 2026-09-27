@@ -1,0 +1,15 @@
+{
+  "name": "intuit-2.0",
+  "private": true,
+  "description": "Intuit 2.0 — cloud accounting and business-management platform (modular monolith).",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter \"./apps/*\" dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  }
+}
