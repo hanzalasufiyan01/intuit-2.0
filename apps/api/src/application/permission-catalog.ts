@@ -7,6 +7,7 @@ import { accountingPermissionDefinitions } from '../modules/accounting/index.js'
 import { approvalPermissionDefinitions } from '../modules/approvals/index.js';
 import { auditPermissionDefinitions } from '../modules/audit/index.js';
 import { organizationPermissionDefinitions } from '../modules/organizations/index.js';
+import { partyPermissionDefinitions } from '../modules/parties/index.js';
 
 /**
  * The global permission catalog, aggregated from every module's contribution.
@@ -18,4 +19,5 @@ export const permissionCatalog: readonly PermissionDefinition[] = validatePermis
   ...auditPermissionDefinitions,
   ...approvalPermissionDefinitions,
   ...accountingPermissionDefinitions,
+  ...partyPermissionDefinitions,
 ]);

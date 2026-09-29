@@ -10,3 +10,7 @@ export * from '../modules/audit/schema.js';
 export * from '../modules/outbox/schema.js';
 export * from '../modules/approvals/schema.js';
 export * from '../modules/accounting/schema.js';
+export * from '../modules/parties/schema.js';
+export * from '../modules/files/schema.js';
+export * from '../modules/jobs/schema.js';
+export * from '../modules/data-exchange/schema.js';

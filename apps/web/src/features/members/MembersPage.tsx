@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { useApiMutation, useAuth } from '../../auth/auth-context';
+import { useSensitiveAction } from '../../auth/reauth';
 import { Can, Permission } from '../../permissions/permissions';
 import { api } from '../../services/api-client';
 import type { Invitation, Member, Role } from '../../services/types';
@@ -68,6 +69,53 @@ function InviteForm({ organizationId }: { organizationId: string }) {
   );
 }
 
+/**
+ * Admin MFA reset (S7-38): members.manage, re-authentication and a verification code. Not offered
+ * for the Owner or oneself; the server also refuses anyone who belongs to another organization.
+ */
+function ResetMfa({ member, organizationId }: { member: Member; organizationId: string }) {
+  const queryClient = useQueryClient();
+  const sensitive = useSensitiveAction();
+  const [confirming, setConfirming] = useState(false);
+  const reset = useApiMutation(() =>
+    sensitive(() =>
+      api.post(`/organizations/current/members/${member.membershipId}/mfa-reset`, {}),
+    ),
+  );
+  if (reset.isSuccess) return <span className="muted">Reset</span>;
+  if (!confirming) {
+    return (
+      <Button variant="ghost" onClick={() => setConfirming(true)}>
+        Reset two-step verification
+      </Button>
+    );
+  }
+  return (
+    <div className="stack">
+      <p className="muted">
+        {member.displayName} will be signed out everywhere and must set up a new authenticator.
+      </p>
+      <div className="actions">
+        <Button
+          busy={reset.isPending}
+          onClick={() =>
+            reset.mutate(undefined, {
+              onSuccess: () =>
+                void queryClient.invalidateQueries({ queryKey: ['members', organizationId] }),
+            })
+          }
+        >
+          Reset
+        </Button>
+        <Button variant="secondary" onClick={() => setConfirming(false)}>
+          Cancel
+        </Button>
+      </div>
+      <ErrorAlert error={reset.error} />
+    </div>
+  );
+}
+
 function InvitationList({ organizationId }: { organizationId: string }) {
   const invitations = useQuery({
     queryKey: ['invitations', organizationId],
@@ -99,7 +147,7 @@ function InvitationList({ organizationId }: { organizationId: string }) {
 }
 
 export function MembersPage() {
-  const { activeOrganization } = useAuth();
+  const { activeOrganization, session } = useAuth();
   const organizationId = activeOrganization?.id ?? 'none';
   const members = useQuery({
     queryKey: ['members', organizationId],
@@ -122,6 +170,7 @@ export function MembersPage() {
                 <th>Email</th>
                 <th>Roles</th>
                 <th>Status</th>
+                {members.data.some((m) => m.mfa) ? <th>Two-step verification</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -137,6 +186,22 @@ export function MembersPage() {
                     ))}
                   </td>
                   <td>{member.status}</td>
+                  {member.mfa ? (
+                    <td>
+                      {member.mfa.enrolled
+                        ? 'On'
+                        : member.mfa.required
+                          ? 'Required, not set up'
+                          : 'Off'}
+                      {member.mfa.enrolled &&
+                      !member.isOwner &&
+                      member.userId !== session?.user.id ? (
+                        <Can permission={Permission.MembersManage}>
+                          <ResetMfa member={member} organizationId={organizationId} />
+                        </Can>
+                      ) : null}
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>

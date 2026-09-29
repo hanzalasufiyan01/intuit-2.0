@@ -1,6 +1,6 @@
 import type { PermissionDefinition } from '../access-control/index.js';
 
-/** Permissions contributed by the accounting module (approved Phase 2 catalog). */
+/** Permissions contributed by the accounting module (approved Phase 2 catalog, extended in Phase 3A). */
 export const AccountingPermissions = {
   Setup: 'accounting.setup',
   AccountsView: 'accounting.accounts.view',
@@ -19,6 +19,11 @@ export const AccountingPermissions = {
   PeriodsClose: 'accounting.periods.close',
   PeriodsReopen: 'accounting.periods.reopen',
   LedgerView: 'accounting.ledger.view',
+  // Phase 3A (Decision 65; S2)
+  DimensionsView: 'accounting.dimensions.view',
+  DimensionsManage: 'accounting.dimensions.manage',
+  // Phase 3A (Decision 65; S3-01): financial statements and their exports
+  ReportsView: 'accounting.reports.view',
 } as const;
 
 const describe: Record<string, string> = {
@@ -41,6 +46,11 @@ const describe: Record<string, string> = {
   [AccountingPermissions.PeriodsClose]: 'Close accounting periods',
   [AccountingPermissions.PeriodsReopen]: 'Reopen closed periods and approve reopen requests',
   [AccountingPermissions.LedgerView]: 'View the general ledger',
+  [AccountingPermissions.DimensionsView]: 'View dimension types and values',
+  [AccountingPermissions.DimensionsManage]:
+    'Manage dimension types, values, required settings and account scopes',
+  [AccountingPermissions.ReportsView]:
+    'View and export financial statements (Trial Balance, Profit & Loss, Balance Sheet)',
 };
 
 export const accountingPermissionDefinitions: readonly PermissionDefinition[] = Object.values(
@@ -53,4 +63,6 @@ export const accountingViewPermissions: readonly string[] = [
   AccountingPermissions.JournalsView,
   AccountingPermissions.PeriodsView,
   AccountingPermissions.LedgerView,
+  AccountingPermissions.DimensionsView,
+  AccountingPermissions.ReportsView,
 ];

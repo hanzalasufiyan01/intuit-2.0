@@ -162,7 +162,7 @@ describe('phase 2 migration', () => {
     const { rows } = await owner.query(
       `SELECT count(*)::int AS n FROM permissions WHERE key LIKE 'accounting.%'`,
     );
-    expect(rows[0].n).toBe(17);
+    expect(rows[0].n).toBe(20); // + dimensions.view/manage (S2) + reports.view (S3)
     await expectPgError(
       owner.query(
         `INSERT INTO permissions (key, module, description) VALUES ('invoices.delete', 't', 'x')`,
@@ -171,6 +171,8 @@ describe('phase 2 migration', () => {
     );
   });
 
+  // The replay spans every organization in the shared test database, which grows with every run
+  // (history is append-only, so tests never truncate); it needs more than the default timeout.
   it('backfills pre-Phase-2 Administrator/Member roles additively (migration 0003)', async () => {
     const backfillSql = readMigrationFiles().find(
       (m) => m.version === '0003_phase2_permission_backfill',
@@ -184,59 +186,70 @@ describe('phase 2 migration', () => {
     });
     expect(customRole.status).toBe(201);
 
-    await owner.query('BEGIN');
-    try {
-      // Simulate an organization created before Phase 2: its template roles lack Phase 2 keys,
-      // and the Member role was customized with an extra Phase 1 permission.
-      await owner.query(
-        `DELETE FROM role_permissions WHERE organization_id = $1
+    // The backfill spans every organization, so test files registering organizations in
+    // parallel can make PostgreSQL choose this transaction as a deadlock victim (40P01).
+    // Retry the whole transaction then; the assertions are unchanged.
+    for (let attempt = 1; ; attempt += 1) {
+      await owner.query('BEGIN');
+      try {
+        // Simulate an organization created before Phase 2: its template roles lack Phase 2 keys,
+        // and the Member role was customized with an extra Phase 1 permission.
+        await owner.query(
+          `DELETE FROM role_permissions WHERE organization_id = $1
            AND (permission_key LIKE 'accounting.%' OR permission_key = 'approvals.manage')
            AND role_id IN (SELECT id FROM roles WHERE organization_id = $1 AND NOT is_owner)`,
-        [orgId],
-      );
-      await owner.query(
-        `INSERT INTO role_permissions (role_id, organization_id, permission_key)
+          [orgId],
+        );
+        await owner.query(
+          `INSERT INTO role_permissions (role_id, organization_id, permission_key)
          SELECT id, organization_id, 'audit.read' FROM roles WHERE organization_id = $1 AND template_key = 'member'`,
-        [orgId],
-      );
-      await owner.query(backfillSql);
-      // Idempotent: a second run adds nothing. (Its temp tables normally drop at commit.)
-      await owner.query('DROP TABLE phase2_backfill_grants, phase2_backfilled');
-      await owner.query(backfillSql);
+          [orgId],
+        );
+        await owner.query(backfillSql);
+        // Idempotent: a second run adds nothing. (Its temp tables normally drop at commit.)
+        await owner.query('DROP TABLE phase2_backfill_grants, phase2_backfilled');
+        await owner.query(backfillSql);
 
-      const { rows } = await owner.query(
-        `SELECT r.name, array_agg(rp.permission_key ORDER BY rp.permission_key) AS keys
+        const { rows } = await owner.query(
+          `SELECT r.name, array_agg(rp.permission_key ORDER BY rp.permission_key) AS keys
          FROM roles r LEFT JOIN role_permissions rp ON rp.role_id = r.id
          WHERE r.organization_id = $1 GROUP BY r.name`,
-        [orgId],
-      );
-      const keys = Object.fromEntries(rows.map((r) => [r.name, r.keys as string[]]));
-      expect(keys.Administrator).toHaveLength(26);
-      expect(keys.Member).toEqual([
-        'accounting.accounts.view',
-        'accounting.journals.view',
-        'accounting.ledger.view',
-        'accounting.periods.view',
-        'audit.read', // customization preserved: additive only
-        'members.read',
-        'organization.read',
-      ]);
-      expect(keys['Custom viewer']).toEqual(['organization.read']);
-      expect(keys.Owner).toHaveLength(26);
+          [orgId],
+        );
+        const keys = Object.fromEntries(rows.map((r) => [r.name, r.keys as string[]]));
+        expect(keys.Administrator).toHaveLength(33); // + 2 dimension (S2), 1 reports (S3), 4 parties (S4)
+        expect(keys.Member).toEqual([
+          'accounting.accounts.view',
+          // No accounting.dimensions.view: 0003 grants Phase 2 keys only (Phase 3A keys: 0017).
+          'accounting.journals.view',
+          'accounting.ledger.view',
+          'accounting.periods.view',
+          'audit.read', // customization preserved: additive only
+          'members.read',
+          'organization.read',
+          'parties.view', // S4 template grant (untouched by the 0003 backfill test)
+        ]);
+        expect(keys['Custom viewer']).toEqual(['organization.read']);
+        expect(keys.Owner).toHaveLength(33);
 
-      const audit = await owner.query(
-        `SELECT metadata FROM audit_events WHERE organization_id = $1 AND action = 'role.permissions_backfilled'`,
-        [orgId],
-      );
-      expect(audit.rows).toHaveLength(2); // second run added nothing
-      expect(audit.rows.map((r) => r.metadata.templateKey).sort()).toEqual([
-        'administrator',
-        'member',
-      ]);
-    } finally {
-      await owner.query('ROLLBACK');
+        const audit = await owner.query(
+          `SELECT metadata FROM audit_events WHERE organization_id = $1 AND action = 'role.permissions_backfilled'`,
+          [orgId],
+        );
+        expect(audit.rows).toHaveLength(2); // second run added nothing
+        expect(audit.rows.map((r) => r.metadata.templateKey).sort()).toEqual([
+          'administrator',
+          'member',
+        ]);
+      } catch (error) {
+        if ((error as { code?: string }).code === '40P01' && attempt < 5) continue;
+        throw error;
+      } finally {
+        await owner.query('ROLLBACK');
+      }
+      break;
     }
-  });
+  }, 120_000);
 });
 
 describe('constraints', () => {

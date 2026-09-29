@@ -29,6 +29,13 @@ export const Permission = {
   PeriodsClose: 'accounting.periods.close',
   PeriodsReopen: 'accounting.periods.reopen',
   LedgerView: 'accounting.ledger.view',
+  DimensionsView: 'accounting.dimensions.view',
+  DimensionsManage: 'accounting.dimensions.manage',
+  ReportsView: 'accounting.reports.view',
+  PartiesView: 'parties.view',
+  PartiesCreate: 'parties.create',
+  PartiesUpdate: 'parties.update',
+  PartiesArchive: 'parties.archive',
 } as const;
 export type PermissionKey = (typeof Permission)[keyof typeof Permission];
 

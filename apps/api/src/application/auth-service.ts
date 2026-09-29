@@ -1,13 +1,17 @@
 import {
   AppError,
   ConflictError,
+  InvalidMfaCodeError,
+  MfaChallengeFailedError,
   NotFoundError,
   TooManyAttemptsError,
+  UnauthenticatedError,
   ValidationError,
 } from '../domain/errors.js';
 import { getEffectiveAccess } from '../modules/access-control/index.js';
 import {
   countRecentLoginFailures,
+  hasSecurityEventForSession,
   recordSecurityEvent,
   SecurityEventTypes,
   type EventOrigin,
@@ -15,18 +19,27 @@ import {
 } from '../modules/audit/index.js';
 import {
   consumePasswordResetToken,
+  countUsableRecoveryCodes,
   createSession,
+  createTrustedDevice,
+  enforceTrustedDeviceLimit,
   createUser,
   evaluateSession,
   findSessionByToken,
   findUserByEmail,
   findUserById,
+  hasActiveFactor,
   invalidateOutstandingResetTokens,
   issuePasswordResetToken,
   listActiveSessions,
+  lookupTrustedDevice,
   markSessionReauthenticated,
+  recordSessionMfaFailure,
   revokeAllUserSessions,
   revokeSession,
+  revokeTrustedDevices,
+  rotateTrustedDevice,
+  satisfySessionMfa,
   setSessionActiveOrganization,
   setUserDisabled,
   toUserProfile,
@@ -36,11 +49,17 @@ import {
   type SessionPolicy,
   type UserProfile,
 } from '../modules/identity/index.js';
-import { findMembership, listUserOrganizations } from '../modules/organizations/index.js';
+import {
+  findMembership,
+  getSecurityPolicy,
+  listUserOrganizations,
+} from '../modules/organizations/index.js';
 import { enqueueOutboxEvent } from '../modules/outbox/index.js';
 import { normalizeEmail } from '../shared/email.js';
 import { requireRecentAuthentication, type Principal } from './authorization.js';
 import type { AppDependencies } from './dependencies.js';
+import { mfaRequirement, sessionSatisfiesMfa, type MfaRequirementReason } from './mfa-policy.js';
+import type { MfaVerifier } from './mfa-verifier.js';
 import { createOrganizationWithOwner } from './organization-provisioning.js';
 import { inTransaction, setDbContext } from './unit-of-work.js';
 
@@ -56,7 +75,22 @@ export class InvalidResetTokenError extends AppError {
   }
 }
 
+/** How the session stands with MFA (S7-24); never contains secrets. */
+export interface SessionMfaView {
+  enrolled: boolean;
+  method: 'totp' | 'recovery_code' | 'trusted_device' | null;
+  stepUpValidUntil: string | null;
+  recoveryCodesRemaining: number | null;
+  activeOrganization: {
+    required: boolean;
+    reasons: MfaRequirementReason[];
+    satisfied: boolean;
+    trustedDevicesAllowed: boolean;
+  } | null;
+}
+
 export interface SessionView {
+  authentication: 'complete';
   user: UserProfile;
   session: {
     id: string;
@@ -74,7 +108,26 @@ export interface SessionView {
     isOwner: boolean;
     permissions: string[];
   } | null;
+  mfa: SessionMfaView;
 }
+
+/** A session waiting for its second factor: only what the challenge screen needs (S7-15). */
+export interface PendingSessionView {
+  authentication: 'mfa_required';
+  user: { email: string; displayName: string };
+  methods: ('totp' | 'recovery_code')[];
+  expiresAt: string;
+}
+
+export interface LoginResult {
+  issued: IssuedSession;
+  userId: string;
+  mfaPending: boolean;
+  /** A rotated remembered-device token to set, or 'clear' to drop an unusable cookie. */
+  device: { token: string; expiresAt: Date } | 'clear' | null;
+}
+
+export type MfaChallengeMethod = 'totp' | 'recovery_code';
 
 /**
  * Authentication and session workflows: registration, sign-in with progressive
@@ -82,7 +135,10 @@ export interface SessionView {
  * organization switching and account disablement.
  */
 export class AuthService {
-  constructor(private readonly deps: AppDependencies) {}
+  constructor(
+    private readonly deps: AppDependencies,
+    private readonly verifier: MfaVerifier,
+  ) {}
 
   private get policy(): SessionPolicy {
     return {
@@ -174,7 +230,7 @@ export class AuthService {
    * Past the threshold, each further attempt waits a doubling back-off (capped).
    * There is no permanent lockout; failures age out of the window.
    */
-  private async enforceLoginProtection(emailNormalized: string, origin: EventOrigin, now: Date) {
+  async enforceLoginProtection(emailNormalized: string, origin: EventOrigin, now: Date) {
     const since = new Date(now.getTime() - this.deps.config.loginProtection.windowMs);
     const retryAfterMs = await inTransaction(this.deps.db, {}, async (tx) => {
       const windows = await countRecentLoginFailures(tx, {
@@ -205,7 +261,7 @@ export class AuthService {
     if (retryAfterMs > 0) throw new TooManyAttemptsError(Math.ceil(retryAfterMs / 1000));
   }
 
-  private async recordCredentialFailure(input: {
+  async recordCredentialFailure(input: {
     eventType: string;
     userId: string | null;
     emailNormalized: string;
@@ -225,10 +281,16 @@ export class AuthService {
     );
   }
 
+  /**
+   * Password sign-in with login protection. A user with an active factor gets an MFA-pending
+   * session (S7-14) unless a valid remembered device is presented (S7-34), whose token is then
+   * rotated; presenting a pre-rotation token revokes that device (reuse detection).
+   */
   async login(
     input: { email: string; password: string },
     origin: EventOrigin,
-  ): Promise<{ issued: IssuedSession; userId: string }> {
+    deviceToken?: string,
+  ): Promise<LoginResult> {
     const now = this.deps.clock.now();
     const emailNormalized = normalizeEmail(input.email);
     await this.enforceLoginProtection(emailNormalized, origin, now);
@@ -252,26 +314,231 @@ export class AuthService {
       throw new InvalidCredentialsError();
     }
 
-    const issued = await inTransaction(this.deps.db, { userId: user.id }, async (tx) => {
+    const mfaConfig = this.deps.config.mfa;
+    return inTransaction(this.deps.db, { userId: user.id }, async (tx) => {
       const organizations = await listUserOrganizations(tx, user.id);
-      const session = await createSession(tx, {
+      let device: LoginResult['device'] = null;
+      let viaDevice = false;
+      const enrolled = await hasActiveFactor(tx, user.id);
+      if (enrolled && deviceToken) {
+        const found = await lookupTrustedDevice(tx, { userId: user.id, token: deviceToken, now });
+        if (found.state === 'valid') {
+          const rotated = await rotateTrustedDevice(tx, { device: found.device, now });
+          if (rotated) {
+            viaDevice = true;
+            device = { token: rotated, expiresAt: found.device.expiresAt };
+            await recordSecurityEvent(tx, {
+              occurredAt: now,
+              eventType: SecurityEventTypes.TrustedDeviceUsed,
+              userId: user.id,
+              metadata: { deviceId: found.device.id },
+              origin,
+            });
+          } else {
+            device = 'clear';
+          }
+        } else if (found.state === 'reused') {
+          await revokeTrustedDevices(tx, {
+            userId: user.id,
+            reason: 'reuse_detected',
+            now,
+            deviceIds: [found.device.id],
+          });
+          await recordSecurityEvent(tx, {
+            occurredAt: now,
+            eventType: SecurityEventTypes.TrustedDeviceReuseDetected,
+            userId: user.id,
+            metadata: { deviceId: found.device.id },
+            origin,
+          });
+          device = 'clear';
+        } else {
+          device = 'clear';
+        }
+      }
+      const mfaPending = enrolled && !viaDevice;
+      const issued = await createSession(tx, {
         userId: user.id,
         activeOrganizationId: organizations[0]?.organizationId ?? null,
         now,
         policy: this.policy,
         ipAddress: origin.ipAddress,
         userAgent: origin.userAgent,
+        ...(mfaPending
+          ? { mfa: { pendingUntil: new Date(now.getTime() + mfaConfig.pendingTtlMs) } }
+          : viaDevice
+            ? { mfa: { method: 'trusted_device' as const } }
+            : {}),
       });
+      await recordSecurityEvent(tx, {
+        occurredAt: now,
+        eventType: mfaPending
+          ? SecurityEventTypes.MfaChallengeRequired
+          : SecurityEventTypes.LoginSucceeded,
+        userId: user.id,
+        metadata: {
+          sessionId: issued.session.id,
+          mfa: mfaPending ? 'challenge' : viaDevice ? 'trusted_device' : 'not_enrolled',
+        },
+        origin,
+      });
+      return { issued, userId: user.id, mfaPending, device };
+    });
+  }
+
+  /**
+   * Completes an MFA-pending sign-in (S7-14). Attempts are throttled by the existing login
+   * protection (failures are recorded as failed sign-ins, S7-17) and capped per pending session;
+   * the cap revokes the session. Success rotates the session token and may remember the device.
+   */
+  async completeMfaChallenge(
+    principal: Principal,
+    input: { method: MfaChallengeMethod; code: string; rememberDevice: boolean },
+    origin: EventOrigin,
+  ): Promise<{ token: string; device: { token: string; expiresAt: Date } | null }> {
+    const now = this.deps.clock.now();
+    const { user, session } = principal;
+    if (session.mfaPendingUntil === null) {
+      throw new ConflictError('INVALID_STATE_TRANSITION', 'This sign-in is already complete.');
+    }
+    await this.enforceLoginProtection(user.emailNormalized, origin, now);
+
+    let remaining: number | null = null;
+    let ok: boolean;
+    if (input.method === 'totp') {
+      ok = await inTransaction(this.deps.db, { userId: user.id }, (tx) =>
+        this.verifier.verifyTotp(tx, user.id, input.code, now),
+      );
+    } else {
+      const used = await this.verifier.useRecoveryCode(user.id, input.code, now);
+      ok = used.ok;
+      if (used.ok) remaining = used.remaining;
+    }
+
+    if (!ok) {
+      await this.recordCredentialFailure({
+        eventType: SecurityEventTypes.LoginFailed,
+        userId: user.id,
+        emailNormalized: user.emailNormalized,
+        reason: input.method === 'totp' ? 'mfa_invalid_code' : 'mfa_invalid_recovery_code',
+        origin,
+        now,
+      });
+      const exhausted = await inTransaction(this.deps.db, { userId: user.id }, async (tx) => {
+        const attempts = await recordSessionMfaFailure(tx, session.id);
+        if (attempts < this.deps.config.mfa.challengeMaxAttempts) return false;
+        await revokeSession(tx, {
+          sessionId: session.id,
+          userId: user.id,
+          reason: 'mfa_failed',
+          now,
+        });
+        await recordSecurityEvent(tx, {
+          occurredAt: now,
+          eventType: SecurityEventTypes.MfaChallengeExhausted,
+          userId: user.id,
+          metadata: { sessionId: session.id, attempts },
+          origin,
+        });
+        return true;
+      });
+      throw exhausted ? new MfaChallengeFailedError() : new InvalidMfaCodeError();
+    }
+
+    const result = await inTransaction(this.deps.db, { userId: user.id }, async (tx) => {
+      const token = await satisfySessionMfa(tx, {
+        sessionId: session.id,
+        method: input.method,
+        factorVerified: true,
+        now,
+      });
+      if (!token) throw new UnauthenticatedError();
+      let device: { token: string; expiresAt: Date } | null = null;
+      if (input.rememberDevice) {
+        const issued = await createTrustedDevice(tx, {
+          userId: user.id,
+          now,
+          lifetimeMs: this.deps.config.mfa.trustedDeviceLifetimeMs,
+          ipAddress: origin.ipAddress,
+          userAgent: origin.userAgent,
+        });
+        await enforceTrustedDeviceLimit(tx, {
+          userId: user.id,
+          max: this.deps.config.mfa.trustedDeviceMaxPerUser,
+          now,
+        });
+        device = { token: issued.token, expiresAt: issued.device.expiresAt };
+        await recordSecurityEvent(tx, {
+          occurredAt: now,
+          eventType: SecurityEventTypes.TrustedDeviceCreated,
+          userId: user.id,
+          metadata: {
+            deviceId: issued.device.id,
+            expiresAt: issued.device.expiresAt.toISOString(),
+          },
+          origin,
+        });
+      }
+      await recordSecurityEvent(tx, {
+        occurredAt: now,
+        eventType: SecurityEventTypes.MfaSucceeded,
+        userId: user.id,
+        metadata: { sessionId: session.id, method: input.method, purpose: 'login' },
+        origin,
+      });
+      if (remaining !== null) {
+        await recordSecurityEvent(tx, {
+          occurredAt: now,
+          eventType: SecurityEventTypes.RecoveryCodeUsed,
+          userId: user.id,
+          metadata: { sessionId: session.id, remaining },
+          origin,
+        });
+      }
       await recordSecurityEvent(tx, {
         occurredAt: now,
         eventType: SecurityEventTypes.LoginSucceeded,
         userId: user.id,
-        metadata: { sessionId: session.session.id },
+        metadata: { sessionId: session.id, mfa: input.method },
         origin,
       });
-      return session;
+      return { token, device };
     });
-    return { issued, userId: user.id };
+    if (remaining !== null) await this.notifyRecoveryCodeUsed(user, remaining);
+    if (result.device) {
+      await this.sendEmailSafely({
+        to: user.email,
+        template: 'trusted_device_added',
+        subject: 'A device was remembered for your Intuit 2.0 sign-in',
+        text:
+          `Hello ${user.displayName},\n\nA browser was set to skip the verification code at ` +
+          'sign-in for up to 30 days. If this was not you, sign in, revoke it under Account ' +
+          'security and change your password.',
+      });
+    }
+    return result;
+  }
+
+  async notifyRecoveryCodeUsed(user: Principal['user'], remaining: number): Promise<void> {
+    await this.sendEmailSafely({
+      to: user.email,
+      template: 'mfa_recovery_code_used',
+      subject: 'A recovery code was used on your Intuit 2.0 account',
+      text:
+        `Hello ${user.displayName},\n\nA recovery code was just used for your account. ` +
+        `${remaining} unused recovery codes remain. If this was not you, change your password ` +
+        'and generate new recovery codes under Account security.',
+    });
+  }
+
+  /** What the challenge screen may show for a pending session. */
+  pendingSessionView(principal: Principal): PendingSessionView {
+    return {
+      authentication: 'mfa_required',
+      user: { email: principal.user.email, displayName: principal.user.displayName },
+      methods: ['totp', 'recovery_code'],
+      expiresAt: (principal.session.mfaPendingUntil ?? principal.session.expiresAt).toISOString(),
+    };
   }
 
   /** Validates an opaque session token. Returns null for any unusable session. */
@@ -312,6 +579,9 @@ export class AuthService {
     return inTransaction(this.deps.db, { userId: user.id }, async (tx) => {
       const organizations = await listUserOrganizations(tx, user.id);
       let activeOrganization: SessionView['activeOrganization'] = null;
+      const enrolled = await hasActiveFactor(tx, user.id);
+      const recoveryCodesRemaining = enrolled ? await countUsableRecoveryCodes(tx, user.id) : null;
+      let organizationMfa: SessionMfaView['activeOrganization'] = null;
       const active = organizations.find((o) => o.organizationId === session.activeOrganizationId);
       if (active) {
         await setDbContext(tx, { userId: user.id, organizationId: active.organizationId });
@@ -323,12 +593,25 @@ export class AuthService {
           isOwner: access.isOwner,
           permissions: [...access.permissions].sort(),
         };
+        const policy = await getSecurityPolicy(tx, active.organizationId);
+        const requirement = mfaRequirement(access, policy);
+        organizationMfa = {
+          required: requirement.required,
+          reasons: requirement.reasons,
+          satisfied: !requirement.required || sessionSatisfiesMfa(session, policy),
+          trustedDevicesAllowed: policy.allowTrustedDevices,
+        };
+        if (requirement.required && !enrolled) {
+          await this.recordEnrollmentRequiredOnce(tx, principal, active.organizationId);
+        }
       }
+      const stepUpWindow = this.deps.config.mfa.stepUpWindowMs;
       const idleExpiry = Math.min(
         session.lastSeenAt.getTime() + this.deps.config.session.idleTimeoutMs,
         session.expiresAt.getTime(),
       );
       return {
+        authentication: 'complete' as const,
         user: toUserProfile(user),
         session: {
           id: session.id,
@@ -346,7 +629,39 @@ export class AuthService {
           membershipId: o.membershipId,
         })),
         activeOrganization,
+        mfa: {
+          enrolled,
+          method: session.mfaMethod,
+          stepUpValidUntil: session.mfaVerifiedAt
+            ? new Date(session.mfaVerifiedAt.getTime() + stepUpWindow).toISOString()
+            : null,
+          recoveryCodesRemaining,
+          activeOrganization: organizationMfa,
+        },
       };
+    });
+  }
+
+  /** One `mfa.enrollment_required` event per session and organization (S7-25). */
+  private async recordEnrollmentRequiredOnce(
+    tx: Parameters<typeof recordSecurityEvent>[0],
+    principal: Principal,
+    organizationId: string,
+  ): Promise<void> {
+    const seen = await hasSecurityEventForSession(tx, {
+      userId: principal.user.id,
+      eventType: SecurityEventTypes.MfaEnrollmentRequired,
+      sessionId: principal.session.id,
+      organizationId,
+    });
+    if (seen) return;
+    await recordSecurityEvent(tx, {
+      occurredAt: this.deps.clock.now(),
+      eventType: SecurityEventTypes.MfaEnrollmentRequired,
+      userId: principal.user.id,
+      organizationId,
+      metadata: { sessionId: principal.session.id },
+      origin: { requestId: null, ipAddress: null, userAgent: null },
     });
   }
 
@@ -501,11 +816,18 @@ export class AuthService {
         reason: 'password_reset',
         now,
       });
+      // S7-22: a reset never removes MFA, but it does forget every remembered device.
+      await setDbContext(tx, { userId: user.id });
+      const devicesRevoked = await revokeTrustedDevices(tx, {
+        userId: user.id,
+        reason: 'password_reset',
+        now,
+      });
       await recordSecurityEvent(tx, {
         occurredAt: now,
         eventType: SecurityEventTypes.PasswordResetCompleted,
         userId: user.id,
-        metadata: { sessionsRevoked },
+        metadata: { sessionsRevoked, devicesRevoked },
         origin,
       });
       await enqueueOutboxEvent(

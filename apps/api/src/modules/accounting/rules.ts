@@ -1,4 +1,5 @@
 import type { Decimal } from 'decimal.js';
+import type { AccountSubtype, AccountType } from './schema.js';
 import {
   convertLinesToBase,
   decimal,
@@ -26,6 +27,41 @@ export interface AccountFacts {
   id: string;
   status: 'ACTIVE' | 'ARCHIVED';
   isLeaf: boolean;
+  currencyCode?: string;
+  isMonetary?: boolean;
+  isControlAccount?: boolean;
+  accountType?: AccountType;
+  subtype?: AccountSubtype | null;
+}
+
+/**
+ * Posting context for the Phase 3 account rules. Without it only the Phase 2 rules apply.
+ * - Account currency (Decision 11): a line posts to an account in the journal currency or the
+ *   base currency; a foreign-currency account accepts only its own currency.
+ * - Control accounts (C3) are rejected in manual journals.
+ */
+export interface PostingContext {
+  baseCurrency: string;
+  manual: boolean;
+}
+
+/** Account-currency and control-account issues for one line's account. */
+export function accountRuleIssue(
+  account: AccountFacts,
+  journalCurrency: string,
+  context: PostingContext,
+): string | null {
+  if (context.manual && account.isControlAccount) {
+    return 'Control accounts cannot be used in manual journals; they are maintained through their subledger.';
+  }
+  if (
+    account.currencyCode !== undefined &&
+    account.currencyCode !== journalCurrency &&
+    account.currencyCode !== context.baseCurrency
+  ) {
+    return `This account is in ${account.currencyCode}; lines may post only to accounts in the journal currency (${journalCurrency}) or the base currency (${context.baseCurrency}).`;
+  }
+  return null;
 }
 
 /**
@@ -87,6 +123,7 @@ export function validatePostableJournal(
     lines: readonly (JournalLineInput & { lineNumber: number })[];
   },
   accounts: ReadonlyMap<string, AccountFacts>,
+  context?: PostingContext,
 ): { ok: true; lines: PostableLine[]; total: Decimal } | { ok: false; issues: RuleIssue[] } {
   const issues = validateDraftLines(input.lines, input.currency);
   if (!input.entryDate) issues.push({ path: 'entryDate', message: 'A journal date is required.' });
@@ -110,6 +147,9 @@ export function validatePostableJournal(
           path: `lines.${i}.accountId`,
           message: 'Only leaf accounts can receive postings; parent accounts are grouping nodes.',
         });
+      } else if (context) {
+        const problem = accountRuleIssue(account, input.currency, context);
+        if (problem) issues.push({ path: `lines.${i}.accountId`, message: problem });
       }
     }
     if (line.debit === null && line.credit === null) {

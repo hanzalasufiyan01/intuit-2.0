@@ -1,7 +1,7 @@
-import { and, desc, eq, gt, isNull, ne } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, ne, sql } from 'drizzle-orm';
 import type { Transaction } from '../../database/client.js';
 import { generateSecureToken, hashToken } from '../../infrastructure/security/tokens.js';
-import { sessions, users, type SessionRevocationReason } from './schema.js';
+import { sessions, users, type SessionMfaMethod, type SessionRevocationReason } from './schema.js';
 import type { User } from './users.js';
 
 export type Session = typeof sessions.$inferSelect;
@@ -26,9 +26,15 @@ export async function createSession(
     policy: SessionPolicy;
     ipAddress: string | null;
     userAgent: string | null;
+    /**
+     * S7-14: a pending session waits for the second factor until `pendingUntil`; a session
+     * opened through a remembered device records that (it is not a factor verification).
+     */
+    mfa?: { pendingUntil: Date } | { method: 'trusted_device' };
   },
 ): Promise<IssuedSession> {
   const token = generateSecureToken();
+  const mfa = input.mfa;
   const [session] = await tx
     .insert(sessions)
     .values({
@@ -41,6 +47,8 @@ export async function createSession(
       reauthenticatedAt: input.now,
       ipAddress: input.ipAddress,
       userAgent: input.userAgent?.slice(0, 512) ?? null,
+      mfaPendingUntil: mfa && 'pendingUntil' in mfa ? mfa.pendingUntil : null,
+      mfaMethod: mfa && 'method' in mfa ? mfa.method : null,
     })
     .returning();
   if (!session) throw new Error('Session insert returned no row');
@@ -59,6 +67,10 @@ export function evaluateSession(
   if (session.revokedAt !== null) return 'revoked';
   if (user.status !== 'active') return 'user_disabled';
   if (now.getTime() >= session.expiresAt.getTime()) return 'expired';
+  // An unanswered MFA challenge expires on its own, shorter clock (S7-14).
+  if (session.mfaPendingUntil && now.getTime() >= session.mfaPendingUntil.getTime()) {
+    return 'expired';
+  }
   if (now.getTime() - session.lastSeenAt.getTime() >= policy.idleTimeoutMs) return 'idle_timeout';
   return 'valid';
 }
@@ -145,4 +157,44 @@ export async function listActiveSessions(
       and(eq(sessions.userId, userId), isNull(sessions.revokedAt), gt(sessions.expiresAt, now)),
     )
     .orderBy(desc(sessions.lastSeenAt));
+}
+
+/** True while the session waits for its second factor (default-deny, S7-15). */
+export function isMfaPending(session: Pick<Session, 'mfaPendingUntil'>): boolean {
+  return session.mfaPendingUntil !== null;
+}
+
+/**
+ * The session has satisfied MFA (S7-14): clears the pending state, records how, and rotates the
+ * session token so no pre-MFA token carries the new status. `factorVerified` is false only for a
+ * remembered-device satisfaction, which is not a factor entry (it never counts as step-up).
+ * Returns the new raw token, or undefined if the session is gone.
+ */
+export async function satisfySessionMfa(
+  tx: Transaction,
+  input: { sessionId: string; method: SessionMfaMethod; factorVerified: boolean; now: Date },
+): Promise<string | undefined> {
+  const token = generateSecureToken();
+  const rows = await tx
+    .update(sessions)
+    .set({
+      tokenHash: hashToken(token),
+      mfaPendingUntil: null,
+      mfaMethod: input.method,
+      mfaFailedAttempts: 0,
+      ...(input.factorVerified ? { mfaVerifiedAt: input.now } : {}),
+    })
+    .where(and(eq(sessions.id, input.sessionId), isNull(sessions.revokedAt)))
+    .returning({ id: sessions.id });
+  return rows.length > 0 ? token : undefined;
+}
+
+/** Counts a wrong code on a pending session and returns the new count. */
+export async function recordSessionMfaFailure(tx: Transaction, sessionId: string): Promise<number> {
+  const [row] = await tx
+    .update(sessions)
+    .set({ mfaFailedAttempts: sql`${sessions.mfaFailedAttempts} + 1` })
+    .where(eq(sessions.id, sessionId))
+    .returning({ attempts: sessions.mfaFailedAttempts });
+  return row?.attempts ?? 0;
 }

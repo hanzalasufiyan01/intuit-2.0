@@ -8,7 +8,9 @@ import { formatAmount } from '../../shared/money';
 import { ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
+import { ExportButton } from '../data-exchange/ExportButton';
 import { Spinner } from '../../shared/ui/Spinner';
+import { AppliedSteps, describeFacts } from '../approvals/conditions';
 import { AccountingPage, journalLabel, StatusBadge, useOrgKey } from './shared';
 import type { ApprovalRequestSummary, Journal, JournalStatus } from './types';
 
@@ -36,6 +38,50 @@ const VIEWS: Record<
   },
 };
 
+/** Journal approval requests, with the facts and steps that made approval required (S10). */
+function JournalApprovalRequests() {
+  const org = useOrgKey();
+  const requests = useQuery({
+    queryKey: ['approval-requests', org],
+    queryFn: () => api.get<ApprovalRequestSummary[]>('/approvals/requests'),
+  });
+  const journals = (requests.data ?? []).filter((r) => r.actionKey === 'accounting.journal.post');
+  if (journals.length === 0) return null;
+  return (
+    <Card title="Why these journals need approval">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Journal</th>
+            <th>Document</th>
+            <th>Steps that apply</th>
+            <th>Progress</th>
+          </tr>
+        </thead>
+        <tbody>
+          {journals.map((r) => (
+            <tr key={r.id}>
+              <td>
+                <Link to={`/accounting/journals/${r.subjectId}`}>Open journal</Link>
+              </td>
+              <td>{describeFacts(r.facts)}</td>
+              <td>
+                <AppliedSteps steps={r.appliedSteps} baseCurrency={r.facts?.baseCurrency ?? null} />
+              </td>
+              <td>
+                {r.progress
+                  .map((s) => `${s.name}: ${s.approvals}/${s.requiredApprovals}`)
+                  .join(', ')}
+                {r.canDecide ? '' : ' (you are not an eligible approver)'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Card>
+  );
+}
+
 /** Other approval requests (e.g. period reopening) the user can act on. */
 function OtherApprovalRequests() {
   const org = useOrgKey();
@@ -58,6 +104,8 @@ function OtherApprovalRequests() {
           <tr>
             <th>Request</th>
             <th>Reason</th>
+            <th>Document</th>
+            <th>Steps that apply</th>
             <th>Progress</th>
             <th />
           </tr>
@@ -66,11 +114,21 @@ function OtherApprovalRequests() {
           {others.map((r) => (
             <tr key={r.id}>
               <td>
-                {r.actionKey === 'accounting.period.reopen'
-                  ? 'Reopen accounting period'
-                  : r.actionKey}
+                {r.actionKey === 'accounting.period.reopen' ? (
+                  'Reopen accounting period'
+                ) : r.actionKey === 'accounting.opening_balance.post' ? (
+                  <Link to={`/accounting/opening-balances/${r.subjectId}`}>
+                    Post opening balances
+                  </Link>
+                ) : (
+                  r.actionKey
+                )}
               </td>
               <td>{r.reason}</td>
+              <td>{describeFacts(r.facts)}</td>
+              <td>
+                <AppliedSteps steps={r.appliedSteps} baseCurrency={r.facts?.baseCurrency ?? null} />
+              </td>
               <td>
                 {r.progress
                   .map((s) => `${s.name}: ${s.approvals}/${s.requiredApprovals}`)
@@ -118,6 +176,7 @@ export function JournalsPage({ view }: { view: JournalView }) {
   const org = useOrgKey();
   const config = VIEWS[view];
   const canApprove = usePermission(Permission.JournalsApprove);
+  const canViewDimensions = usePermission(Permission.DimensionsView);
   const journals = useQuery({
     queryKey: ['accounting-journals', org, view],
     queryFn: () =>
@@ -130,6 +189,15 @@ export function JournalsPage({ view }: { view: JournalView }) {
     <>
       <PageHeader title={config.title} description={config.description} />
       <AccountingPage>
+        <p className="actions">
+          <ExportButton
+            domain="journals"
+            params={{
+              statuses: config.statuses ?? ['DRAFT', 'PENDING_APPROVAL', 'POSTED', 'REVERSED'],
+              includeDimensions: canViewDimensions,
+            }}
+          />
+        </p>
         <Can permission={Permission.JournalsCreate}>
           <p>
             <Link className="btn btn--primary" to="/accounting/journals/new">
@@ -137,6 +205,7 @@ export function JournalsPage({ view }: { view: JournalView }) {
             </Link>
           </p>
         </Can>
+        {view === 'approvals' && canApprove ? <JournalApprovalRequests /> : null}
         {view === 'approvals' && canApprove ? <OtherApprovalRequests /> : null}
         <Card>
           {journals.isPending ? (

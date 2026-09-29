@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, lt, max } from 'drizzle-orm';
+import { and, count, desc, eq, gte, lt, max, sql } from 'drizzle-orm';
 import type { Transaction } from '../../database/client.js';
 import { auditEvents, securityEvents, type EventMetadata } from './schema.js';
 
@@ -12,7 +12,8 @@ export interface EventOrigin {
   userAgent: string | null;
 }
 
-const SECRET_KEY_PATTERN = /pass(word)?|secret|token|credential|hash|cookie|authorization/i;
+const SECRET_KEY_PATTERN =
+  /pass(word)?|secret|token|credential|hash|cookie|authorization|totp|^otp|recovery_?code/i;
 
 /**
  * Defence-in-depth: drops metadata keys that look like secrets so a coding mistake
@@ -92,6 +93,24 @@ export const SecurityEventTypes = {
   AccountDisabled: 'account.disabled',
   OrganizationSwitched: 'session.organization_switched',
   CsrfRejected: 'security.csrf_rejected',
+  // Phase 3A S7 (S7-25). Failed codes are recorded as LoginFailed (reason mfa_*), so they feed
+  // the existing login protection (S7-17).
+  MfaChallengeRequired: 'auth.mfa_challenge_required',
+  MfaSucceeded: 'auth.mfa_succeeded',
+  MfaChallengeExhausted: 'auth.mfa_challenge_exhausted',
+  MfaStepUp: 'auth.mfa_step_up',
+  MfaEnrollmentRequired: 'mfa.enrollment_required',
+  TotpEnrollmentStarted: 'mfa.totp_enrollment_started',
+  TotpEnabled: 'mfa.totp_enabled',
+  TotpReplaced: 'mfa.totp_replaced',
+  TotpDisabled: 'mfa.totp_disabled',
+  RecoveryCodesGenerated: 'mfa.recovery_codes_generated',
+  RecoveryCodeUsed: 'mfa.recovery_code_used',
+  MfaResetByAdmin: 'mfa.reset_by_admin',
+  TrustedDeviceCreated: 'trusted_device.created',
+  TrustedDeviceUsed: 'trusted_device.used',
+  TrustedDeviceRevoked: 'trusted_device.revoked',
+  TrustedDeviceReuseDetected: 'trusted_device.reuse_detected',
 } as const;
 
 export interface SecurityEventInput {
@@ -149,4 +168,23 @@ export async function countRecentLoginFailures(
     ? await window(eq(securityEvents.ipAddress, input.ipAddress))
     : { count: 0, lastAt: null };
   return { byAccount, byIp };
+}
+
+/** Whether an event of this type was already recorded for a session (and organization). */
+export async function hasSecurityEventForSession(
+  tx: Transaction,
+  input: { userId: string; eventType: string; sessionId: string; organizationId: string | null },
+): Promise<boolean> {
+  const conditions = [
+    eq(securityEvents.userId, input.userId),
+    eq(securityEvents.eventType, input.eventType),
+    sql`${securityEvents.metadata} ->> 'sessionId' = ${input.sessionId}`,
+  ];
+  if (input.organizationId)
+    conditions.push(eq(securityEvents.organizationId, input.organizationId));
+  const [row] = await tx
+    .select({ n: count() })
+    .from(securityEvents)
+    .where(and(...conditions));
+  return (row?.n ?? 0) > 0;
 }

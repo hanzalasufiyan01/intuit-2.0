@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router';
 import { ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card } from '../../shared/ui/Card';
@@ -8,7 +8,7 @@ import { useApiMutation, useAuth } from '../auth-context';
 import { safeRedirectTarget } from '../RequireAuth';
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, status } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const from = safeRedirectTarget(location.state);
@@ -20,9 +20,17 @@ export function LoginPage() {
     event.preventDefault();
     mutation.mutate(
       { email, password },
-      { onSuccess: () => void navigate(from, { replace: true }) },
+      {
+        onSuccess: (result) => {
+          if (result.authentication === 'complete') void navigate(from, { replace: true });
+        },
+      },
     );
   };
+
+  // S7-14: with two-step verification the sign-in continues on the code screen. Driven by the
+  // session state (not the mutation callback), so it cannot race the session update.
+  if (status === 'mfa_pending') return <Navigate to="/login/verify" replace state={{ from }} />;
 
   return (
     <main className="auth-page">

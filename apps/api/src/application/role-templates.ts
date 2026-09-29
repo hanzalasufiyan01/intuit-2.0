@@ -7,6 +7,7 @@ import { AccountingPermissions, accountingViewPermissions } from '../modules/acc
 import { ApprovalPermissions } from '../modules/approvals/index.js';
 import { AuditPermissions } from '../modules/audit/index.js';
 import { OrganizationPermissions } from '../modules/organizations/index.js';
+import { PartyPermissions } from '../modules/parties/index.js';
 
 /** Approved Phase 1 system role templates. */
 export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
@@ -36,6 +37,8 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       // Phase 2 (decision F25): all accounting and approval-policy permissions.
       ...Object.values(AccountingPermissions),
       ApprovalPermissions.ApprovalsManage,
+      // Phase 3A S4 (Decision 65): all party permissions.
+      ...Object.values(PartyPermissions),
     ],
   },
   {
@@ -49,6 +52,8 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       OrganizationPermissions.MembersRead,
       // Phase 2 (decision F25): accounting view permissions.
       ...accountingViewPermissions,
+      // Phase 3A S4 (Decision 65): party view.
+      PartyPermissions.View,
     ],
   },
 ];

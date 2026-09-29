@@ -1,4 +1,14 @@
-import { boolean, pgTable, text, uuid } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  char,
+  date,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { bytea, timestamptz } from '../../database/column-types.js';
 
 export const organizations = pgTable('organizations', {
@@ -73,4 +83,67 @@ export const ownershipTransfers = pgTable('ownership_transfers', {
   completedAt: timestamptz('completed_at'),
   cancelledAt: timestamptz('cancelled_at'),
   expiresAt: timestamptz('expires_at').notNull(),
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3A S4: organization legal profile (Decision 17) and country reference data (S4-05)
+// ---------------------------------------------------------------------------
+
+export const countries = pgTable('countries', {
+  code: char('code', { length: 2 }).primaryKey(),
+  name: text('name').notNull(),
+  isActive: boolean('is_active').notNull().default(true),
+});
+
+export interface ProfileIdentifier {
+  scheme: string;
+  value: string;
+}
+
+export const organizationProfiles = pgTable('organization_profiles', {
+  organizationId: uuid('organization_id').primaryKey(),
+  legalName: text('legal_name').notNull(),
+  tradingName: text('trading_name'),
+  tin: text('tin'),
+  gstRegistered: boolean('gst_registered').notNull().default(false),
+  gstRegistrationNumber: text('gst_registration_number'),
+  gstRegisteredFrom: date('gst_registered_from', { mode: 'string' }),
+  email: text('email'),
+  phone: text('phone'),
+  website: text('website'),
+  identifiers: jsonb('identifiers').$type<ProfileIdentifier[]>().notNull().default([]),
+  /** S4-03 / S5-11: the organization logo (a file linked as organization_logo). */
+  logoFileId: uuid('logo_file_id'),
+  version: integer('version').notNull().default(1),
+  updatedByUserId: uuid('updated_by_user_id').notNull(),
+  createdAt: timestamptz('created_at').notNull().defaultNow(),
+  updatedAt: timestamptz('updated_at').notNull().defaultNow(),
+});
+
+export const organizationAddressKinds = ['registered', 'business'] as const;
+export type OrganizationAddressKind = (typeof organizationAddressKinds)[number];
+
+export const organizationAddresses = pgTable(
+  'organization_addresses',
+  {
+    organizationId: uuid('organization_id').notNull(),
+    kind: text('kind', { enum: organizationAddressKinds }).notNull(),
+    line1: text('line1').notNull(),
+    line2: text('line2'),
+    city: text('city'),
+    region: text('region'),
+    postalCode: text('postal_code'),
+    countryCode: char('country_code', { length: 2 }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.organizationId, t.kind] })],
+);
+
+/** Phase 3A S7 (S7-29, S7-36). A missing row means the defaults (not required; devices allowed). */
+export const organizationSecurityPolicies = pgTable('organization_security_policies', {
+  organizationId: uuid('organization_id').primaryKey(),
+  requireMfaForAllMembers: boolean('require_mfa_for_all_members').notNull().default(false),
+  allowTrustedDevices: boolean('allow_trusted_devices').notNull().default(true),
+  version: integer('version').notNull().default(1),
+  updatedByUserId: uuid('updated_by_user_id'),
+  updatedAt: timestamptz('updated_at').notNull(),
 });

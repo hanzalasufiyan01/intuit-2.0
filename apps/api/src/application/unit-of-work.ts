@@ -18,14 +18,23 @@ export async function setDbContext(tx: Transaction, context: DbContext): Promise
   );
 }
 
-/** Runs `work` in one transaction with the given RLS context. */
+/**
+ * Runs `work` in one transaction with the given RLS context. `readOnlySnapshot` runs it as a
+ * REPEATABLE READ, READ ONLY transaction so every query sees the same snapshot (reports).
+ */
 export async function inTransaction<T>(
   db: Database,
   context: DbContext,
   work: (tx: Transaction) => Promise<T>,
+  options: { readOnlySnapshot?: boolean } = {},
 ): Promise<T> {
-  return db.transaction(async (tx) => {
-    await setDbContext(tx, context);
-    return work(tx);
-  });
+  return db.transaction(
+    async (tx) => {
+      await setDbContext(tx, context);
+      return work(tx);
+    },
+    options.readOnlySnapshot
+      ? { isolationLevel: 'repeatable read', accessMode: 'read only' }
+      : undefined,
+  );
 }

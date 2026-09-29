@@ -1,14 +1,18 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import type { AuthService } from '../../application/auth-service.js';
+import type { AuthService, LoginResult } from '../../application/auth-service.js';
+import type { Principal } from '../../application/authorization.js';
 import type { AppConfig } from '../../infrastructure/config/config.js';
 import { fields, idParams, parseInput } from '../http/validation.js';
 import {
   clearSessionCookie,
+  clearTrustedDeviceCookie,
   csrfTokenFor,
   eventOrigin,
   requirePrincipal,
   setSessionCookie,
+  setTrustedDeviceCookie,
+  trustedDeviceToken,
 } from '../http/session.js';
 
 const registerBody = z.object({
@@ -23,48 +27,84 @@ const resetRequestBody = z.object({ email: fields.email });
 const resetCompleteBody = z.object({ token: fields.token, newPassword: fields.password });
 const switchOrganizationBody = z.object({ organizationId: fields.id });
 
+/** Full session state for the web app, including the CSRF token for this session. */
+export async function sessionResponse(auth: AuthService, config: AppConfig, principal: Principal) {
+  return {
+    data: {
+      ...(await auth.getSessionView(principal)),
+      csrfToken: csrfTokenFor(config, principal.session.id),
+    },
+  };
+}
+
+/** What a waiting-for-MFA session may see (S7-15): the challenge screen only. */
+export function pendingSessionResponse(auth: AuthService, config: AppConfig, principal: Principal) {
+  return {
+    data: {
+      ...auth.pendingSessionView(principal),
+      csrfToken: csrfTokenFor(config, principal.session.id),
+    },
+  };
+}
+
+/** Ends whatever session (complete or MFA-pending) the request carries. */
+async function endCurrentSession(request: FastifyRequest, auth: AuthService) {
+  const current = request.principal ?? request.pendingPrincipal;
+  if (current) await auth.logout(current, eventOrigin(request));
+}
+
+function applyDeviceCookie(reply: FastifyReply, config: AppConfig, device: LoginResult['device']) {
+  if (device === 'clear') clearTrustedDeviceCookie(reply, config);
+  else if (device) setTrustedDeviceCookie(reply, config, device.token, device.expiresAt);
+}
+
 export function registerAuthRoutes(
   app: FastifyInstance,
   deps: { auth: AuthService; config: AppConfig },
 ): void {
   const { auth, config } = deps;
 
-  /** Full session state for the web app, including the CSRF token for this session. */
-  const sessionResponse = async (principal: Parameters<AuthService['getSessionView']>[0]) => ({
-    data: {
-      ...(await auth.getSessionView(principal)),
-      csrfToken: csrfTokenFor(config, principal.session.id),
-    },
-  });
-
   app.post('/auth/register', async (request, reply) => {
     const body = parseInput(registerBody, request.body);
-    if (request.principal) await auth.logout(request.principal, eventOrigin(request));
+    await endCurrentSession(request, auth);
     const { issued } = await auth.register(body, eventOrigin(request));
     setSessionCookie(reply, config, issued.token, issued.session.expiresAt);
     const principal = await auth.authenticate(issued.token, eventOrigin(request));
     if (!principal) throw new Error('Newly issued session failed validation');
-    return reply.status(201).send(await sessionResponse(principal));
+    return reply.status(201).send(await sessionResponse(auth, config, principal));
   });
 
+  /** A user with MFA gets an MFA-pending session unless a remembered device is presented. */
   app.post('/auth/login', async (request, reply) => {
     const body = parseInput(loginBody, request.body);
-    if (request.principal) await auth.logout(request.principal, eventOrigin(request));
-    const { issued } = await auth.login(body, eventOrigin(request));
-    setSessionCookie(reply, config, issued.token, issued.session.expiresAt);
-    const principal = await auth.authenticate(issued.token, eventOrigin(request));
+    await endCurrentSession(request, auth);
+    const result = await auth.login(
+      body,
+      eventOrigin(request),
+      trustedDeviceToken(request, config),
+    );
+    setSessionCookie(reply, config, result.issued.token, result.issued.session.expiresAt);
+    applyDeviceCookie(reply, config, result.device);
+    const principal = await auth.authenticate(result.issued.token, eventOrigin(request));
     if (!principal) throw new Error('Newly issued session failed validation');
-    return sessionResponse(principal);
+    return result.mfaPending
+      ? pendingSessionResponse(auth, config, principal)
+      : sessionResponse(auth, config, principal);
   });
 
   app.post('/auth/logout', async (request, reply) => {
-    const principal = requirePrincipal(request);
-    await auth.logout(principal, eventOrigin(request));
+    const principal = request.principal ?? request.pendingPrincipal;
+    if (!principal) requirePrincipal(request);
+    await endCurrentSession(request, auth);
     clearSessionCookie(reply, config);
     return reply.status(204).send();
   });
 
-  app.get('/auth/session', async (request) => sessionResponse(requirePrincipal(request)));
+  app.get('/auth/session', async (request) =>
+    request.pendingPrincipal && !request.principal
+      ? pendingSessionResponse(auth, config, request.pendingPrincipal)
+      : sessionResponse(auth, config, requirePrincipal(request)),
+  );
 
   app.post('/auth/reauthenticate', async (request) => {
     const principal = requirePrincipal(request);
@@ -74,14 +114,17 @@ export function registerAuthRoutes(
       body.password,
       eventOrigin(request),
     );
-    return sessionResponse({ ...principal, session: { ...principal.session, reauthenticatedAt } });
+    return sessionResponse(auth, config, {
+      ...principal,
+      session: { ...principal.session, reauthenticatedAt },
+    });
   });
 
   app.put('/auth/session/organization', async (request) => {
     const principal = requirePrincipal(request);
     const body = parseInput(switchOrganizationBody, request.body);
     await auth.switchOrganization(principal, body.organizationId, eventOrigin(request));
-    return sessionResponse({
+    return sessionResponse(auth, config, {
       ...principal,
       session: { ...principal.session, activeOrganizationId: body.organizationId },
     });
@@ -118,7 +161,7 @@ export function registerAuthRoutes(
   app.post('/auth/password-reset/complete', async (request, reply) => {
     const body = parseInput(resetCompleteBody, request.body);
     await auth.completePasswordReset(body, eventOrigin(request));
-    if (request.principal) clearSessionCookie(reply, config);
+    if (request.principal || request.pendingPrincipal) clearSessionCookie(reply, config);
     return { data: { message: 'Your password has been changed. Please sign in again.' } };
   });
 }

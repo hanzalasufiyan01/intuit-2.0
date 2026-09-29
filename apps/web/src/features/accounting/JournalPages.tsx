@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useApiMutation, useAuth } from '../../auth/auth-context';
+import { AppliedSteps, describeFacts } from '../approvals/conditions';
 import { useSensitiveAction } from '../../auth/reauth';
 import { Permission, usePermission } from '../../permissions/permissions';
 import { api } from '../../services/api-client';
@@ -11,6 +12,7 @@ import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
+import { AttachmentsCard } from '../files/AttachmentsCard';
 import { JournalEditor } from './JournalEditor';
 import { AccountingPage, journalLabel, StatusBadge, useAccounts, useOrgKey } from './shared';
 import type { JournalDetail } from './types';
@@ -51,7 +53,15 @@ function JournalActions({ journal }: { journal: JournalDetail }) {
     approve: usePermission(Permission.JournalsApprove),
     post: usePermission(Permission.JournalsPost),
     reverse: usePermission(Permission.JournalsReverse),
+    editDraft: usePermission(Permission.JournalsEditDraft),
   };
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // L-9: only imported drafts that were never submitted can be discarded (kept, never deleted).
+  const discardable =
+    journal.status === 'DRAFT' &&
+    journal.sourceModule === 'data_exchange' &&
+    !journal.submittedAt &&
+    can.editDraft;
   const [comment, setComment] = useState('');
   const [reverseForm, setReverseForm] = useState({ open: false, reason: '', reversalDate: '' });
   const act = useApiMutation((input: { action: string; body?: object; sensitive?: boolean }) => {
@@ -79,14 +89,24 @@ function JournalActions({ journal }: { journal: JournalDetail }) {
   const canPostNow =
     can.post &&
     ((journal.status === 'DRAFT' && !journal.approvalRequiredForPosting) ||
-      (pending && (journal.approval === null || journal.approval.status === 'approved')));
+      (pending &&
+        (journal.approval === null
+          ? !journal.approvalRequiredForPosting
+          : journal.approval.status === 'approved')));
 
   return (
     <Card title="Actions">
       <ErrorAlert
         error={
           act.error?.issues.length
-            ? new Error(act.error.issues.map((i) => i.message).join(' '))
+            ? new Error(
+                act.error.issues
+                  .map((i) => {
+                    const line = /^lines\.(\d+)/.exec(i.path);
+                    return line ? `Line ${Number(line[1]) + 1}: ${i.message}` : i.message;
+                  })
+                  .join(' '),
+              )
             : act.error
         }
       />
@@ -105,6 +125,22 @@ function JournalActions({ journal }: { journal: JournalDetail }) {
           <Button variant="secondary" onClick={() => run('withdraw')}>
             Withdraw to draft
           </Button>
+        ) : null}
+        {discardable ? (
+          confirmDiscard ? (
+            <>
+              <Button variant="secondary" busy={act.isPending} onClick={() => run('discard')}>
+                Confirm discard
+              </Button>
+              <Button variant="ghost" onClick={() => setConfirmDiscard(false)}>
+                Keep
+              </Button>
+            </>
+          ) : (
+            <Button variant="ghost" onClick={() => setConfirmDiscard(true)}>
+              Discard imported draft
+            </Button>
+          )
         ) : null}
         {journal.status === 'POSTED' && can.reverse ? (
           <Button
@@ -195,7 +231,29 @@ export function JournalDetailPage() {
             <StatusBadge status={j.status} /> {j.entryDate} · {j.currency}
             {j.exchangeRate ? ` · rate ${j.exchangeRate} (${j.exchangeRateSource})` : ''}
             {j.reference ? ` · ref ${j.reference}` : ''} · source: {j.source}
+            {j.sourceModule ? ` (${j.sourceModule} ${j.sourceType ?? ''} ${j.sourceId ?? ''})` : ''}
           </p>
+          {j.sourceType === 'opening_balance' && j.sourceId ? (
+            <p className="muted">
+              Posted from{' '}
+              <Link to={`/accounting/opening-balances/${j.sourceId}`}>
+                an opening balance batch
+              </Link>
+              ; it is reversed only with the whole batch.
+            </p>
+          ) : null}
+          {j.sourceModule === 'data_exchange' && j.sourceId ? (
+            <p className="muted">
+              Imported from <Link to={`/imports/${j.sourceId}`}>an import</Link>.
+            </p>
+          ) : null}
+          {j.status === 'DISCARDED' ? (
+            <Alert tone="info">
+              This imported draft was discarded
+              {j.discardedAt ? ` on ${new Date(j.discardedAt).toLocaleString()}` : ''}. It is kept
+              for the record and can no longer change.
+            </Alert>
+          ) : null}
           {j.reversedByJournalId ? (
             <Alert tone="info">
               Reversed by{' '}
@@ -216,6 +274,17 @@ export function JournalDetailPage() {
                 .map((s) => `${s.name} ${s.approvals}/${s.requiredApprovals}`)
                 .join(', ')}
             </p>
+          ) : null}
+          {(j.status === 'DRAFT' || j.status === 'PENDING_APPROVAL') && !j.approval ? (
+            <div className="approval-requirement" data-testid="approval-requirement">
+              <p>
+                {j.approvalRequiredForPosting
+                  ? 'Approval is required before posting'
+                  : 'No approval is required to post this journal'}{' '}
+                <span className="muted">({describeFacts(j.approvalFacts)})</span>
+              </p>
+              <AppliedSteps steps={j.approvalSteps} baseCurrency={j.approvalFacts.baseCurrency} />
+            </div>
           ) : null}
         </Card>
         {editing && j.status === 'DRAFT' ? (
@@ -245,6 +314,7 @@ export function JournalDetailPage() {
                   <th>#</th>
                   <th>Account</th>
                   <th>Description</th>
+                  <th>Dimensions</th>
                   <th>Debit</th>
                   <th>Credit</th>
                   {j.baseCurrency ? <th>Base debit ({j.baseCurrency})</th> : null}
@@ -256,7 +326,17 @@ export function JournalDetailPage() {
                   <tr key={l.lineNumber}>
                     <td>{l.lineNumber}</td>
                     <td>{accountName(l.accountId)}</td>
-                    <td>{l.description}</td>
+                    <td>
+                      {l.description}
+                      {l.kind === 'base_only' ? <span className="muted"> (base only)</span> : null}
+                    </td>
+                    <td>
+                      {(l.dimensions ?? []).map((d) => (
+                        <span key={d.dimensionTypeId} className="badge">
+                          {d.typeName}: {d.valueName}
+                        </span>
+                      ))}
+                    </td>
                     <td>{formatAmount(l.debit, j.currency)}</td>
                     <td>{formatAmount(l.credit, j.currency)}</td>
                     {j.baseCurrency ? <td>{formatAmount(l.baseDebit, j.baseCurrency)}</td> : null}
@@ -268,6 +348,14 @@ export function JournalDetailPage() {
           </Card>
         )}
         <JournalActions journal={j} />
+        {/* S5-20: attach at any status; remove only while the journal is a draft. */}
+        <AttachmentsCard
+          linkType="journal"
+          linkId={j.id}
+          canChange={canEdit}
+          canRemove={canEdit && j.status === 'DRAFT'}
+          removeNote="Attachments stay with the journal once it leaves draft."
+        />
       </AccountingPage>
     </>
   );

@@ -1,13 +1,22 @@
 import type { RouteObject } from 'react-router';
 import { LoginPage } from '../auth/pages/LoginPage';
+import { MfaChallengePage } from '../auth/pages/MfaChallengePage';
 import { ForgotPasswordPage, ResetPasswordPage } from '../auth/pages/PasswordResetPages';
 import { RegisterPage } from '../auth/pages/RegisterPage';
-import { RedirectIfAuthenticated, RequireAuth } from '../auth/RequireAuth';
+import { RedirectIfAuthenticated, RequireAuth, RequirePendingMfa } from '../auth/RequireAuth';
 import { AccountingDashboardPage } from '../features/accounting/AccountingDashboardPage';
 import { AccountsPage } from '../features/accounting/AccountsPage';
+import { DesignationsPage } from '../features/accounting/DesignationsPage';
+import { DimensionsPage } from '../features/accounting/DimensionsPage';
 import { JournalDetailPage, NewJournalPage } from '../features/accounting/JournalPages';
 import { JournalsPage } from '../features/accounting/JournalsPage';
 import { LedgerPage } from '../features/accounting/LedgerPage';
+import { OpeningBalancesPage } from '../features/accounting/OpeningBalancesPage';
+import {
+  BalanceSheetPage,
+  ProfitAndLossPage,
+  TrialBalancePage,
+} from '../features/reports/ReportPages';
 import { FiscalYearsPage, PeriodsPage } from '../features/accounting/PeriodPages';
 import { SetupPage } from '../features/accounting/SetupPage';
 import { ApprovalPoliciesPage } from '../features/approvals/ApprovalPoliciesPage';
@@ -16,7 +25,15 @@ import { DashboardPage } from '../features/dashboard/DashboardPage';
 import { AcceptInvitationPage } from '../features/invitations/AcceptInvitationPage';
 import { MembersPage } from '../features/members/MembersPage';
 import { CreateOrganizationPage } from '../features/organizations/CreateOrganizationPage';
+import { CompanyProfilePage } from '../features/organizations/CompanyProfilePage';
+import { NewPartyPage, PartiesPage, PartyDetailPage } from '../features/parties/PartyPages';
 import { RolesPage } from '../features/roles/RolesPage';
+import { AccountSecurityPage } from '../features/security/AccountSecurityPage';
+import { OrganizationSecurityPage } from '../features/security/OrganizationSecurityPage';
+import { ExportsPage } from '../features/data-exchange/ExportsPage';
+import { ImportsPage } from '../features/data-exchange/ImportsPage';
+import { ImportWizardPage } from '../features/data-exchange/ImportWizardPage';
+import { IMPORT_PERMISSIONS } from '../features/data-exchange/permissions';
 import { Permission } from '../permissions/permissions';
 import { RequireAnyPermission, RequirePermission } from '../permissions/RequirePermission';
 import { AppLayout } from './AppLayout';
@@ -40,6 +57,14 @@ export const routes: RouteObject[] = [
           <RedirectIfAuthenticated>
             <RegisterPage />
           </RedirectIfAuthenticated>
+        ),
+      },
+      {
+        path: '/login/verify',
+        element: (
+          <RequirePendingMfa>
+            <MfaChallengePage />
+          </RequirePendingMfa>
         ),
       },
       { path: '/forgot-password', element: <ForgotPasswordPage /> },
@@ -79,6 +104,64 @@ export const routes: RouteObject[] = [
             ),
           },
           { path: 'organizations/new', element: <CreateOrganizationPage /> },
+          { path: 'account/security', element: <AccountSecurityPage /> },
+          {
+            path: 'settings/security',
+            element: (
+              <RequirePermission permission={Permission.MembersManage}>
+                <OrganizationSecurityPage />
+              </RequirePermission>
+            ),
+          },
+          {
+            path: 'settings/company-profile',
+            element: (
+              <RequirePermission permission={Permission.OrganizationRead}>
+                <CompanyProfilePage />
+              </RequirePermission>
+            ),
+          },
+          {
+            path: 'parties',
+            element: (
+              <RequirePermission permission={Permission.PartiesView}>
+                <PartiesPage />
+              </RequirePermission>
+            ),
+          },
+          {
+            path: 'parties/new',
+            element: (
+              <RequirePermission permission={Permission.PartiesCreate}>
+                <NewPartyPage />
+              </RequirePermission>
+            ),
+          },
+          {
+            path: 'parties/:id',
+            element: (
+              <RequirePermission permission={Permission.PartiesView}>
+                <PartyDetailPage />
+              </RequirePermission>
+            ),
+          },
+          {
+            path: 'imports',
+            element: (
+              <RequireAnyPermission permissions={IMPORT_PERMISSIONS}>
+                <ImportsPage />
+              </RequireAnyPermission>
+            ),
+          },
+          {
+            path: 'imports/:id',
+            element: (
+              <RequireAnyPermission permissions={IMPORT_PERMISSIONS}>
+                <ImportWizardPage />
+              </RequireAnyPermission>
+            ),
+          },
+          { path: 'exports', element: <ExportsPage /> },
           {
             path: 'settings/approvals',
             element: (
@@ -110,11 +193,35 @@ export const routes: RouteObject[] = [
                   </RequireAnyPermission>
                 ),
               },
+              ...(['opening-balances', 'opening-balances/:id'] as const).map((path) => ({
+                path,
+                element: (
+                  <RequirePermission permission={Permission.JournalsView}>
+                    <OpeningBalancesPage />
+                  </RequirePermission>
+                ),
+              })),
               {
                 path: 'accounts',
                 element: (
                   <RequirePermission permission={Permission.AccountsView}>
                     <AccountsPage />
+                  </RequirePermission>
+                ),
+              },
+              {
+                path: 'dimensions',
+                element: (
+                  <RequirePermission permission={Permission.DimensionsView}>
+                    <DimensionsPage />
+                  </RequirePermission>
+                ),
+              },
+              {
+                path: 'designations',
+                element: (
+                  <RequirePermission permission={Permission.AccountsView}>
+                    <DesignationsPage />
                   </RequirePermission>
                 ),
               },
@@ -166,6 +273,18 @@ export const routes: RouteObject[] = [
                   </RequirePermission>
                 ),
               },
+              ...(
+                [
+                  ['trial-balance', <TrialBalancePage key="tb" />],
+                  ['profit-and-loss', <ProfitAndLossPage key="pl" />],
+                  ['balance-sheet', <BalanceSheetPage key="bs" />],
+                ] as const
+              ).map(([path, page]) => ({
+                path: `reports/${path}`,
+                element: (
+                  <RequirePermission permission={Permission.ReportsView}>{page}</RequirePermission>
+                ),
+              })),
             ],
           },
           { path: '*', element: <p>Page not found.</p> },

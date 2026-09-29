@@ -26,13 +26,16 @@ import {
 } from '../modules/organizations/index.js';
 import { enqueueOutboxEvent } from '../modules/outbox/index.js';
 import {
+  hasPermission,
   requirePermission,
   requireRecentAuthentication,
+  requireRecentMfa,
   resolveAuthorizationContext,
   type AuthorizationContext,
   type Principal,
 } from './authorization.js';
 import type { AppDependencies } from './dependencies.js';
+import { memberMfaStatus } from './mfa-policy.js';
 import { createOrganizationWithOwner } from './organization-provisioning.js';
 import { inTransaction } from './unit-of-work.js';
 
@@ -40,6 +43,10 @@ export interface OperationOptions {
   permission?: string;
   /** Sensitive action: requires re-authentication within the configured window. */
   sensitive?: boolean;
+  /** MFA management / security action: also requires a recent second factor (S7-33). */
+  stepUp?: boolean;
+  /** Read-only reporting: one REPEATABLE READ, READ ONLY snapshot for all queries. */
+  readOnlySnapshot?: boolean;
 }
 
 /**
@@ -53,14 +60,26 @@ export async function withOrganization<T>(
   options: OperationOptions,
   work: (tx: Transaction, context: AuthorizationContext) => Promise<T>,
 ): Promise<T> {
-  return inTransaction(deps.db, { userId: principal.user.id }, async (tx) => {
-    const context = await resolveAuthorizationContext(tx, principal);
-    if (options.permission) requirePermission(context, options.permission);
-    if (options.sensitive) {
-      requireRecentAuthentication(principal, deps.clock.now(), deps.config.session.reauthWindowMs);
-    }
-    return work(tx, context);
-  });
+  return inTransaction(
+    deps.db,
+    { userId: principal.user.id },
+    async (tx) => {
+      const context = await resolveAuthorizationContext(tx, principal);
+      if (options.permission) requirePermission(context, options.permission);
+      if (options.sensitive || options.stepUp) {
+        requireRecentAuthentication(
+          principal,
+          deps.clock.now(),
+          deps.config.session.reauthWindowMs,
+        );
+      }
+      if (options.stepUp) {
+        await requireRecentMfa(tx, principal, deps.clock.now(), deps.config.mfa.stepUpWindowMs);
+      }
+      return work(tx, context);
+    },
+    { readOnlySnapshot: options.readOnlySnapshot === true },
+  );
 }
 
 export class OrganizationService {
@@ -148,6 +167,10 @@ export class OrganizationService {
           memberships.map((m) => m.userId),
         );
         const roles = await listMembershipRoleAssignments(tx, ctx.organizationId);
+        // S7-39: MFA status is visible to members.manage holders only.
+        const mfa = hasPermission(ctx, OrganizationPermissions.MembersManage)
+          ? await memberMfaStatus(tx, ctx.organizationId)
+          : null;
         return memberships.map((m) => {
           const user = users.get(m.userId);
           const assigned = roles.get(m.id) ?? [];
@@ -160,6 +183,14 @@ export class OrganizationService {
             isOwner: assigned.some((r) => r.isOwner),
             roles: assigned,
             joinedAt: m.createdAt.toISOString(),
+            ...(mfa
+              ? {
+                  mfa: {
+                    enrolled: mfa.get(m.id)?.enrolled ?? false,
+                    required: mfa.get(m.id)?.required ?? false,
+                  },
+                }
+              : {}),
           };
         });
       },

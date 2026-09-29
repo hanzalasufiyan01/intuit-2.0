@@ -8,14 +8,30 @@ const actionKey = z
   .string()
   .regex(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/, 'Unknown approvable action.');
 const policyParams = z.object({ actionKey });
-const policyBody = z.object({
+const baseAmount = z
+  .string()
+  .regex(/^\d{1,20}(\.\d{1,4})?$/, 'Amounts are non-negative decimal strings.')
+  .nullable()
+  .optional();
+// S10 (AG-2): strict bodies: unknown fields are rejected, never silently dropped.
+const stepConditions = z.strictObject({
+  minBaseAmount: baseAmount,
+  maxBaseAmount: baseAmount,
+  transactionTypes: z
+    .array(z.string().regex(/^[a-z][a-z0-9_]*$/, 'Unknown transaction type.'))
+    .max(20)
+    .nullable()
+    .optional(),
+});
+const policyBody = z.strictObject({
   steps: z
     .array(
-      z.object({
+      z.strictObject({
         name: z.string().trim().min(1, 'Step name is required.').max(100),
         requiredApprovals: z.number().int().min(1).max(20),
         roleIds: z.array(fields.id).max(50).default([]),
         membershipIds: z.array(fields.id).max(200).default([]),
+        conditions: stepConditions.optional(),
       }),
     )
     .min(1, 'A policy needs at least one step.')

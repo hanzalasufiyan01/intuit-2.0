@@ -1,11 +1,15 @@
 import type pg from 'pg';
-import type { AccountType } from './schema.js';
+import type { AccountSubtype, AccountType, Designation } from './schema.js';
 
 export interface CoaTemplateAccount {
   code: string;
   name: string;
   type: AccountType;
   parentCode?: string;
+  /** Decision 53 classification applied to the created account (headers stay unclassified). */
+  subtype?: AccountSubtype;
+  /** Decision 64 designation applied when an organization is set up from the template. */
+  designation?: Designation;
 }
 
 export interface CoaTemplateDefinition {
@@ -23,35 +27,176 @@ export interface CoaTemplateDefinition {
 const sharedStructure: readonly CoaTemplateAccount[] = [
   { code: '1000', name: 'Assets', type: 'ASSET' },
   { code: '1100', name: 'Current Assets', type: 'ASSET', parentCode: '1000' },
-  { code: '1110', name: 'Cash on Hand', type: 'ASSET', parentCode: '1100' },
-  { code: '1120', name: 'Bank Accounts', type: 'ASSET', parentCode: '1100' },
-  { code: '1130', name: 'Accounts Receivable', type: 'ASSET', parentCode: '1100' },
-  { code: '1140', name: 'Inventory', type: 'ASSET', parentCode: '1100' },
-  { code: '1150', name: 'Prepaid Expenses', type: 'ASSET', parentCode: '1100' },
+  { code: '1110', name: 'Cash on Hand', type: 'ASSET', parentCode: '1100', subtype: 'CASH' },
+  { code: '1120', name: 'Bank Accounts', type: 'ASSET', parentCode: '1100', subtype: 'BANK' },
+  {
+    code: '1130',
+    name: 'Accounts Receivable',
+    type: 'ASSET',
+    parentCode: '1100',
+    subtype: 'ACCOUNTS_RECEIVABLE',
+  },
+  {
+    code: '1140',
+    name: 'Inventory',
+    type: 'ASSET',
+    parentCode: '1100',
+    subtype: 'OTHER_CURRENT_ASSET',
+  },
+  {
+    code: '1150',
+    name: 'Prepaid Expenses',
+    type: 'ASSET',
+    parentCode: '1100',
+    subtype: 'OTHER_CURRENT_ASSET',
+  },
   { code: '1500', name: 'Non-Current Assets', type: 'ASSET', parentCode: '1000' },
-  { code: '1510', name: 'Property, Plant and Equipment', type: 'ASSET', parentCode: '1500' },
-  { code: '1520', name: 'Accumulated Depreciation', type: 'ASSET', parentCode: '1500' },
+  {
+    code: '1510',
+    name: 'Property, Plant and Equipment',
+    type: 'ASSET',
+    parentCode: '1500',
+    subtype: 'FIXED_ASSET',
+  },
+  {
+    code: '1520',
+    name: 'Accumulated Depreciation',
+    type: 'ASSET',
+    parentCode: '1500',
+    subtype: 'FIXED_ASSET',
+  },
   { code: '2000', name: 'Liabilities', type: 'LIABILITY' },
   { code: '2100', name: 'Current Liabilities', type: 'LIABILITY', parentCode: '2000' },
-  { code: '2110', name: 'Accounts Payable', type: 'LIABILITY', parentCode: '2100' },
-  { code: '2120', name: 'Accrued Liabilities', type: 'LIABILITY', parentCode: '2100' },
-  { code: '2130', name: 'Tax Payable', type: 'LIABILITY', parentCode: '2100' },
+  {
+    code: '2110',
+    name: 'Accounts Payable',
+    type: 'LIABILITY',
+    parentCode: '2100',
+    subtype: 'ACCOUNTS_PAYABLE',
+  },
+  {
+    code: '2120',
+    name: 'Accrued Liabilities',
+    type: 'LIABILITY',
+    parentCode: '2100',
+    subtype: 'OTHER_CURRENT_LIABILITY',
+  },
+  {
+    code: '2130',
+    name: 'Tax Payable',
+    type: 'LIABILITY',
+    parentCode: '2100',
+    subtype: 'OTHER_CURRENT_LIABILITY',
+  },
   { code: '2500', name: 'Non-Current Liabilities', type: 'LIABILITY', parentCode: '2000' },
-  { code: '2510', name: 'Long-Term Loans', type: 'LIABILITY', parentCode: '2500' },
+  {
+    code: '2510',
+    name: 'Long-Term Loans',
+    type: 'LIABILITY',
+    parentCode: '2500',
+    subtype: 'LONG_TERM_LIABILITY',
+  },
   { code: '3000', name: 'Equity', type: 'EQUITY' },
-  { code: '3100', name: "Owner's Capital", type: 'EQUITY', parentCode: '3000' },
-  { code: '3200', name: 'Retained Earnings', type: 'EQUITY', parentCode: '3000' },
+  { code: '3100', name: "Owner's Capital", type: 'EQUITY', parentCode: '3000', subtype: 'EQUITY' },
+  {
+    code: '3200',
+    name: 'Retained Earnings',
+    type: 'EQUITY',
+    parentCode: '3000',
+    subtype: 'EQUITY',
+    designation: 'RETAINED_EARNINGS',
+  },
+  {
+    code: '3900',
+    name: 'Opening Balance Equity',
+    type: 'EQUITY',
+    parentCode: '3000',
+    subtype: 'EQUITY',
+    designation: 'OPENING_BALANCE_EQUITY',
+  },
   { code: '4000', name: 'Revenue', type: 'REVENUE' },
-  { code: '4100', name: 'Sales Revenue', type: 'REVENUE', parentCode: '4000' },
-  { code: '4200', name: 'Service Revenue', type: 'REVENUE', parentCode: '4000' },
-  { code: '4900', name: 'Other Income', type: 'REVENUE', parentCode: '4000' },
+  {
+    code: '4100',
+    name: 'Sales Revenue',
+    type: 'REVENUE',
+    parentCode: '4000',
+    subtype: 'OPERATING_REVENUE',
+  },
+  {
+    code: '4200',
+    name: 'Service Revenue',
+    type: 'REVENUE',
+    parentCode: '4000',
+    subtype: 'OPERATING_REVENUE',
+  },
+  {
+    code: '4900',
+    name: 'Other Income',
+    type: 'REVENUE',
+    parentCode: '4000',
+    subtype: 'OTHER_INCOME',
+  },
+  {
+    code: '4950',
+    name: 'Realized FX Gain/Loss',
+    type: 'REVENUE',
+    parentCode: '4000',
+    subtype: 'OTHER_INCOME',
+    designation: 'REALIZED_FX_GAIN_LOSS',
+  },
+  {
+    code: '4960',
+    name: 'Unrealized FX Gain/Loss',
+    type: 'REVENUE',
+    parentCode: '4000',
+    subtype: 'OTHER_INCOME',
+    designation: 'UNREALIZED_FX_GAIN_LOSS',
+  },
   { code: '5000', name: 'Expenses', type: 'EXPENSE' },
-  { code: '5100', name: 'Cost of Goods Sold', type: 'EXPENSE', parentCode: '5000' },
-  { code: '5200', name: 'Salaries and Wages', type: 'EXPENSE', parentCode: '5000' },
-  { code: '5300', name: 'Rent', type: 'EXPENSE', parentCode: '5000' },
-  { code: '5400', name: 'Utilities', type: 'EXPENSE', parentCode: '5000' },
-  { code: '5500', name: 'Depreciation Expense', type: 'EXPENSE', parentCode: '5000' },
-  { code: '5900', name: 'Other Expenses', type: 'EXPENSE', parentCode: '5000' },
+  {
+    code: '5100',
+    name: 'Cost of Goods Sold',
+    type: 'EXPENSE',
+    parentCode: '5000',
+    subtype: 'COST_OF_SALES',
+  },
+  {
+    code: '5200',
+    name: 'Salaries and Wages',
+    type: 'EXPENSE',
+    parentCode: '5000',
+    subtype: 'OPERATING_EXPENSE',
+  },
+  { code: '5300', name: 'Rent', type: 'EXPENSE', parentCode: '5000', subtype: 'OPERATING_EXPENSE' },
+  {
+    code: '5400',
+    name: 'Utilities',
+    type: 'EXPENSE',
+    parentCode: '5000',
+    subtype: 'OPERATING_EXPENSE',
+  },
+  {
+    code: '5500',
+    name: 'Depreciation Expense',
+    type: 'EXPENSE',
+    parentCode: '5000',
+    subtype: 'OPERATING_EXPENSE',
+  },
+  {
+    code: '5900',
+    name: 'Other Expenses',
+    type: 'EXPENSE',
+    parentCode: '5000',
+    subtype: 'OTHER_EXPENSE',
+  },
+  {
+    code: '5950',
+    name: 'Rounding Differences',
+    type: 'EXPENSE',
+    parentCode: '5000',
+    subtype: 'OTHER_EXPENSE',
+    designation: 'ROUNDING_DIFFERENCE',
+  },
 ];
 
 export const coaTemplateDefinitions: readonly CoaTemplateDefinition[] = [
@@ -113,9 +258,18 @@ export async function syncCoaTemplates(
     for (const [order, account] of template.accounts.entries()) {
       await client.query(
         `INSERT INTO accounting_coa_template_accounts
-           (template_key, code, name, account_type, parent_code, sort_order)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [template.key, account.code, account.name, account.type, account.parentCode ?? null, order],
+           (template_key, code, name, account_type, parent_code, subtype, designation, sort_order)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          template.key,
+          account.code,
+          account.name,
+          account.type,
+          account.parentCode ?? null,
+          account.subtype ?? null,
+          account.designation ?? null,
+          order,
+        ],
       );
     }
   }

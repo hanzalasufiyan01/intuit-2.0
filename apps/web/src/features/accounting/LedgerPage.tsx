@@ -1,21 +1,50 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { api } from '../../services/api-client';
 import { formatAmount } from '../../shared/money';
 import { ErrorAlert } from '../../shared/ui/Alert';
 import { Card, PageHeader } from '../../shared/ui/Card';
+import { ExportButton } from '../data-exchange/ExportButton';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
-import { AccountingPage, useAccounts, useOrgKey } from './shared';
+import { Permission, usePermission } from '../../permissions/permissions';
+import { Alert } from '../../shared/ui/Alert';
+import { AccountingPage, useAccounts, useDimensions, useOrgKey } from './shared';
 import type { LedgerResult } from './types';
 
 /** General Ledger: a view over posted journal lines (base-currency balances). */
 export function LedgerPage() {
   const org = useOrgKey();
   const accounts = useAccounts();
-  const [filter, setFilter] = useState({ accountId: '', fromDate: '', toDate: '' });
-  const params = new URLSearchParams(Object.entries(filter).filter(([, v]) => v));
+  const canViewDimensions = usePermission(Permission.DimensionsView);
+  const dimensions = useDimensions(canViewDimensions);
+  // Drill-down from a report arrives with its filters in the URL (S3-19).
+  const [searchParams] = useSearchParams();
+  const [filter, setFilter] = useState({
+    accountId: searchParams.get('accountId') ?? '',
+    fromDate: searchParams.get('fromDate') ?? '',
+    toDate: searchParams.get('toDate') ?? '',
+  });
+  const openingBasis = searchParams.get('openingBasis') === 'fiscal_year' ? 'fiscal_year' : '';
+  // Dimension type id -> value id chosen here; values from the URL apply to their own type
+  // until changed, so there is never more than one value per type.
+  const urlValueIds = (searchParams.get('dimensionValueIds') ?? '').split(',').filter(Boolean);
+  const [chosen, setDimensionFilter] = useState<Record<string, string>>({});
+  const dimensionFilter: Record<string, string> = dimensions.data
+    ? Object.fromEntries(
+        dimensions.data.map((type) => [
+          type.id,
+          chosen[type.id] ?? type.values.find((v) => urlValueIds.includes(v.id))?.id ?? '',
+        ]),
+      )
+    : {};
+  const dimensionValueIds = dimensions.data
+    ? Object.values(dimensionFilter).filter(Boolean).join(',')
+    : urlValueIds.join(',');
+  const params = new URLSearchParams(
+    Object.entries({ ...filter, dimensionValueIds, openingBasis }).filter(([, v]) => v),
+  );
   const ledger = useQuery({
     queryKey: ['accounting-ledger', org, params.toString()],
     queryFn: () => api.get<LedgerResult>(`/accounting/ledger?${params.toString()}`),
@@ -29,6 +58,9 @@ export function LedgerPage() {
         description="Only posted journals affect the ledger. Parent accounts roll up their children."
       />
       <AccountingPage>
+        <p className="actions">
+          <ExportButton domain="general_ledger" params={Object.fromEntries(params)} />
+        </p>
         <Card>
           <div className="form form--inline">
             <div className="field">
@@ -58,6 +90,23 @@ export function LedgerPage() {
               value={filter.toDate}
               onChange={(e) => setFilter({ ...filter, toDate: e.target.value })}
             />
+            {(dimensions.data ?? []).map((type) => (
+              <div className="field" key={type.id}>
+                <label htmlFor={`ledger-dimension-${type.id}`}>{type.name}</label>
+                <select
+                  id={`ledger-dimension-${type.id}`}
+                  value={dimensionFilter[type.id] ?? ''}
+                  onChange={(e) => setDimensionFilter({ ...chosen, [type.id]: e.target.value })}
+                >
+                  <option value="">All</option>
+                  {type.values.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
           </div>
         </Card>
         <Card>
@@ -67,6 +116,15 @@ export function LedgerPage() {
             <ErrorAlert error={ledger.error} />
           ) : (
             <>
+              {ledger.data.taggedActivityOnly ? (
+                <Alert tone="info">
+                  Tagged activity only:{' '}
+                  {(ledger.data.dimensionFilter ?? [])
+                    .map((d) => `${d.typeName} = ${d.valueName}`)
+                    .join(', ')}
+                  . Untagged lines are excluded, so balances are not complete account balances.
+                </Alert>
+              ) : null}
               {ledger.data.openingBalance !== null ? (
                 <p>
                   Opening balance:{' '}

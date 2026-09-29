@@ -1,12 +1,25 @@
-import { and, asc, count, desc, eq, inArray, lt, or } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, lt, ne, or } from 'drizzle-orm';
 import type { Transaction } from '../../database/client.js';
 import type { JournalLineInput } from './rules.js';
 import {
   accountingJournalEntries,
   accountingJournalLines,
   accountingJournalReversals,
+  type JournalLineKind,
+  type JournalSource,
   type JournalStatus,
 } from './schema.js';
+import { insertLineDimensions, type DimensionAssignmentInput } from './dimensions.js';
+import type { SourceRef } from './system-journals.js';
+
+/** A draft line. Base amounts and kinds are only ever set by the system-journal path. */
+export interface DraftLineInput extends JournalLineInput {
+  kind?: JournalLineKind;
+  baseDebit?: string | null;
+  baseCredit?: string | null;
+  /** Line-level dimension assignments (validated by the caller). */
+  dimensions?: readonly DimensionAssignmentInput[] | undefined;
+}
 
 export type JournalEntry = typeof accountingJournalEntries.$inferSelect;
 export type JournalLine = typeof accountingJournalLines.$inferSelect;
@@ -23,9 +36,11 @@ export async function createDraftJournal(
   tx: Transaction,
   input: DraftFields & {
     organizationId: string;
-    lines: readonly JournalLineInput[];
+    lines: readonly DraftLineInput[];
     userId: string | null;
-    source: 'manual' | 'reversal' | 'event';
+    source: JournalSource;
+    /** Decision 12: set at creation, never changed. */
+    sourceRef?: SourceRef | null;
     accountingEventId?: string | null;
     /** Defaults to 'manual' when a rate is supplied. Reversals keep the original's source. */
     exchangeRateSource?: JournalEntry['exchangeRateSource'];
@@ -43,6 +58,9 @@ export async function createDraftJournal(
       exchangeRate: input.exchangeRate,
       exchangeRateSource: input.exchangeRate ? (input.exchangeRateSource ?? 'manual') : null,
       accountingEventId: input.accountingEventId ?? null,
+      sourceModule: input.sourceRef?.module ?? null,
+      sourceType: input.sourceRef?.type ?? null,
+      sourceId: input.sourceRef?.id ?? null,
       createdByUserId: input.userId,
       updatedByUserId: input.userId,
     })
@@ -55,19 +73,33 @@ async function insertLines(
   tx: Transaction,
   organizationId: string,
   journalId: string,
-  lines: readonly JournalLineInput[],
+  lines: readonly DraftLineInput[],
 ) {
   if (lines.length === 0) return;
-  await tx.insert(accountingJournalLines).values(
-    lines.map((line, i) => ({
-      organizationId,
-      journalId,
-      lineNumber: i + 1,
-      accountId: line.accountId,
-      description: line.description.trim(),
-      debit: line.debit,
-      credit: line.credit,
-    })),
+  const inserted = await tx
+    .insert(accountingJournalLines)
+    .values(
+      lines.map((line, i) => ({
+        organizationId,
+        journalId,
+        lineNumber: i + 1,
+        lineKind: line.kind ?? 'normal',
+        accountId: line.accountId,
+        description: line.description.trim(),
+        debit: line.debit,
+        credit: line.credit,
+        baseDebit: line.baseDebit ?? null,
+        baseCredit: line.baseCredit ?? null,
+      })),
+    )
+    .returning({ id: accountingJournalLines.id, lineNumber: accountingJournalLines.lineNumber });
+  const idByNumber = new Map(inserted.map((r) => [r.lineNumber, r.id]));
+  await insertLineDimensions(
+    tx,
+    organizationId,
+    lines.flatMap((line, i) =>
+      (line.dimensions ?? []).map((d) => ({ journalLineId: idByNumber.get(i + 1)!, ...d })),
+    ),
   );
 }
 
@@ -159,6 +191,8 @@ export async function listJournals(
   const conditions = [eq(accountingJournalEntries.organizationId, organizationId)];
   if (filter.statuses?.length)
     conditions.push(inArray(accountingJournalEntries.status, filter.statuses));
+  // S6 (L-9): discarded imported drafts are listed only when asked for explicitly.
+  else conditions.push(ne(accountingJournalEntries.status, 'DISCARDED'));
   if (filter.before) conditions.push(lt(accountingJournalEntries.createdAt, filter.before));
   return tx
     .select()

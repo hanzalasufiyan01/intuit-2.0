@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { InvitationService } from '../../application/invitation-service.js';
+import type { OrganizationSecurityService } from '../../application/organization-security-service.js';
 import type { OrganizationService } from '../../application/organization-service.js';
 import type { RoleService } from '../../application/role-service.js';
 import { membershipStatuses } from '../../modules/organizations/index.js';
@@ -20,6 +21,14 @@ const roleBody = z.object({
   description: z.string().trim().max(500).default(''),
   permissionKeys: z.array(z.string().min(1).max(100)).max(200),
 });
+const securityPolicyBody = z
+  .object({
+    requireMfaForAllMembers: z.boolean(),
+    allowTrustedDevices: z.boolean(),
+    version: z.number().int().min(0),
+  })
+  .strict();
+const emptyBody = z.object({}).strict();
 const auditQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
   before: z.iso.datetime({ offset: true }).optional(),
@@ -31,9 +40,14 @@ const auditQuery = z.object({
  */
 export function registerOrganizationRoutes(
   app: FastifyInstance,
-  deps: { organizations: OrganizationService; invitations: InvitationService; roles: RoleService },
+  deps: {
+    organizations: OrganizationService;
+    invitations: InvitationService;
+    roles: RoleService;
+    organizationSecurity: OrganizationSecurityService;
+  },
 ): void {
-  const { organizations, invitations, roles } = deps;
+  const { organizations, invitations, roles, organizationSecurity } = deps;
 
   app.get('/organizations', async (request) => ({
     data: await organizations.listMyOrganizations(requirePrincipal(request)),
@@ -87,6 +101,33 @@ export function registerOrganizationRoutes(
       data: await organizations.setMemberStatus(
         principal,
         { membershipId, status: body.status },
+        eventOrigin(request),
+      ),
+    };
+  });
+
+  // ---- Security: MFA policy and admin MFA reset (S7-29, S7-36 to S7-38) ----
+
+  app.get('/organizations/current/security', async (request) => ({
+    data: await organizationSecurity.getPolicy(requirePrincipal(request)),
+  }));
+
+  app.put('/organizations/current/security', async (request) => {
+    const principal = requirePrincipal(request);
+    const body = parseInput(securityPolicyBody, request.body);
+    return {
+      data: await organizationSecurity.updatePolicy(principal, body, eventOrigin(request)),
+    };
+  });
+
+  app.post('/organizations/current/members/:membershipId/mfa-reset', async (request) => {
+    const principal = requirePrincipal(request);
+    const { membershipId } = parseInput(memberParams, request.params);
+    parseInput(emptyBody, request.body);
+    return {
+      data: await organizationSecurity.resetMemberMfa(
+        principal,
+        membershipId,
         eventOrigin(request),
       ),
     };

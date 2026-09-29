@@ -1,13 +1,16 @@
 import {
   AppError,
   ForbiddenError,
+  MfaEnrollmentRequiredError,
+  MfaStepUpRequiredError,
   PermissionDeniedError,
   ReauthenticationRequiredError,
 } from '../domain/errors.js';
 import type { Transaction } from '../database/client.js';
 import { getEffectiveAccess } from '../modules/access-control/index.js';
-import type { Session, User } from '../modules/identity/index.js';
+import { hasActiveFactor, type Session, type User } from '../modules/identity/index.js';
 import { findMembership, getOrganization } from '../modules/organizations/index.js';
+import { enforceActingUserMfa, enforceOrganizationMfa } from './mfa-policy.js';
 import { setDbContext } from './unit-of-work.js';
 
 /** The authenticated caller, resolved by the server from the session cookie. */
@@ -22,7 +25,8 @@ export interface Principal {
  */
 export interface AuthorizationContext {
   userId: string;
-  sessionId: string;
+  /** Null for an acting-user context resolved for background work (L-6). */
+  sessionId: string | null;
   organizationId: string;
   membershipId: string;
   isOwner: boolean;
@@ -61,9 +65,51 @@ export async function resolveAuthorizationContext(
   }
 
   const access = await getEffectiveAccess(tx, organizationId, membership.id);
+  // S7-27 B/C: organization policy and privileged roles, for every organization-scoped request.
+  await enforceOrganizationMfa(tx, {
+    userId: principal.user.id,
+    session: principal.session,
+    organizationId,
+    access,
+  });
   return {
     userId: principal.user.id,
     sessionId: principal.session.id,
+    organizationId,
+    membershipId: membership.id,
+    isOwner: access.isOwner,
+    roleIds: access.roleIds,
+    permissions: access.permissions,
+  };
+}
+
+/**
+ * Acting-user context for background work (S6-09, L-6). A job has no session, so the user who
+ * requested the work is re-resolved when it runs: the membership must still be active, the
+ * organization active, and permissions are the user's current effective permissions. The RLS
+ * context is set exactly as for a request. Re-authentication (a session property) is checked at
+ * the HTTP request that starts the work, never here.
+ */
+export async function resolveActingUserContext(
+  tx: Transaction,
+  userId: string,
+  organizationId: string,
+): Promise<AuthorizationContext> {
+  await setDbContext(tx, { userId, organizationId });
+  const membership = await findMembership(tx, organizationId, userId);
+  if (!membership || membership.status !== 'active') {
+    throw new ForbiddenError('The requesting user no longer has access to this organization.');
+  }
+  const organization = await getOrganization(tx, organizationId);
+  if (!organization || organization.status !== 'active') {
+    throw new ForbiddenError('This organization is not active.');
+  }
+  const access = await getEffectiveAccess(tx, organizationId, membership.id);
+  // S7-31: jobs never bypass the MFA requirement of the user they act for.
+  await enforceActingUserMfa(tx, { userId, organizationId, access });
+  return {
+    userId,
+    sessionId: null,
     organizationId,
     membershipId: membership.id,
     isOwner: access.isOwner,
@@ -88,4 +134,22 @@ export function requireRecentAuthentication(
 ): void {
   const age = now.getTime() - principal.session.reauthenticatedAt.getTime();
   if (age > reauthWindowMs) throw new ReauthenticationRequiredError();
+}
+
+/**
+ * Step-up (S7-33): MFA management and security actions also need a second factor entered in this
+ * session within the window. A remembered device never counts. Callers check password
+ * re-authentication first.
+ */
+export async function requireRecentMfa(
+  tx: Transaction,
+  principal: Principal,
+  now: Date,
+  stepUpWindowMs: number,
+): Promise<void> {
+  if (!(await hasActiveFactor(tx, principal.user.id))) throw new MfaEnrollmentRequiredError();
+  const verifiedAt = principal.session.mfaVerifiedAt;
+  if (!verifiedAt || now.getTime() - verifiedAt.getTime() > stepUpWindowMs) {
+    throw new MfaStepUpRequiredError();
+  }
 }

@@ -1,3 +1,4 @@
+import { Decimal } from 'decimal.js';
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import type { Transaction } from '../../database/client.js';
 import {
@@ -7,10 +8,13 @@ import {
   approvalRequests,
   approvalStepEligibleMembers,
   approvalStepEligibleRoles,
+  type ApprovalFacts,
   type ApprovalRequestStatus,
   type PolicySnapshot,
   type PolicySnapshotStep,
+  type StepConditions,
 } from './schema.js';
+import { matchingSteps } from './conditions.js';
 
 export type ApprovalRequest = typeof approvalRequests.$inferSelect;
 export type ApprovalDecision = typeof approvalDecisions.$inferSelect;
@@ -27,6 +31,8 @@ export interface ApprovalStepInput {
   requiredApprovals: number;
   roleIds: string[];
   membershipIds: string[];
+  /** S10: validated, normalized conditions (NO_CONDITIONS for an unconditional step). */
+  conditions: StepConditions;
 }
 
 // ---------------------------------------------------------------------------
@@ -36,12 +42,17 @@ export interface ApprovalStepInput {
 export async function listApprovalPolicies(
   tx: Transaction,
   organizationId: string,
+  options: { actionKey?: string; lock?: 'share' | 'update' } = {},
 ): Promise<ApprovalPolicy[]> {
-  const policies = await tx
+  const conditions = [eq(approvalPolicies.organizationId, organizationId)];
+  if (options.actionKey) conditions.push(eq(approvalPolicies.actionKey, options.actionKey));
+  const query = tx
     .select()
     .from(approvalPolicies)
-    .where(eq(approvalPolicies.organizationId, organizationId))
+    .where(and(...conditions))
     .orderBy(asc(approvalPolicies.actionKey));
+  // S10-08: a policy being replaced is locked; readers that open requests take a share lock.
+  const policies = options.lock ? await query.for(options.lock) : await query;
   if (policies.length === 0) return [];
   const steps = await tx
     .select()
@@ -97,17 +108,28 @@ export async function listApprovalPolicies(
           .filter((m) => m.stepId === s.id)
           .map((m) => m.membershipId)
           .sort(),
+        conditions: {
+          minBaseAmount: s.minBaseAmount === null ? null : trimDecimal(s.minBaseAmount),
+          maxBaseAmount: s.maxBaseAmount === null ? null : trimDecimal(s.maxBaseAmount),
+          transactionTypes: s.transactionTypes ?? null,
+          thresholdCurrency: s.thresholdCurrency ?? null,
+        },
       })),
   }));
+}
+
+function trimDecimal(value: string): string {
+  return new Decimal(value).toFixed();
 }
 
 export async function getApprovalPolicy(
   tx: Transaction,
   organizationId: string,
   actionKey: string,
+  options: { lock?: 'share' | 'update' } = {},
 ): Promise<ApprovalPolicy | undefined> {
-  const all = await listApprovalPolicies(tx, organizationId);
-  return all.find((p) => p.actionKey === actionKey);
+  const [policy] = await listApprovalPolicies(tx, organizationId, { actionKey, ...options });
+  return policy;
 }
 
 /** Creates or replaces the policy for an action (steps are replaced as a whole). */
@@ -123,7 +145,8 @@ export async function replaceApprovalPolicy(
         eq(approvalPolicies.organizationId, input.organizationId),
         eq(approvalPolicies.actionKey, input.actionKey),
       ),
-    );
+    )
+    .for('update');
   let policyId = existing?.id;
   if (policyId) {
     await tx
@@ -154,6 +177,10 @@ export async function replaceApprovalPolicy(
         stepOrder: index + 1,
         name: step.name.trim(),
         requiredApprovals: step.requiredApprovals,
+        minBaseAmount: step.conditions.minBaseAmount,
+        maxBaseAmount: step.conditions.maxBaseAmount,
+        transactionTypes: step.conditions.transactionTypes,
+        thresholdCurrency: step.conditions.thresholdCurrency,
       })
       .returning({ id: approvalPolicySteps.id });
     const stepId = row!.id;
@@ -349,8 +376,21 @@ export interface Approver {
   roleIds: readonly string[];
 }
 
-export function snapshotPolicy(policy: ApprovalPolicy | undefined): PolicySnapshot {
-  return { steps: policy?.steps.map((s) => ({ ...s })) ?? [] };
+/**
+ * The request snapshot (Decision 77, S10-04): only the steps that apply to the facts, with their
+ * policy step numbers, plus the facts themselves and when they were evaluated.
+ */
+export function snapshotPolicy(
+  policy: ApprovalPolicy | undefined,
+  facts: ApprovalFacts,
+  now: Date,
+): PolicySnapshot {
+  return {
+    steps: policy ? matchingSteps(policy.steps, facts) : [],
+    facts,
+    evaluatedAt: now.toISOString(),
+    ...(policy ? { policyUpdatedAt: policy.updatedAt.toISOString() } : {}),
+  };
 }
 
 export interface StepProgress {

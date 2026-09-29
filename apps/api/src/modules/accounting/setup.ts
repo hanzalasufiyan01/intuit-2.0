@@ -1,9 +1,11 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { Transaction } from '../../database/client.js';
+import { ALWAYS_MONETARY_SUBTYPES } from './classification.js';
 import {
   accountingAccounts,
   accountingCoaTemplateAccounts,
   accountingCoaTemplates,
+  accountingDesignations,
   accountingJournalEntries,
   accountingSettings,
 } from './schema.js';
@@ -44,6 +46,8 @@ export async function listCoaTemplates(tx: Transaction) {
 
 /**
  * One-time accounting setup: records the base currency and applies the chosen COA template.
+ * Template accounts are created in the base currency with the template's classification, and
+ * the template's designations (Decision 64) are applied.
  * Returns undefined if the organization is already set up or the template does not exist.
  */
 export async function setUpAccounting(
@@ -93,10 +97,22 @@ export async function setUpAccounting(
         accountType: account.accountType,
         parentId: account.parentCode ? (idsByCode.get(account.parentCode) ?? null) : null,
         isSystem: true,
+        currencyCode: input.baseCurrency,
+        subtype: account.subtype,
+        isMonetary: account.subtype !== null && ALWAYS_MONETARY_SUBTYPES.has(account.subtype),
         createdByUserId: input.userId,
       })
       .returning({ id: accountingAccounts.id });
     idsByCode.set(account.code, row!.id);
+    if (account.designation) {
+      await tx.insert(accountingDesignations).values({
+        organizationId: input.organizationId,
+        designation: account.designation,
+        accountId: row!.id,
+        updatedByUserId: input.userId,
+        updatedAt: input.now,
+      });
+    }
   }
   return { settings, accountsCreated: templateAccounts.length };
 }
@@ -115,17 +131,54 @@ export async function hasPostedJournals(tx: Transaction, organizationId: string)
   return row !== undefined;
 }
 
+/** Any journal beyond draft (pending approval, posted or reversed). */
+export async function hasNonDraftJournals(
+  tx: Transaction,
+  organizationId: string,
+): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: accountingJournalEntries.id })
+    .from(accountingJournalEntries)
+    .where(
+      and(
+        eq(accountingJournalEntries.organizationId, organizationId),
+        inArray(accountingJournalEntries.status, ['PENDING_APPROVAL', 'POSTED', 'REVERSED']),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
+/**
+ * Changes the base currency before the first posting (Decision 26): accounts in the old base
+ * currency follow the new base currency; explicitly foreign accounts are unchanged.
+ */
 export async function updateBaseCurrency(
   tx: Transaction,
   organizationId: string,
   baseCurrency: string,
-): Promise<AccountingSettings | undefined> {
+): Promise<{ settings: AccountingSettings; accountsMoved: number } | undefined> {
+  const [previous] = await tx
+    .select({ baseCurrency: accountingSettings.baseCurrency })
+    .from(accountingSettings)
+    .where(eq(accountingSettings.organizationId, organizationId));
+  if (!previous) return undefined;
   const [row] = await tx
     .update(accountingSettings)
     .set({ baseCurrency })
     .where(eq(accountingSettings.organizationId, organizationId))
     .returning();
-  return row;
+  const moved = await tx
+    .update(accountingAccounts)
+    .set({ currencyCode: baseCurrency })
+    .where(
+      and(
+        eq(accountingAccounts.organizationId, organizationId),
+        eq(accountingAccounts.currencyCode, previous.baseCurrency),
+      ),
+    )
+    .returning({ id: accountingAccounts.id });
+  return { settings: row!, accountsMoved: moved.length };
 }
 
 /** Next journal number (assigned at posting; the settings row lock serializes numbering). */

@@ -2,4 +2,11 @@
 export * from './users.js';
 export * from './sessions.js';
 export * from './password-reset-tokens.js';
-export type { SessionRevocationReason, UserStatus } from './schema.js';
+export * from './mfa.js';
+export * from './trusted-devices.js';
+export type {
+  SessionMfaMethod,
+  SessionRevocationReason,
+  TrustedDeviceRevocationReason,
+  UserStatus,
+} from './schema.js';

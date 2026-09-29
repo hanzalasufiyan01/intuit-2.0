@@ -4,5 +4,12 @@
  * instead of building their own approval mechanisms.
  */
 export * from './approvals.js';
+export * from './conditions.js';
 export * from './permissions.js';
-export type { ApprovalRequestStatus, PolicySnapshot, PolicySnapshotStep } from './schema.js';
+export type {
+  ApprovalFacts,
+  ApprovalRequestStatus,
+  PolicySnapshot,
+  PolicySnapshotStep,
+  StepConditions,
+} from './schema.js';

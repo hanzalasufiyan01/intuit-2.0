@@ -5,6 +5,7 @@ import {
   accountingAccounts,
   accountingJournalEntries,
   accountingJournalLines,
+  type AccountSubtype,
   type AccountType,
 } from './schema.js';
 
@@ -97,7 +98,15 @@ export async function getAccountFacts(
   const ids = [...new Set(accountIds)];
   if (ids.length === 0) return new Map();
   const rows = await tx
-    .select({ id: accountingAccounts.id, status: accountingAccounts.status })
+    .select({
+      id: accountingAccounts.id,
+      status: accountingAccounts.status,
+      currencyCode: accountingAccounts.currencyCode,
+      isMonetary: accountingAccounts.isMonetary,
+      isControlAccount: accountingAccounts.isControlAccount,
+      accountType: accountingAccounts.accountType,
+      subtype: accountingAccounts.subtype,
+    })
     .from(accountingAccounts)
     .where(
       and(
@@ -115,9 +124,7 @@ export async function getAccountFacts(
       ),
     );
   const parentIds = new Set(parents.map((p) => p.parentId));
-  return new Map(
-    rows.map((r) => [r.id, { id: r.id, status: r.status, isLeaf: !parentIds.has(r.id) }]),
-  );
+  return new Map(rows.map((r) => [r.id, { ...r, isLeaf: !parentIds.has(r.id) }]));
 }
 
 export async function findAccountByCode(tx: Transaction, organizationId: string, code: string) {
@@ -220,6 +227,9 @@ export async function createAccount(
     description: string;
     accountType: AccountType;
     parentId: string | null;
+    currencyCode: string;
+    subtype: AccountSubtype | null;
+    isMonetary: boolean;
     userId: string;
   },
 ): Promise<Account | undefined> {
@@ -232,6 +242,9 @@ export async function createAccount(
       description: input.description.trim(),
       accountType: input.accountType,
       parentId: input.parentId,
+      currencyCode: input.currencyCode,
+      subtype: input.subtype,
+      isMonetary: input.isMonetary,
       createdByUserId: input.userId,
     })
     .onConflictDoNothing({ target: [accountingAccounts.organizationId, accountingAccounts.code] })
@@ -239,12 +252,24 @@ export async function createAccount(
   return row;
 }
 
+export type AccountChanges = Pick<
+  Account,
+  | 'code'
+  | 'name'
+  | 'description'
+  | 'accountType'
+  | 'parentId'
+  | 'currencyCode'
+  | 'subtype'
+  | 'isMonetary'
+>;
+
 export async function updateAccount(
   tx: Transaction,
   input: {
     organizationId: string;
     accountId: string;
-    changes: Partial<Pick<Account, 'code' | 'name' | 'description' | 'accountType' | 'parentId'>>;
+    changes: Partial<AccountChanges>;
     userId: string;
   },
 ): Promise<Account | undefined> {

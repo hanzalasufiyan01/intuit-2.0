@@ -1,4 +1,5 @@
 import { buildApp } from './app.js';
+import { poll } from './application/job-service.js';
 import { createDatabase } from './database/client.js';
 import { systemClock } from './infrastructure/clock.js';
 import { loadConfig } from './infrastructure/config/config.js';
@@ -20,7 +21,7 @@ const database = createDatabase({
 });
 const emailProvider = new MockEmailProvider(config.email.from);
 
-const { app } = await buildApp({
+const { app, services, worker } = await buildApp({
   deps: {
     db: database.db,
     config,
@@ -43,12 +44,32 @@ const stopOutbox = startOutboxPolling(dispatcher, config.outbox.pollIntervalMs, 
   app.log.error({ err: error }, 'Outbox dispatch failed'),
 );
 
+// Background jobs (S5-17) and the hourly file purge scheduler (S5-19), in-process.
+const stopJobs: (() => Promise<void>)[] = [];
+if (config.jobs.workerEnabled) {
+  stopJobs.push(
+    worker.start((error) => app.log.error({ err: error }, 'Job worker batch failed')),
+    poll(
+      () => services.jobs.schedulePurges(),
+      config.storage.purgeIntervalMs,
+      (error) => app.log.error({ err: error }, 'File purge scheduling failed'),
+    ),
+    // S6-36: import/export housekeeping (expiry, 30-day redaction, stuck work).
+    poll(
+      () => services.dataExchangeCleanup.schedule(),
+      config.dataExchange.cleanupIntervalMs,
+      (error) => app.log.error({ err: error }, 'Import/export cleanup scheduling failed'),
+    ),
+  );
+}
+
 let shuttingDown = false;
 async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   app.log.info({ signal }, 'Shutting down');
   await stopOutbox();
+  await Promise.all(stopJobs.map((stop) => stop()));
   await app.close();
   await database.close();
   process.exit(0);

@@ -19,11 +19,22 @@ import {
   generateMonthlyPeriods,
   getAccount,
   getAccountingSettings,
+  getDimensionValuesByIds,
+  listDimensionTypes,
   getFiscalYear,
   getPeriod,
   hasChildAccounts,
+  hasNonDraftJournals,
   hasPostedJournals,
+  designationAccountTypes,
+  designations as designationKeys,
+  designationsOfAccount,
   isAccountReferencedOutsideDrafts,
+  isBankOrCash,
+  listDesignations,
+  resolveMonetary,
+  setDesignation,
+  subtypeMatchesType,
   isValidIsoDate,
   addDays,
   listAccounts,
@@ -43,7 +54,10 @@ import {
   validatePeriodLayout,
   wouldCreateCycle,
   type Account,
+  type AccountChanges,
+  type AccountSubtype,
   type AccountType,
+  type Designation,
   type AccountWithFacts,
   type AccountingSettings,
   type FiscalYear,
@@ -52,11 +66,18 @@ import {
 import { recordAuditEvent, type EventOrigin } from '../modules/audit/index.js';
 import { enqueueOutboxEvent } from '../modules/outbox/index.js';
 import type { ApprovalService } from './approval-service.js';
-import { hasPermission, type AuthorizationContext, type Principal } from './authorization.js';
+import {
+  hasPermission,
+  requirePermission,
+  type AuthorizationContext,
+  type Principal,
+} from './authorization.js';
 import type { AppDependencies } from './dependencies.js';
 import { withOrganization } from './organization-service.js';
 
 export const PERIOD_REOPEN_ACTION = 'accounting.period.reopen';
+/** S10-03: the one transaction type of a period reopen. */
+export const PERIOD_REOPEN_TYPE = 'period_reopen';
 
 export class AccountingNotSetUpError extends AppError {
   constructor() {
@@ -89,6 +110,11 @@ export function accountView(account: AccountWithFacts | Account) {
     parentId: account.parentId,
     status: account.status,
     isSystem: account.isSystem,
+    currencyCode: account.currencyCode,
+    subtype: account.subtype,
+    isMonetary: account.isMonetary,
+    isControlAccount: account.isControlAccount,
+    isBankOrCash: isBankOrCash(account.subtype),
     ...('isLeaf' in account
       ? { isLeaf: account.isLeaf, usedInPostedJournals: account.usedInPostedJournals }
       : {}),
@@ -126,6 +152,25 @@ function fiscalYearView(year: FiscalYear, periods?: Period[]) {
 
 const issue = (path: string, message: string) => new ValidationError([{ path, message }]);
 
+export interface AccountInput {
+  code: string;
+  name: string;
+  description: string;
+  type: AccountType;
+  parentId: string | null;
+  currencyCode?: string | undefined;
+  subtype?: AccountSubtype | null | undefined;
+  isMonetary?: boolean | undefined;
+}
+
+export interface LedgerInput {
+  accountId?: string | undefined;
+  openingBasis?: 'cumulative' | 'fiscal_year' | undefined;
+  dimensionValueIds?: string[] | undefined;
+  fromDate?: string | undefined;
+  toDate?: string | undefined;
+}
+
 export class AccountingService {
   constructor(
     private readonly deps: AppDependencies,
@@ -137,6 +182,8 @@ export class AccountingService {
       subjectType: 'accounting_period',
       approverPermission: AccountingPermissions.PeriodsReopen,
       decisionRequiresReauth: true,
+      // S10-03: a reopen has no amount; steps may be limited by transaction type only.
+      conditions: { amount: false, transactionTypes: [PERIOD_REOPEN_TYPE] },
       onApproved: async (tx, { request, authz, now, origin }) => {
         const period = await reopenPeriod(tx, {
           organizationId: authz.organizationId,
@@ -259,7 +306,12 @@ export class AccountingService {
     );
   }
 
-  /** The base currency is fixed once anything has been posted (decision A2). */
+  /**
+   * The base currency is fixed once anything has been posted (Decision 26). Before that,
+   * accounts in the old base currency follow the new base currency; explicitly foreign accounts
+   * are unchanged. Pending journals must be withdrawn first: account currencies are immutable
+   * once an account has non-draft lines (Decision 70).
+   */
   updateSettings(principal: Principal, input: { baseCurrency: string }, origin: EventOrigin) {
     return withOrganization(
       this.deps,
@@ -277,7 +329,16 @@ export class AccountingService {
             'The base currency cannot change after journals have been posted.',
           );
         }
-        await updateBaseCurrency(tx, ctx.organizationId, input.baseCurrency);
+        if (input.baseCurrency === settings.baseCurrency) {
+          return { baseCurrency: settings.baseCurrency };
+        }
+        if (await hasNonDraftJournals(tx, ctx.organizationId)) {
+          throw new ConflictError(
+            'CONFLICT',
+            'Withdraw journals pending approval before changing the base currency.',
+          );
+        }
+        const changed = await updateBaseCurrency(tx, ctx.organizationId, input.baseCurrency);
         await recordAuditEvent(tx, {
           occurredAt: this.now,
           organizationId: ctx.organizationId,
@@ -285,7 +346,11 @@ export class AccountingService {
           action: 'accounting.base_currency_changed',
           resourceType: 'accounting_settings',
           resourceId: ctx.organizationId,
-          metadata: { from: settings.baseCurrency, to: input.baseCurrency },
+          metadata: {
+            from: settings.baseCurrency,
+            to: input.baseCurrency,
+            accountsMoved: changed?.accountsMoved ?? 0,
+          },
           origin,
         });
         return { baseCurrency: input.baseCurrency };
@@ -302,11 +367,15 @@ export class AccountingService {
       this.deps,
       principal,
       { permission: AccountingPermissions.AccountsView },
-      async (tx, ctx) => {
-        await requireAccountingSettings(tx, ctx.organizationId);
-        return (await listAccounts(tx, ctx.organizationId)).map(accountView);
-      },
+      async (tx, ctx) => (await this.listAccountsInTransaction(tx, ctx)).map(accountView),
     );
+  }
+
+  /** S6 (L-7): the account list inside the caller's transaction, for exports. */
+  async listAccountsInTransaction(tx: Transaction, ctx: AuthorizationContext) {
+    requirePermission(ctx, AccountingPermissions.AccountsView);
+    await requireAccountingSettings(tx, ctx.organizationId);
+    return listAccounts(tx, ctx.organizationId);
   }
 
   getAccount(principal: Principal, accountId: string) {
@@ -345,57 +414,113 @@ export class AccountingService {
         'This account has journal lines, so it cannot become a parent (parents are grouping nodes).',
       );
     }
+    if ((await designationsOfAccount(tx, organizationId, parentId)).length > 0) {
+      throw new ConflictError(
+        'ACCOUNT_DESIGNATED',
+        'A designated system account receives postings, so it cannot become a parent.',
+      );
+    }
   }
 
-  createAccount(
-    principal: Principal,
-    input: {
-      code: string;
-      name: string;
-      description: string;
-      type: AccountType;
-      parentId: string | null;
-    },
-    origin: EventOrigin,
+  /** Currency, subtype and monetary flag of a new or changed account (Decisions 1, 53, 70). */
+  private classify(
+    type: AccountType,
+    currencyCode: string,
+    subtype: AccountSubtype | null,
+    requestedMonetary: boolean | undefined,
+  ): boolean {
+    if (!isSupportedCurrency(currencyCode)) throw issue('currencyCode', 'Unsupported currency.');
+    if (subtype !== null && !subtypeMatchesType(subtype, type)) {
+      throw issue('subtype', 'This subtype does not belong to the account type.');
+    }
+    const monetary = resolveMonetary(subtype, requestedMonetary);
+    if (!monetary.ok) throw issue('isMonetary', monetary.message);
+    return monetary.value;
+  }
+
+  /** A designated account must keep the nature and base currency its designation needs. */
+  private async assertDesignationsStillValid(
+    tx: Transaction,
+    organizationId: string,
+    accountId: string,
+    next: { type: AccountType; currencyCode: string },
+    baseCurrency: string,
   ) {
+    for (const designation of await designationsOfAccount(tx, organizationId, accountId)) {
+      if (!designationAccountTypes[designation].includes(next.type)) {
+        throw new ConflictError(
+          'ACCOUNT_DESIGNATED',
+          `This account is designated as ${designation}; its type cannot change to ${next.type}.`,
+        );
+      }
+      if (next.currencyCode !== baseCurrency) {
+        throw new ConflictError(
+          'ACCOUNT_DESIGNATED',
+          `This account is designated as ${designation}; it must stay in the base currency.`,
+        );
+      }
+    }
+  }
+
+  createAccount(principal: Principal, input: AccountInput, origin: EventOrigin) {
     return withOrganization(
       this.deps,
       principal,
       { permission: AccountingPermissions.AccountsCreate },
-      async (tx, ctx) => {
-        await requireAccountingSettings(tx, ctx.organizationId);
-        if (input.parentId) {
-          await this.assertValidParent(tx, ctx.organizationId, input.parentId, input.type);
-        }
-        const account = await createAccount(tx, {
-          organizationId: ctx.organizationId,
-          code: input.code,
-          name: input.name,
-          description: input.description,
-          accountType: input.type,
-          parentId: input.parentId,
-          userId: ctx.userId,
-        });
-        if (!account)
-          throw new ConflictError('CONFLICT', 'An account with this code already exists.');
-        await recordAuditEvent(tx, {
-          occurredAt: this.now,
-          organizationId: ctx.organizationId,
-          actorUserId: ctx.userId,
-          action: 'account.created',
-          resourceType: 'accounting_account',
-          resourceId: account.id,
-          metadata: {
-            code: account.code,
-            name: account.name,
-            type: account.accountType,
-            parentId: account.parentId,
-          },
-          origin,
-        });
-        return accountView(account);
-      },
+      async (tx, ctx) => accountView(await this.createAccountInTransaction(tx, ctx, input, origin)),
     );
+  }
+
+  /**
+   * S6 (L-7): creates an account inside the caller's transaction with exactly the rules and
+   * audit of the HTTP path. Imports use it so a whole batch commits atomically.
+   */
+  async createAccountInTransaction(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    input: AccountInput,
+    origin: EventOrigin,
+  ) {
+    requirePermission(ctx, AccountingPermissions.AccountsCreate);
+    const settings = await requireAccountingSettings(tx, ctx.organizationId);
+    const currencyCode = input.currencyCode ?? settings.baseCurrency;
+    const subtype = input.subtype ?? null;
+    const isMonetary = this.classify(input.type, currencyCode, subtype, input.isMonetary);
+    if (input.parentId) {
+      await this.assertValidParent(tx, ctx.organizationId, input.parentId, input.type);
+    }
+    const account = await createAccount(tx, {
+      organizationId: ctx.organizationId,
+      code: input.code,
+      name: input.name,
+      description: input.description,
+      accountType: input.type,
+      parentId: input.parentId,
+      currencyCode,
+      subtype,
+      isMonetary,
+      userId: ctx.userId,
+    });
+    if (!account) throw new ConflictError('CONFLICT', 'An account with this code already exists.');
+    await recordAuditEvent(tx, {
+      occurredAt: this.now,
+      organizationId: ctx.organizationId,
+      actorUserId: ctx.userId,
+      action: 'account.created',
+      resourceType: 'accounting_account',
+      resourceId: account.id,
+      metadata: {
+        code: account.code,
+        name: account.name,
+        type: account.accountType,
+        parentId: account.parentId,
+        currencyCode: account.currencyCode,
+        subtype: account.subtype,
+        isMonetary: account.isMonetary,
+      },
+      origin,
+    });
+    return account;
   }
 
   updateAccount(
@@ -407,6 +532,9 @@ export class AccountingService {
       description?: string | undefined;
       type?: AccountType | undefined;
       parentId?: string | null | undefined;
+      currencyCode?: string | undefined;
+      subtype?: AccountSubtype | null | undefined;
+      isMonetary?: boolean | undefined;
     },
     origin: EventOrigin,
   ) {
@@ -415,11 +543,35 @@ export class AccountingService {
       principal,
       { permission: AccountingPermissions.AccountsUpdate },
       async (tx, ctx) => {
-        await requireAccountingSettings(tx, ctx.organizationId);
+        const settings = await requireAccountingSettings(tx, ctx.organizationId);
         const account = await getAccount(tx, ctx.organizationId, accountId, { forUpdate: true });
         if (!account) throw new NotFoundError('Account not found.');
         const type = input.type ?? account.accountType;
         const parentId = input.parentId === undefined ? account.parentId : input.parentId;
+        const currencyCode = input.currencyCode ?? account.currencyCode;
+        const subtype = input.subtype === undefined ? account.subtype : input.subtype;
+        const isMonetary = this.classify(
+          type,
+          currencyCode,
+          subtype,
+          input.isMonetary ?? (subtype === account.subtype ? account.isMonetary : undefined),
+        );
+        if (
+          currencyCode !== account.currencyCode &&
+          (await isAccountReferencedOutsideDrafts(tx, ctx.organizationId, accountId))
+        ) {
+          throw new ConflictError(
+            'ACCOUNT_IN_USE',
+            'The currency of an account with non-draft journal lines cannot change.',
+          );
+        }
+        await this.assertDesignationsStillValid(
+          tx,
+          ctx.organizationId,
+          accountId,
+          { type, currencyCode },
+          settings.baseCurrency,
+        );
 
         if (type !== account.accountType) {
           if (await isAccountReferencedOutsideDrafts(tx, ctx.organizationId, accountId)) {
@@ -441,9 +593,7 @@ export class AccountingService {
             throw new ConflictError('CONFLICT', 'An account with this code already exists.');
         }
 
-        const changes: Partial<
-          Pick<Account, 'code' | 'name' | 'description' | 'accountType' | 'parentId'>
-        > = {};
+        const changes: Partial<AccountChanges> = {};
         if (input.code !== undefined && input.code !== account.code) changes.code = input.code;
         if (input.name !== undefined && input.name.trim() !== account.name)
           changes.name = input.name.trim();
@@ -452,6 +602,9 @@ export class AccountingService {
         }
         if (type !== account.accountType) changes.accountType = type;
         if (parentId !== account.parentId) changes.parentId = parentId;
+        if (currencyCode !== account.currencyCode) changes.currencyCode = currencyCode;
+        if (subtype !== account.subtype) changes.subtype = subtype;
+        if (isMonetary !== account.isMonetary) changes.isMonetary = isMonetary;
         if (Object.keys(changes).length === 0) return accountView(account);
 
         const updated = await updateAccount(tx, {
@@ -491,6 +644,7 @@ export class AccountingService {
         if (account.status === 'ARCHIVED') {
           throw new ConflictError('INVALID_STATE_TRANSITION', 'The account is already archived.');
         }
+        await this.assertNotDesignated(tx, ctx.organizationId, accountId);
         const archived = await archiveAccount(tx, {
           organizationId: ctx.organizationId,
           accountId,
@@ -538,6 +692,7 @@ export class AccountingService {
         if (await hasChildAccounts(tx, ctx.organizationId, accountId)) {
           throw new ConflictError('CONFLICT', 'Delete or move the child accounts first.');
         }
+        await this.assertNotDesignated(tx, ctx.organizationId, accountId);
         const result = await deleteAccount(tx, ctx.organizationId, accountId);
         if (!result.deleted) throw new NotFoundError('Account not found.');
         await recordAuditEvent(tx, {
@@ -554,6 +709,145 @@ export class AccountingService {
           },
           origin,
         });
+      },
+    );
+  }
+
+  private async assertNotDesignated(tx: Transaction, organizationId: string, accountId: string) {
+    const held = await designationsOfAccount(tx, organizationId, accountId);
+    if (held.length > 0) {
+      throw new ConflictError(
+        'ACCOUNT_DESIGNATED',
+        `This account is designated as ${held.join(', ')}. Designate another account first.`,
+      );
+    }
+  }
+
+  /**
+   * Validates a report dimension filter: values of this organization, at most one per type.
+   * Archived values stay usable for reporting on historical activity.
+   */
+  private async resolveDimensionFilter(
+    tx: Transaction,
+    organizationId: string,
+    valueIds: readonly string[],
+  ) {
+    const values = await getDimensionValuesByIds(tx, organizationId, valueIds);
+    const typeIds = new Set<string>();
+    const types = new Map((await listDimensionTypes(tx, organizationId)).map((t) => [t.id, t]));
+    return [...new Set(valueIds)].map((id) => {
+      const value = values.get(id);
+      if (!value) throw issue('dimensionValueIds', 'Unknown dimension value.');
+      if (typeIds.has(value.dimensionTypeId)) {
+        throw issue('dimensionValueIds', 'Filter on at most one value per dimension type.');
+      }
+      typeIds.add(value.dimensionTypeId);
+      const type = types.get(value.dimensionTypeId)!;
+      return {
+        dimensionTypeId: type.id,
+        typeName: type.name,
+        dimensionValueId: value.id,
+        valueName: value.name,
+      };
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // System account designations (Decisions 14, 64)
+  // ---------------------------------------------------------------------------
+
+  listDesignations(principal: Principal) {
+    return withOrganization(
+      this.deps,
+      principal,
+      { permission: AccountingPermissions.AccountsView },
+      async (tx, ctx) => {
+        await requireAccountingSettings(tx, ctx.organizationId);
+        const rows = await listDesignations(tx, ctx.organizationId);
+        return designationKeys.map((designation) => {
+          const row = rows.find((r) => r.designation === designation);
+          return {
+            designation,
+            accountId: row?.accountId ?? null,
+            allowedTypes: designationAccountTypes[designation],
+            updatedAt: row?.updatedAt.toISOString() ?? null,
+          };
+        });
+      },
+    );
+  }
+
+  /**
+   * Sets or clears designations. A designated account is an active leaf account of the required
+   * nature, in the base currency, and not a control account. Every change is audited.
+   */
+  updateDesignations(
+    principal: Principal,
+    input: Partial<Record<Designation, string | null>>,
+    origin: EventOrigin,
+  ) {
+    return withOrganization(
+      this.deps,
+      principal,
+      { permission: AccountingPermissions.Setup },
+      async (tx, ctx) => {
+        const settings = await requireAccountingSettings(tx, ctx.organizationId);
+        const current = await listDesignations(tx, ctx.organizationId);
+        const changes: { designation: Designation; from: string | null; to: string | null }[] = [];
+        for (const designation of designationKeys) {
+          const accountId = input[designation];
+          if (accountId === undefined) continue;
+          const from = current.find((r) => r.designation === designation)?.accountId ?? null;
+          if (from === accountId) continue;
+          if (accountId !== null) {
+            const account = await getAccount(tx, ctx.organizationId, accountId);
+            const path = designation;
+            if (!account) throw issue(path, 'The account does not exist.');
+            if (account.status !== 'ACTIVE')
+              throw issue(path, 'Archived accounts cannot be designated.');
+            if (!account.isLeaf) throw issue(path, 'Only leaf accounts can be designated.');
+            if (!designationAccountTypes[designation].includes(account.accountType)) {
+              throw issue(
+                path,
+                `This designation needs a ${designationAccountTypes[designation].join(' or ')} account.`,
+              );
+            }
+            if (account.currencyCode !== settings.baseCurrency) {
+              throw issue(path, 'Designated accounts are in the base currency.');
+            }
+            if (account.isControlAccount) {
+              throw issue(path, 'Control accounts cannot be designated.');
+            }
+          }
+          await setDesignation(tx, {
+            organizationId: ctx.organizationId,
+            designation,
+            accountId,
+            userId: ctx.userId,
+            now: this.now,
+          });
+          changes.push({ designation, from, to: accountId });
+        }
+        if (changes.length > 0) {
+          await recordAuditEvent(tx, {
+            occurredAt: this.now,
+            organizationId: ctx.organizationId,
+            actorUserId: ctx.userId,
+            action: 'accounting.designations_changed',
+            resourceType: 'accounting_settings',
+            resourceId: ctx.organizationId,
+            metadata: { changes },
+            origin,
+          });
+        }
+        const rows = await listDesignations(tx, ctx.organizationId);
+        return designationKeys.map((designation) => ({
+          designation,
+          accountId: rows.find((r) => r.designation === designation)?.accountId ?? null,
+          allowedTypes: designationAccountTypes[designation],
+          updatedAt:
+            rows.find((r) => r.designation === designation)?.updatedAt.toISOString() ?? null,
+        }));
       },
     );
   }
@@ -592,45 +886,7 @@ export class AccountingService {
       principal,
       { permission: AccountingPermissions.Setup },
       async (tx, ctx) => {
-        const settings = await requireAccountingSettings(tx, ctx.organizationId);
-        if (!isSupportedCurrency(input.fromCurrency))
-          throw issue('fromCurrency', 'Unsupported currency.');
-        if (input.fromCurrency === settings.baseCurrency) {
-          throw issue(
-            'fromCurrency',
-            'Rates are recorded for foreign currencies against the base currency.',
-          );
-        }
-        if (!isValidIsoDate(input.rateDate))
-          throw issue('rateDate', 'Enter a valid date (YYYY-MM-DD).');
-        const parsed = parseRate(input.rate);
-        if (!parsed.ok)
-          throw issue('rate', 'Rates are positive decimal strings with at most 10 decimals.');
-        const rate = await recordExchangeRate(tx, {
-          organizationId: ctx.organizationId,
-          fromCurrency: input.fromCurrency,
-          toCurrency: settings.baseCurrency,
-          rateDate: input.rateDate,
-          rate: parsed.value.toFixed(10),
-          userId: ctx.userId,
-        });
-        if (!rate)
-          throw new ConflictError('CONFLICT', 'A rate for this currency and date already exists.');
-        await recordAuditEvent(tx, {
-          occurredAt: this.now,
-          organizationId: ctx.organizationId,
-          actorUserId: ctx.userId,
-          action: 'exchange_rate.recorded',
-          resourceType: 'accounting_exchange_rate',
-          resourceId: rate.id,
-          metadata: {
-            from: rate.fromCurrency,
-            to: rate.toCurrency,
-            date: rate.rateDate,
-            rate: rate.rate,
-          },
-          origin,
-        });
+        const rate = await this.recordExchangeRateInTransaction(tx, ctx, input, origin);
         return {
           id: rate.id,
           fromCurrency: rate.fromCurrency,
@@ -640,6 +896,56 @@ export class AccountingService {
         };
       },
     );
+  }
+
+  /** S6 (L-7): records a rate inside the caller's transaction (same rules and audit). */
+  async recordExchangeRateInTransaction(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    input: { fromCurrency: string; rateDate: string; rate: string },
+    origin: EventOrigin,
+  ) {
+    requirePermission(ctx, AccountingPermissions.Setup);
+    const settings = await requireAccountingSettings(tx, ctx.organizationId);
+    if (!isSupportedCurrency(input.fromCurrency))
+      throw issue('fromCurrency', 'Unsupported currency.');
+    if (input.fromCurrency === settings.baseCurrency) {
+      throw issue(
+        'fromCurrency',
+        'Rates are recorded for foreign currencies against the base currency.',
+      );
+    }
+    if (!isValidIsoDate(input.rateDate))
+      throw issue('rateDate', 'Enter a valid date (YYYY-MM-DD).');
+    const parsed = parseRate(input.rate);
+    if (!parsed.ok)
+      throw issue('rate', 'Rates are positive decimal strings with at most 10 decimals.');
+    const rate = await recordExchangeRate(tx, {
+      organizationId: ctx.organizationId,
+      fromCurrency: input.fromCurrency,
+      toCurrency: settings.baseCurrency,
+      rateDate: input.rateDate,
+      rate: parsed.value.toFixed(10),
+      userId: ctx.userId,
+    });
+    if (!rate)
+      throw new ConflictError('CONFLICT', 'A rate for this currency and date already exists.');
+    await recordAuditEvent(tx, {
+      occurredAt: this.now,
+      organizationId: ctx.organizationId,
+      actorUserId: ctx.userId,
+      action: 'exchange_rate.recorded',
+      resourceType: 'accounting_exchange_rate',
+      resourceId: rate.id,
+      metadata: {
+        from: rate.fromCurrency,
+        to: rate.toCurrency,
+        date: rate.rateDate,
+        rate: rate.rate,
+      },
+      origin,
+    });
+    return rate;
   }
 
   // ---------------------------------------------------------------------------
@@ -836,7 +1142,7 @@ export class AccountingService {
       principal,
       { permission: AccountingPermissions.PeriodsReopen, sensitive: true },
       async (tx, ctx) => {
-        await requireAccountingSettings(tx, ctx.organizationId);
+        const settings = await requireAccountingSettings(tx, ctx.organizationId);
         const period = await getPeriod(tx, ctx.organizationId, periodId, 'update');
         if (!period) throw new NotFoundError('Period not found.');
         if (period.status !== 'CLOSED') {
@@ -852,6 +1158,11 @@ export class AccountingService {
           subjectId: periodId,
           excludedUserIds: [ctx.userId],
           reason: reason.trim(),
+          facts: {
+            transactionType: PERIOD_REOPEN_TYPE,
+            baseAmount: null,
+            baseCurrency: settings.baseCurrency,
+          },
           now,
         });
         if (request) {
@@ -932,51 +1243,102 @@ export class AccountingService {
   // General ledger and dashboard
   // ---------------------------------------------------------------------------
 
-  ledger(
-    principal: Principal,
-    input: {
-      accountId?: string | undefined;
-      fromDate?: string | undefined;
-      toDate?: string | undefined;
-      limit: number;
-    },
-  ) {
+  ledger(principal: Principal, input: LedgerInput & { limit: number }) {
     return withOrganization(
       this.deps,
       principal,
       { permission: AccountingPermissions.LedgerView },
       async (tx, ctx) => {
-        const settings = await requireAccountingSettings(tx, ctx.organizationId);
-        for (const [key, value] of [
-          ['fromDate', input.fromDate],
-          ['toDate', input.toDate],
-        ] as const) {
-          if (value && !isValidIsoDate(value)) throw issue(key, 'Enter a valid date (YYYY-MM-DD).');
-        }
-        let accountIds: string[] | null = null;
-        let account: AccountWithFacts | undefined;
-        if (input.accountId) {
-          account = await getAccount(tx, ctx.organizationId, input.accountId);
-          if (!account) throw new NotFoundError('Account not found.');
-          // Parent accounts are reporting nodes: their ledger aggregates all descendants.
-          accountIds = await descendantAccountIds(tx, ctx.organizationId, account.id);
-        }
+        const scope = await this.ledgerScopeInTransaction(tx, ctx, input);
         const result = await queryLedger(tx, {
           organizationId: ctx.organizationId,
-          accountIds,
+          accountIds: scope.accountIds,
+          openingFrom: scope.openingFrom,
+          dimensionValueIds: scope.dimensionFilter.map((d) => d.dimensionValueId),
           fromDate: input.fromDate ?? null,
           toDate: input.toDate ?? null,
           limit: input.limit,
         });
         return {
-          baseCurrency: settings.baseCurrency,
-          account: account ? accountView(account) : null,
+          baseCurrency: scope.baseCurrency,
+          account: scope.account ? accountView(scope.account) : null,
           fromDate: input.fromDate ?? null,
           toDate: input.toDate ?? null,
+          dimensionFilter: scope.dimensionFilter,
+          openingBasis: scope.openingBasis,
+          // Decision 16: dimension-filtered results show tagged activity only.
+          taggedActivityOnly: scope.dimensionFilter.length > 0,
           ...result,
         };
       },
     );
+  }
+
+  /**
+   * Authorizes and resolves a ledger request (S6, L-7): shared by the ledger endpoint and the
+   * ledger export, so both apply the same permissions (Decision 92) and filters.
+   */
+  async ledgerScopeInTransaction(tx: Transaction, ctx: AuthorizationContext, input: LedgerInput) {
+    requirePermission(ctx, AccountingPermissions.LedgerView);
+    // Decision 92: filtering by dimension also needs accounting.dimensions.view. Checked
+    // before any dimension lookup, so nothing about the values is revealed.
+    if (
+      input.dimensionValueIds?.length &&
+      !hasPermission(ctx, AccountingPermissions.DimensionsView)
+    ) {
+      throw new PermissionDeniedError(
+        'You need permission to view dimensions to filter the ledger by dimension.',
+      );
+    }
+    const settings = await requireAccountingSettings(tx, ctx.organizationId);
+    for (const [key, value] of [
+      ['fromDate', input.fromDate],
+      ['toDate', input.toDate],
+    ] as const) {
+      if (value && !isValidIsoDate(value)) throw issue(key, 'Enter a valid date (YYYY-MM-DD).');
+    }
+    let accountIds: string[] | null = null;
+    let account: AccountWithFacts | undefined;
+    if (input.accountId) {
+      account = await getAccount(tx, ctx.organizationId, input.accountId);
+      if (!account) throw new NotFoundError('Account not found.');
+      // Parent accounts are reporting nodes: their ledger aggregates all descendants.
+      accountIds = await descendantAccountIds(tx, ctx.organizationId, account.id);
+    }
+    const dimensionFilter = await this.resolveDimensionFilter(
+      tx,
+      ctx.organizationId,
+      input.dimensionValueIds ?? [],
+    );
+    // S3-19: a P&L account's opening on a fiscal-year basis starts at the fiscal year that
+    // contains fromDate (virtual year-end), so it matches the Trial Balance opening.
+    let openingFrom: string | null = null;
+    const fiscalBasis =
+      input.openingBasis === 'fiscal_year' &&
+      account !== undefined &&
+      input.fromDate !== undefined &&
+      (account.accountType === 'REVENUE' || account.accountType === 'EXPENSE');
+    if (fiscalBasis) {
+      const fy = (await listFiscalYears(tx, ctx.organizationId)).find(
+        (y) => y.startDate <= input.fromDate! && input.fromDate! <= y.endDate,
+      );
+      if (!fy) {
+        throw new AppError(
+          'FISCAL_YEAR_NOT_FOUND',
+          409,
+          `No fiscal year covers ${input.fromDate}.`,
+        );
+      }
+      openingFrom = fy.startDate;
+    }
+    return {
+      baseCurrency: settings.baseCurrency,
+      account,
+      accountIds,
+      openingFrom,
+      dimensionFilter,
+      openingBasis: fiscalBasis ? ('fiscal_year' as const) : ('cumulative' as const),
+    };
   }
 
   dashboard(principal: Principal) {

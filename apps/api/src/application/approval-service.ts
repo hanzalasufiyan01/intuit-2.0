@@ -6,7 +6,9 @@ import {
   ValidationError,
 } from '../domain/errors.js';
 import type { Transaction } from '../database/client.js';
+import { minorUnits } from '../domain/money.js';
 import { getRolesByIds } from '../modules/access-control/index.js';
+import { getAccountingSettings } from '../modules/accounting/index.js';
 import {
   ApprovalPermissions,
   createApprovalRequest,
@@ -17,13 +19,19 @@ import {
   listApprovalDecisions,
   listApprovalPolicies,
   listApprovalRequests,
+  matchingSteps,
+  normalizeConditions,
   recordApprovalDecision,
   replaceApprovalPolicy,
   resolveApprovalRequest,
   selectApprovalStep,
   snapshotPolicy,
+  type ActionConditionSupport,
+  type ApprovalFacts,
   type ApprovalRequest,
   type ApprovalStepInput,
+  type ConditionInput,
+  type PolicySnapshotStep,
 } from '../modules/approvals/index.js';
 import { recordAuditEvent, type EventOrigin } from '../modules/audit/index.js';
 import { findMembershipById } from '../modules/organizations/index.js';
@@ -48,6 +56,12 @@ export interface ApprovalActionDefinition {
   approverPermission: string;
   /** Whether each approval decision is a sensitive action (re-authentication). */
   decisionRequiresReauth: boolean;
+  /**
+   * S10-02: which step conditions this action supports: an amount (the subject's base-currency
+   * equivalent at the document rate) and its controlled list of transaction types. The facts are
+   * always derived on the server by the registering module.
+   */
+  conditions: ActionConditionSupport;
   /** Runs in the deciding transaction when the request becomes fully approved. */
   onApproved?: (tx: Transaction, context: DecisionContext) => Promise<void>;
   /** Runs in the deciding transaction when the request is rejected. */
@@ -66,6 +80,17 @@ export class ApprovalRequiredError extends AppError {
   constructor(message = 'This action requires approval before it can be completed.') {
     super('APPROVAL_REQUIRED', 409, message);
   }
+}
+
+/** A policy step as submitted: conditions not yet validated. */
+export interface PolicyStepRequest extends Omit<ApprovalStepInput, 'conditions'> {
+  conditions?: ConditionInput | undefined;
+}
+
+/** Whether approval is required for a subject with these facts, and which steps apply. */
+export interface ApprovalRequirement {
+  required: boolean;
+  steps: PolicySnapshotStep[];
 }
 
 export interface DecisionOutcome {
@@ -93,6 +118,10 @@ export class ApprovalService {
       actionKey: a.actionKey,
       label: a.label,
       approverPermission: a.approverPermission,
+      conditions: {
+        amount: a.conditions.amount,
+        transactionTypes: [...a.conditions.transactionTypes],
+      },
     }));
   }
 
@@ -107,8 +136,10 @@ export class ApprovalService {
       { permission: ApprovalPermissions.ApprovalsManage },
       async (tx, ctx) => {
         const policies = await listApprovalPolicies(tx, ctx.organizationId);
+        const settings = await getAccountingSettings(tx, ctx.organizationId);
         return {
           actions: this.listActions(),
+          baseCurrency: settings?.baseCurrency ?? null,
           policies: policies.map((p) => ({
             actionKey: p.actionKey,
             updatedAt: p.updatedAt.toISOString(),
@@ -121,7 +152,7 @@ export class ApprovalService {
 
   setPolicy(
     principal: Principal,
-    input: { actionKey: string; steps: ApprovalStepInput[] },
+    input: { actionKey: string; steps: PolicyStepRequest[] },
     origin: EventOrigin,
   ) {
     return withOrganization(
@@ -129,12 +160,20 @@ export class ApprovalService {
       principal,
       { permission: ApprovalPermissions.ApprovalsManage, sensitive: true },
       async (tx, ctx) => {
-        if (!this.actions.has(input.actionKey)) {
+        const definition = this.actions.get(input.actionKey);
+        if (!definition) {
           throw new ValidationError([{ path: 'actionKey', message: 'Unknown approvable action.' }]);
         }
         await this.assertEligibleSetsBelongToOrganization(tx, ctx.organizationId, input.steps);
-        const before = await getApprovalPolicy(tx, ctx.organizationId, input.actionKey);
-        await replaceApprovalPolicy(tx, { organizationId: ctx.organizationId, ...input });
+        const steps = await this.normalizeSteps(tx, ctx.organizationId, definition, input.steps);
+        const before = await getApprovalPolicy(tx, ctx.organizationId, input.actionKey, {
+          lock: 'update',
+        });
+        await replaceApprovalPolicy(tx, {
+          organizationId: ctx.organizationId,
+          actionKey: input.actionKey,
+          steps,
+        });
         const after = await getApprovalPolicy(tx, ctx.organizationId, input.actionKey);
         await recordAuditEvent(tx, {
           occurredAt: this.deps.clock.now(),
@@ -179,10 +218,34 @@ export class ApprovalService {
     );
   }
 
+  /** S10-01: validates each step's conditions against the action and the base currency. */
+  private async normalizeSteps(
+    tx: Transaction,
+    organizationId: string,
+    definition: ApprovalActionDefinition,
+    steps: PolicyStepRequest[],
+  ): Promise<ApprovalStepInput[]> {
+    const settings = await getAccountingSettings(tx, organizationId);
+    const baseCurrency = settings?.baseCurrency ?? null;
+    const issues: { path: string; message: string }[] = [];
+    const normalized: ApprovalStepInput[] = [];
+    steps.forEach((step, i) => {
+      const result = normalizeConditions(step.conditions, definition.conditions, {
+        baseCurrency,
+        minorUnits: baseCurrency ? minorUnits(baseCurrency) : 0,
+        path: `steps.${i}.conditions`,
+      });
+      if (result.ok) normalized.push({ ...step, conditions: result.value });
+      else issues.push(...result.issues);
+    });
+    if (issues.length) throw new ValidationError(issues);
+    return normalized;
+  }
+
   private async assertEligibleSetsBelongToOrganization(
     tx: Transaction,
     organizationId: string,
-    steps: ApprovalStepInput[],
+    steps: PolicyStepRequest[],
   ) {
     const issues: { path: string; message: string }[] = [];
     if (steps.length === 0)
@@ -213,15 +276,26 @@ export class ApprovalService {
   // Requests (used by modules inside their own transactions)
   // ---------------------------------------------------------------------------
 
-  /** Whether an organization currently requires approval for an action. */
-  async isApprovalRequired(tx: Transaction, organizationId: string, actionKey: string) {
-    const policy = await getApprovalPolicy(tx, organizationId, actionKey);
-    return (policy?.steps.length ?? 0) > 0;
+  /**
+   * Whether a subject with these facts requires approval (S10-06): true when at least one policy
+   * step applies. No policy, or no matching step, means direct action (Decisions 22, 77). Called
+   * inside the caller's transaction, including the authoritative posting transaction.
+   */
+  async requirementFor(
+    tx: Transaction,
+    organizationId: string,
+    actionKey: string,
+    facts: ApprovalFacts,
+  ): Promise<ApprovalRequirement> {
+    this.action(actionKey);
+    const policy = await getApprovalPolicy(tx, organizationId, actionKey, { lock: 'share' });
+    const steps = policy ? matchingSteps(policy.steps, facts) : [];
+    return { required: steps.length > 0, steps };
   }
 
   /**
-   * Opens an approval request if the organization has a policy for the action.
-   * Returns null when no approval is required.
+   * Opens an approval request for the steps that apply to the subject's facts (S10-04). Returns
+   * null when no step applies: the action then proceeds directly (Decision 77).
    */
   async openRequest(
     tx: Transaction,
@@ -231,18 +305,22 @@ export class ApprovalService {
       subjectId: string;
       excludedUserIds: string[];
       reason: string | null;
+      facts: ApprovalFacts;
       now: Date;
     },
   ): Promise<ApprovalRequest | null> {
     const definition = this.action(input.actionKey);
-    const policy = await getApprovalPolicy(tx, input.authz.organizationId, input.actionKey);
-    if (!policy || policy.steps.length === 0) return null;
+    const policy = await getApprovalPolicy(tx, input.authz.organizationId, input.actionKey, {
+      lock: 'share',
+    });
+    const snapshot = snapshotPolicy(policy, input.facts, input.now);
+    if (snapshot.steps.length === 0) return null;
     const request = await createApprovalRequest(tx, {
       organizationId: input.authz.organizationId,
       actionKey: input.actionKey,
       subjectType: definition.subjectType,
       subjectId: input.subjectId,
-      snapshot: snapshotPolicy(policy),
+      snapshot,
       requestedByUserId: input.authz.userId,
       excludedUserIds: input.excludedUserIds,
       reason: input.reason,
@@ -409,6 +487,13 @@ export class ApprovalService {
           reason: request.reason,
           requestedByUserId: request.requestedByUserId,
           createdAt: request.createdAt.toISOString(),
+          facts: request.policySnapshot.facts ?? null,
+          appliedSteps: request.policySnapshot.steps.map((step) => ({
+            order: step.order,
+            name: step.name,
+            requiredApprovals: step.requiredApprovals,
+            conditions: step.conditions ?? null,
+          })),
           progress: evaluateApprovals(request.policySnapshot, own).steps,
           canDecide: eligibility.ok,
           ineligibleReason: eligibility.ok ? null : eligibility.problem,

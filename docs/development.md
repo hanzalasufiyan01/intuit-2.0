@@ -32,30 +32,37 @@ Choose strong, unique passwords for the two roles. `.env` is git-ignored. Never 
 
 ### Environment variables
 
-| Variable                                        | Default              | Purpose                                                          |
-| ----------------------------------------------- | -------------------- | ---------------------------------------------------------------- |
-| `APP_ENV`                                       | —                    | `development`, `testing`, `staging` or `production`              |
-| `API_HOST` / `API_PORT`                         | `127.0.0.1` / `3000` | API listen address                                               |
-| `LOG_LEVEL`                                     | `info`               | pino log level                                                   |
-| `WEB_ORIGIN`                                    | —                    | Web app origin. State-changing requests from other origins fail. |
-| `TRUST_PROXY`                                   | `false`              | `true` only behind a trusted reverse proxy                       |
-| `DATABASE_URL`                                  | —                    | Runtime role (`intuit_app`)                                      |
-| `DATABASE_MIGRATION_URL`                        | —                    | Migration role (`intuit_owner`)                                  |
-| `DATABASE_POOL_MAX`                             | `10`                 | Connection pool size                                             |
-| `SESSION_COOKIE_NAME`                           | `intuit_session`     | Session cookie name                                              |
-| `SESSION_IDLE_TIMEOUT_MINUTES`                  | `30`                 | Idle timeout                                                     |
-| `SESSION_ABSOLUTE_LIFETIME_DAYS`                | `7`                  | Absolute session lifetime                                        |
-| `SENSITIVE_ACTION_REAUTH_MINUTES`               | `15`                 | Re-authentication window for sensitive actions                   |
-| `SESSION_SECRET`                                | —                    | Server secret used to derive CSRF tokens                         |
-| `PASSWORD_MIN_LENGTH`                           | `12`                 | Minimum password length                                          |
-| `PASSWORD_RESET_TOKEN_TTL_MINUTES`              | `60`                 | Reset-link lifetime. Approved and frozen at 60                   |
-| `LOGIN_MAX_FAILED_ATTEMPTS`                     | `5`                  | Failures (per account and per IP) before back-off                |
-| `LOGIN_FAILED_WINDOW_MINUTES`                   | `15`                 | Failure counting window                                          |
-| `LOGIN_BACKOFF_BASE_SECONDS` / `_MAX_SECONDS`   | `60` / `900`         | Progressive back-off                                             |
-| `INVITATION_EXPIRY_HOURS`                       | `72`                 | Invitation lifetime (approved)                                   |
-| `OUTBOX_POLL_INTERVAL_MS` / `OUTBOX_BATCH_SIZE` | `2000` / `20`        | Outbox dispatcher                                                |
-| `DEV_SEED_PASSWORD`                             | —                    | Password for `pnpm db:seed:dev` users (local only)               |
-| `EMAIL_PROVIDER` / `EMAIL_FROM`                 | `mock`               | Email provider (mock records messages in memory)                 |
+| Variable                                                 | Default                               | Purpose                                                           |
+| -------------------------------------------------------- | ------------------------------------- | ----------------------------------------------------------------- |
+| `APP_ENV`                                                | —                                     | `development`, `testing`, `staging` or `production`               |
+| `API_HOST` / `API_PORT`                                  | `127.0.0.1` / `3000`                  | API listen address                                                |
+| `LOG_LEVEL`                                              | `info`                                | pino log level                                                    |
+| `WEB_ORIGIN`                                             | —                                     | Web app origin. State-changing requests from other origins fail.  |
+| `TRUST_PROXY`                                            | `false`                               | `true` only behind a trusted reverse proxy                        |
+| `DATABASE_URL`                                           | —                                     | Runtime role (`intuit_app`)                                       |
+| `DATABASE_MIGRATION_URL`                                 | —                                     | Migration role (`intuit_owner`)                                   |
+| `DATABASE_POOL_MAX`                                      | `10`                                  | Connection pool size                                              |
+| `SESSION_COOKIE_NAME`                                    | `intuit_session`                      | Session cookie name                                               |
+| `SESSION_IDLE_TIMEOUT_MINUTES`                           | `30`                                  | Idle timeout                                                      |
+| `SESSION_ABSOLUTE_LIFETIME_DAYS`                         | `7`                                   | Absolute session lifetime                                         |
+| `SENSITIVE_ACTION_REAUTH_MINUTES`                        | `15`                                  | Re-authentication window for sensitive actions                    |
+| `SESSION_SECRET`                                         | —                                     | Server secret used to derive CSRF tokens                          |
+| `PASSWORD_MIN_LENGTH`                                    | `12`                                  | Minimum password length                                           |
+| `PASSWORD_RESET_TOKEN_TTL_MINUTES`                       | `60`                                  | Reset-link lifetime. Approved and frozen at 60                    |
+| `LOGIN_MAX_FAILED_ATTEMPTS`                              | `5`                                   | Failures (per account and per IP) before back-off                 |
+| `LOGIN_FAILED_WINDOW_MINUTES`                            | `15`                                  | Failure counting window                                           |
+| `LOGIN_BACKOFF_BASE_SECONDS` / `_MAX_SECONDS`            | `60` / `900`                          | Progressive back-off                                              |
+| `INVITATION_EXPIRY_HOURS`                                | `72`                                  | Invitation lifetime (approved)                                    |
+| `OUTBOX_POLL_INTERVAL_MS` / `OUTBOX_BATCH_SIZE`          | `2000` / `20`                         | Outbox dispatcher                                                 |
+| `DEV_SEED_PASSWORD`                                      | —                                     | Password for `pnpm db:seed:dev` users (local only)                |
+| `DEV_SEED_TOTP_SECRET`                                   | —                                     | Authenticator key (base32) for the seeded Owner and Administrator |
+| `MFA_ENCRYPTION_KEYS` / `MFA_ENCRYPTION_ACTIVE_KEY_ID`   | — (required)                          | AES-256-GCM key ring for TOTP secrets (`keyId:base64-32-bytes`)   |
+| `MFA_TOTP_ISSUER` / `MFA_TOTP_WINDOW`                    | `Intuit 2.0` / `1`                    | Authenticator label; ±1 step (0 allowed, never wider)             |
+| `MFA_RECOVERY_CODE_COUNT`                                | `10`                                  | Codes per issue (10–20)                                           |
+| `MFA_PENDING_TTL_MINUTES` / `MFA_CHALLENGE_MAX_ATTEMPTS` | `10` / `5`                            | Sign-in code step                                                 |
+| `MFA_ENROLLMENT_TTL_MINUTES` / `MFA_STEP_UP_MINUTES`     | `15` / `15`                           | Setup lifetime; step-up freshness                                 |
+| `TRUSTED_DEVICE_DAYS` / `_MAX_PER_USER` / `_COOKIE_NAME` | `30` / `10` / `intuit_trusted_device` | Remembered browsers (at most 30 days)                             |
+| `EMAIL_PROVIDER` / `EMAIL_FROM`                          | `mock`                                | Email provider (mock records messages in memory)                  |
 
 The API validates its configuration at startup and exits with a list of problems if anything is invalid.
 
@@ -100,8 +107,24 @@ This creates the example organization "Maldives Demo Trading":
 Details:
 
 - Set `DEV_SEED_PASSWORD` in `.env` first. All seeded users share that password, and it is never printed or committed.
+- Set `DEV_SEED_TOTP_SECRET` too (a base32 authenticator key, e.g. 20 random bytes). The Owner and Administrator must use two-step verification (Decision 57a), so the seed enrolls them with this key; add it to an authenticator app to sign in as them. The Member does not need it.
 - The command refuses to run unless `APP_ENV` is `development` or `testing`.
-- It is idempotent: if the seed owner already exists, it changes nothing.
+- It is idempotent: if the seed owner already exists, it changes nothing, except that it sets up two-step verification for a seeded Owner or Administrator who does not have it yet.
+- A database seeded before Phase 3A S1 keeps its original chart: accounts are unclassified and there are no system-account designations. To try opening balances there, add an Opening Balance Equity account and designate it (and Retained Earnings), and classify the receivable account as `ACCOUNTS_RECEIVABLE` so that S8-07 excludes it.
+
+### Revaluation development trigger (optional)
+
+S9 has no revaluation screen yet (Phase 4). In development or testing, a run can be posted or cancelled from the command line, through the real revaluation service, as an existing user:
+
+```sh
+pnpm --filter @intuit-2/api revaluation:dev-run --email owner@intuit2-dev.test --date 2026-09-30
+pnpm --filter @intuit-2/api revaluation:dev-run --email owner@intuit2-dev.test --cancel <run id> --version <n> --reason "Why"
+```
+
+- The user needs `accounting.journals.post` (or `accounting.journals.reverse` to cancel) and must satisfy their MFA requirement.
+- Add `--organization "<name>"` when the user belongs to several organizations, and `--run-key <key>` to make a retry return the same run.
+- The command refuses to run in any other `APP_ENV`.
+- It has no browser session, so it skips the password re-confirmation that the real (Phase 4) flow will require. This test-only bypass is recorded on the audit event as `reauthentication: dev_trigger_bypass`.
 
 ## 5. Run
 

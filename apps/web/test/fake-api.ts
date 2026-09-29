@@ -28,6 +28,7 @@ export function makeSession(
   ];
   const active = organizations.find((o) => o.id === (overrides.activeOrgId ?? 'org-a'))!;
   return {
+    authentication: 'complete',
     user: {
       id: 'u1',
       email: 'owner@example.test',
@@ -48,6 +49,18 @@ export function makeSession(
       ...active,
       isOwner: true,
       permissions: overrides.permissions ?? ALL_PERMISSIONS,
+    },
+    mfa: {
+      enrolled: true,
+      method: 'totp',
+      stepUpValidUntil: null,
+      recoveryCodesRemaining: 10,
+      activeOrganization: {
+        required: true,
+        reasons: ['owner'],
+        satisfied: true,
+        trustedDevicesAllowed: true,
+      },
     },
     csrfToken: 'csrf-token-for-s1',
   };

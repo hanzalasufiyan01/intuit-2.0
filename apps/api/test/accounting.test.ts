@@ -32,7 +32,8 @@ describe('accounting setup', () => {
   it('applies the selected COA template once, with the chosen base currency', async () => {
     const org = await setUpAccountingOrg(ctx);
     const accounts = (await org.owner.get('/accounting/accounts')).body.data;
-    expect(accounts).toHaveLength(31);
+    // 31 Phase 2 template accounts + 3900/4950/4960/5950 (Decision 64).
+    expect(accounts).toHaveLength(35);
     const cash = accounts.find((a: { code: string }) => a.code === '1110');
     expect(cash).toMatchObject({ type: 'ASSET', isSystem: true, isLeaf: true, status: 'ACTIVE' });
     expect(accounts.find((a: { code: string }) => a.code === '1000').isLeaf).toBe(false);
@@ -137,7 +138,7 @@ describe('chart of accounts', () => {
   it('deletes unused accounts, clearing draft-only references', async () => {
     const org = await setUpAccountingOrg(ctx);
     const account = await org.owner.post('/accounting/accounts', {
-      code: '5950',
+      code: '5970',
       name: 'Misc',
       type: 'EXPENSE',
     });
@@ -728,7 +729,9 @@ describe('database-level accounting integrity', () => {
       ];
       for (const attempt of attempts) {
         await expect(attempt).rejects.toMatchObject({
-          code: expect.stringMatching(/^(42501|23514)$/),
+          // TRUNCATE is refused before the trigger (0A000) since journal lines are referenced
+          // by the Phase 3A dimension assignments; it remains impossible.
+          code: expect.stringMatching(/^(42501|23514|0A000)$/),
         });
       }
     } finally {

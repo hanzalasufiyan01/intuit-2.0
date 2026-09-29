@@ -36,7 +36,25 @@ export function setCsrfToken(token: string | null): void {
   csrfToken = token;
 }
 
+/** For the raw file upload, which uses XHR for progress (S5-22). */
+export function getCsrfToken(): string | null {
+  return csrfToken;
+}
+
 const API_BASE = '/api/v1';
+
+/** Errors after which the session view must be reloaded (MFA state changed server-side). */
+const SESSION_STATE_ERRORS = new Set([
+  'MFA_REQUIRED',
+  'MFA_ENROLLMENT_REQUIRED',
+  'MFA_VERIFICATION_REQUIRED',
+]);
+let onSessionStateError: ((code: string) => void) | null = null;
+
+/** The auth provider registers here so a mid-session MFA requirement shows the right screen. */
+export function setSessionStateErrorHandler(handler: ((code: string) => void) | null): void {
+  onSessionStateError = handler;
+}
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { accept: 'application/json' };
@@ -66,6 +84,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
   if (!response.ok) {
     const error = (parsed as ApiErrorBody | undefined)?.error;
+    if (error?.code && SESSION_STATE_ERRORS.has(error.code)) onSessionStateError?.(error.code);
     throw new ApiError(
       response.status,
       error?.code ?? 'UNKNOWN_ERROR',

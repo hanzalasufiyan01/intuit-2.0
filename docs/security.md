@@ -114,3 +114,58 @@ RLS is enabled on `organizations`, `memberships`, `roles`, `role_permissions`, `
 - **Posted journal immutability:** the application exposes no edit or delete for posted journals, and database triggers reject such changes even for the owning database role. The application role has no DELETE privilege on journals.
 - **Audit:** every account, journal, period and approval-policy change writes an audit event with before/after context, for example `account.created`, `journal.posted`, `journal.reversed` and `period.reopened`. Audit history stays append-only (ADR 0001).
 - **Idempotency:** accounting events are deduplicated on (organization, source module, event key), and a conflicting replay is rejected.
+
+## Multi-factor authentication (Phase 3A S7)
+
+- **Factors:** TOTP (RFC 6238, SHA-1, 6 digits, 30 s, ±1 step) and 10 single-use recovery codes. WebAuthn is a later addition to the same factor model.
+- **Storage:**
+  - TOTP secrets are AES-256-GCM encrypted with the `MFA_ENCRYPTION_KEYS` ring, bound to their factor and user, and never updatable by the application role.
+  - Recovery codes are Argon2id hashes behind a public lookup id.
+  - Remembered-device tokens are SHA-256 hashes.
+  - All three tables use user-keyed RLS.
+- **Sign-in:** a user with an authenticator gets an MFA-pending session. It can use only the code challenge, the session read, logout, sign-in and registration; every other route answers `MFA_REQUIRED`. A correct code rotates the session token.
+- **Enforcement**, for the active organization on every request and for background jobs:
+  - the Owner;
+  - holders of `roles.manage`, `members.manage`, `approvals.manage` or `accounting.setup`;
+  - everyone, when the organization requires MFA for all members.
+- **Throttling:** wrong codes count as failed sign-ins (the existing login protection); a pending session ends after 5 wrong codes.
+- **Replay:** each code works once (last-used time step).
+- **Remembered browsers:** opt-in, at most 30 days, rotated on every use, reuse revokes them, revocable; they skip only the sign-in code, never the password or step-up. An organization can refuse them.
+- **Step-up:** MFA management and security actions need the password (15 minutes) **and** a code (15 minutes):
+  - replacing or disabling MFA;
+  - new recovery codes;
+  - forgetting all browsers;
+  - the organization policy;
+  - admin reset.
+- **Admin reset:** needs `members.manage`. It is never allowed for the Owner or oneself, and never for anyone who is an Owner anywhere or belongs to another organization (S7-37).
+- **Password reset** never removes MFA; it revokes sessions and remembered browsers.
+- **Audit:** secrets, codes and tokens never appear in logs, events or responses (after the one-time display).
+
+## Opening balances (Phase 3A S8)
+
+- **Permissions:** read with `accounting.journals.view`; every change needs `accounting.setup`, whose holders must use MFA (Decision 57a). No new permission keys.
+- **Re-authentication** (the existing sensitive-action window, not S7 step-up): changing the conversion date, posting and reversing a batch.
+- **Approval:** optional, through the approvals engine. Neither the preparer nor the submitter may approve.
+- **Database protections:** tenant RLS on both tables and composite tenant foreign keys. Triggers allow line changes only on a draft, restrict status transitions, refuse deleting anything but a draft, and refuse `TRUNCATE`.
+- **Posting** goes only through `postSystemJournal`, in one transaction with a full rollback. Posted journals keep their normal immutability; a single opening journal cannot be reversed on its own.
+- **Imports** reuse the S6 protections (CSV limits, formula-injection neutralisation, jobs, audit) and never post.
+- **Audit** metadata holds ids, counts and totals only.
+
+## Revaluation support (Phase 3A S9)
+
+- **No HTTP routes in S9.** The engine is reached through `RevaluationService` only; Phase 4 adds the routes and UI.
+- **Permissions:** view `accounting.journals.view`; post `accounting.journals.post`; cancel `accounting.journals.reverse`. Posting and cancelling are sensitive actions (re-authentication), and MFA is enforced as for any organization operation (Decision 57a, organization policy).
+- **Base-only lines** are created only by the revaluation handler and the dedicated S9 reversal path. Manual journals, the API and imports reject them, and the database guard allows them only on system `realized_fx`, `revaluation` and `revaluation_reversal` journals.
+- **Generic reversal** refuses revaluation journals (Decision 80); corrections cancel the whole run.
+- **Database protections:** tenant RLS and composite tenant foreign keys on runs, lines and links. Triggers make lines immutable once a run is posted, links append-only and tied to journals whose source is the run, and runs follow the allowed transitions. Only draft runs can be deleted, and `TRUNCATE` is refused.
+- **Atomicity:** a run, its lines, journals, next-day reversals, links and audit event commit together or not at all, serialized per organization by an advisory transaction lock.
+- **Development trigger** (`revaluation:dev-run`): refused unless `APP_ENV` is `development` or `testing`; acts as a real user with that user's current permissions and MFA requirement; never exposed over HTTP. Having no session, it uses a test-only re-authentication bypass that is recorded on the audit event (`reauthentication: dev_trigger_bypass`); the production service always requires session re-authentication.
+- **Audit** metadata holds ids, dates, currencies, counts and totals only.
+
+## Conditional approvals (Phase 3A S10)
+
+- **One engine, no new permissions.** Policies need `approvals.manage` plus re-authentication, with MFA under Decision 57a. Approvers need the action's approver permission. Self-approval stays prohibited.
+- **Server-derived facts only.** The amount and transaction type that decide which steps apply are computed on the server from the document itself; nothing the browser sends is trusted. Unknown amounts and a changed base currency fail closed: the amount step applies.
+- **Posting-time re-check.** Whether approval is required is evaluated again inside every posting transaction, so a stale screen or a policy change can never skip approval.
+- **Integrity.** Approval requests are immutable apart from their single resolution, and cannot be deleted or truncated (database trigger). Policy replacement is serialized with request creation by row locks. Policy bodies are strictly validated.
+- **Tenant isolation.** RLS and tenant-safe foreign keys are unchanged; another organization's request ids return 404.

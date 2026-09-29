@@ -36,37 +36,49 @@
 
 ## Endpoints
 
-| Method | Path                                                 | Auth | Permission / notes                                               |
-| ------ | ---------------------------------------------------- | ---- | ---------------------------------------------------------------- |
-| GET    | `/health`                                            | —    | Includes a database check                                        |
-| POST   | `/auth/register`                                     | —    | Creates user + organization (Owner)                              |
-| POST   | `/auth/login`                                        | —    | Login protection applies                                         |
-| POST   | `/auth/logout`                                       | ✓    | Revokes the session                                              |
-| GET    | `/auth/session`                                      | ✓    | Session state + CSRF token                                       |
-| POST   | `/auth/reauthenticate`                               | ✓    | Opens the 15-minute window                                       |
-| PUT    | `/auth/session/organization`                         | ✓    | Switch organization (membership re-verified)                     |
-| GET    | `/auth/sessions`                                     | ✓    | Own active sessions                                              |
-| DELETE | `/auth/sessions/:sessionId`                          | ✓    | Own session; another one is sensitive                            |
-| POST   | `/auth/password-reset/request`                       | —    | Always `202`                                                     |
-| POST   | `/auth/password-reset/complete`                      | —    | Single-use token; revokes sessions                               |
-| GET    | `/organizations`                                     | ✓    | Own organizations                                                |
-| POST   | `/organizations`                                     | ✓    | New organization; caller is Owner                                |
-| GET    | `/organizations/current`                             | ✓    | `organization.read`                                              |
-| PATCH  | `/organizations/current`                             | ✓    | `organization.update`                                            |
-| GET    | `/organizations/current/members`                     | ✓    | `members.read`                                                   |
-| PUT    | `/organizations/current/members/:membershipId/roles` | ✓    | `members.manage` + re-auth                                       |
-| PATCH  | `/organizations/current/members/:membershipId`       | ✓    | `members.manage` + re-auth (status)                              |
-| GET    | `/organizations/current/invitations`                 | ✓    | `members.invite`                                                 |
-| POST   | `/organizations/current/invitations`                 | ✓    | `members.invite`                                                 |
-| POST   | `/organizations/current/invitations/:id/revoke`      | ✓    | `members.invite`                                                 |
-| GET    | `/organizations/current/roles`                       | ✓    | `roles.read`                                                     |
-| POST   | `/organizations/current/roles`                       | ✓    | `roles.manage` + re-auth                                         |
-| PUT    | `/organizations/current/roles/:roleId`               | ✓    | `roles.manage` + re-auth                                         |
-| DELETE | `/organizations/current/roles/:roleId`               | ✓    | `roles.manage` + re-auth                                         |
-| GET    | `/permissions`                                       | ✓    | `roles.read`                                                     |
-| GET    | `/organizations/current/audit-events?limit&before`   | ✓    | `audit.read`                                                     |
-| POST   | `/invitations/lookup`                                | —    | Token in the body                                                |
-| POST   | `/invitations/accept`                                | opt. | Signed in: the email must match. Signed out: creates the account |
+| Method  | Path                                                     | Auth                                   | Permission / notes                                               |
+| ------- | -------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------- |
+| GET     | `/health`                                                | —                                      | Includes a database check                                        |
+| POST    | `/auth/register`                                         | —                                      | Creates user + organization (Owner)                              |
+| POST    | `/auth/login`                                            | —                                      | Login protection applies                                         |
+| POST    | `/auth/logout`                                           | ✓                                      | Revokes the session                                              |
+| GET     | `/auth/session`                                          | ✓                                      | Session state + CSRF token                                       |
+| POST    | `/auth/reauthenticate`                                   | ✓                                      | Opens the 15-minute window                                       |
+| PUT     | `/auth/session/organization`                             | ✓                                      | Switch organization (membership re-verified)                     |
+| GET     | `/auth/sessions`                                         | ✓                                      | Own active sessions                                              |
+| DELETE  | `/auth/sessions/:sessionId`                              | ✓                                      | Own session; another one is sensitive                            |
+| POST    | `/auth/password-reset/request`                           | —                                      | Always `202`                                                     |
+| POST    | `/auth/password-reset/complete`                          | —                                      | Single-use token; revokes sessions and remembered browsers       |
+| POST    | `/auth/mfa/challenge`                                    | MFA-pending                            | `{method, code, rememberDevice}`; rotates the session token      |
+| GET     | `/auth/mfa`                                              | ✓                                      | Factors, recovery-code count, organizations requiring MFA        |
+| POST    | `/auth/mfa/totp/enroll`                                  | ✓ re-auth                              | Secret, `otpauth` URI and QR code, shown once                    |
+| POST    | `/auth/mfa/totp/verify`                                  | ✓                                      | Activates; recovery codes shown once                             |
+| POST    | `/auth/mfa/totp/disable`                                 | ✓ re-auth + code                       | Only when no organization requires MFA of the user               |
+| POST    | `/auth/mfa/step-up`                                      | ✓                                      | Fresh code for security actions                                  |
+| POST    | `/auth/mfa/recovery-codes`                               | ✓ re-auth + code                       | New set; the old set stops working                               |
+| GET     | `/auth/trusted-devices`                                  | ✓                                      | Remembered browsers                                              |
+| DELETE  | `/auth/trusted-devices/:deviceId`                        | ✓                                      | Forget one                                                       |
+| DELETE  | `/auth/trusted-devices`                                  | ✓ re-auth + code                       | Forget all                                                       |
+| GET/PUT | `/organizations/current/security`                        | `members.manage` (PUT: re-auth + code) | MFA policy with `version`                                        |
+| POST    | `/organizations/current/members/:membershipId/mfa-reset` | `members.manage` + re-auth + code      | Admin MFA reset (S7-37 rules)                                    |
+| GET     | `/organizations`                                         | ✓                                      | Own organizations                                                |
+| POST    | `/organizations`                                         | ✓                                      | New organization; caller is Owner                                |
+| GET     | `/organizations/current`                                 | ✓                                      | `organization.read`                                              |
+| PATCH   | `/organizations/current`                                 | ✓                                      | `organization.update`                                            |
+| GET     | `/organizations/current/members`                         | ✓                                      | `members.read`                                                   |
+| PUT     | `/organizations/current/members/:membershipId/roles`     | ✓                                      | `members.manage` + re-auth                                       |
+| PATCH   | `/organizations/current/members/:membershipId`           | ✓                                      | `members.manage` + re-auth (status)                              |
+| GET     | `/organizations/current/invitations`                     | ✓                                      | `members.invite`                                                 |
+| POST    | `/organizations/current/invitations`                     | ✓                                      | `members.invite`                                                 |
+| POST    | `/organizations/current/invitations/:id/revoke`          | ✓                                      | `members.invite`                                                 |
+| GET     | `/organizations/current/roles`                           | ✓                                      | `roles.read`                                                     |
+| POST    | `/organizations/current/roles`                           | ✓                                      | `roles.manage` + re-auth                                         |
+| PUT     | `/organizations/current/roles/:roleId`                   | ✓                                      | `roles.manage` + re-auth                                         |
+| DELETE  | `/organizations/current/roles/:roleId`                   | ✓                                      | `roles.manage` + re-auth                                         |
+| GET     | `/permissions`                                           | ✓                                      | `roles.read`                                                     |
+| GET     | `/organizations/current/audit-events?limit&before`       | ✓                                      | `audit.read`                                                     |
+| POST    | `/invitations/lookup`                                    | —                                      | Token in the body                                                |
+| POST    | `/invitations/accept`                                    | opt.                                   | Signed in: the email must match. Signed out: creates the account |
 
 ## Accounting endpoints (Phase 2, `/api/v1/accounting`)
 
@@ -96,11 +108,50 @@ Amounts and rates are **decimal strings** (for example `"125.50"`), never JSON n
 | POST               | `/accounting/journals/:id/reverse`                   | `reverse` + re-auth; `{ reason, reversalDate? }`                                               |
 | GET                | `/accounting/ledger?accountId&fromDate&toDate&limit` | `accounting.ledger.view`                                                                       |
 
+## Opening balances (Phase 3A S8, `/api/v1/accounting`)
+
+Read with `accounting.journals.view`; every change needs `accounting.setup` (S8-15). Request bodies are strict: unknown fields are rejected.
+
+| Method | Path                                        | Permission / notes                                                                                    |
+| ------ | ------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| GET    | `/accounting/settings/conversion-date`      | view; `{ conversionDate, openingDate }`                                                               |
+| PUT    | `/accounting/settings/conversion-date`      | `accounting.setup` + re-auth; `{ conversionDate }`; refused while a batch is pending or posted        |
+| GET    | `/accounting/opening-balances`              | view; batches, newest first                                                                           |
+| POST   | `/accounting/opening-balances`              | `accounting.setup`; `{ notes? }`; one open batch at a time (`409 CONFLICT`)                           |
+| GET    | `/accounting/opening-balances/:id`          | view; lines, per-currency totals with the OBE result, approval state (`readyToPost`), journals        |
+| PUT    | `/accounting/opening-balances/:id/lines`    | `accounting.setup`; `{ version, lines }` replaces the draft's lines (`409 VERSION_CONFLICT` if stale) |
+| POST   | `/accounting/opening-balances/:id/preview`  | `accounting.setup`; the journals posting would create, with errors and warnings                       |
+| POST   | `/accounting/opening-balances/:id/submit`   | `accounting.setup`; `{ version }`; only when an approval policy applies                               |
+| POST   | `/accounting/opening-balances/:id/withdraw` | `accounting.setup`; back to draft                                                                     |
+| POST   | `/accounting/opening-balances/:id/post`     | `accounting.setup` + re-auth; `{ version }`; one system journal per currency, in one transaction      |
+| POST   | `/accounting/opening-balances/:id/reverse`  | `accounting.setup` + re-auth; `{ reason }`; reverses every journal of the batch                       |
+| DELETE | `/accounting/opening-balances/:id`          | `accounting.setup`; drafts only                                                                       |
+
+- A line is `{ accountId, debit | credit, baseAmount?, description?, dimensions? }`. Amounts are in the account's currency; `baseAmount` is only for foreign-currency accounts, on every line of that currency or on none.
+- Approval decisions use the generic `/approvals/requests/:id/approve` and `/reject` routes (action `accounting.opening_balance.post`, approver `accounting.journals.approve`).
+- `POST /accounting/journals/:id/reverse` on an opening-balance journal returns `409 SYSTEM_JOURNAL`: opening journals are reversed only with their batch.
+- Import domain `opening_balances` (into the draft batch only; never posts), export domain `opening_balances`, attachment target `opening_balance_batch` (changes only while the batch is a draft).
+
+## Revaluation (Phase 3A S9)
+
+There are no revaluation endpoints yet; the user workflow and its routes arrive in Phase 4. Revaluation journals appear in the existing journal, ledger and report endpoints with `source: "system"` and `sourceType` `revaluation` (dated D) or `revaluation_reversal` (dated D + 1, or a cancellation). `POST /accounting/journals/:id/reverse` on either returns `409 SYSTEM_JOURNAL`.
+
 ## Approvals endpoints (Phase 2, `/api/v1/approvals`)
 
-| Method      | Path                                         | Permission / notes                                                                               |
-| ----------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| GET         | `/approvals/policies`                        | `approvals.manage`; approvable actions and configured policies                                   |
-| PUT, DELETE | `/approvals/policies/:actionKey`             | `approvals.manage` + re-auth; `{ steps: [{ name, requiredApprovals, roleIds, membershipIds }] }` |
-| GET         | `/approvals/requests`                        | pending requests for actions the caller can approve (`canDecide` per request)                    |
-| POST        | `/approvals/requests/:id/approve`, `/reject` | the action's approver permission (+ re-auth for period reopening)                                |
+| Method      | Path                                         | Permission / notes                                                                                                     |
+| ----------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| GET         | `/approvals/policies`                        | `approvals.manage`; approvable actions (with their supported `conditions`), `baseCurrency` and policies                |
+| PUT, DELETE | `/approvals/policies/:actionKey`             | `approvals.manage` + re-auth; `{ steps: [{ name, requiredApprovals, roleIds, membershipIds, conditions? }] }` (strict) |
+| GET         | `/approvals/requests`                        | pending requests for actions the caller can approve (`canDecide`, `facts`, `appliedSteps` per request)                 |
+| POST        | `/approvals/requests/:id/approve`, `/reject` | the action's approver permission (+ re-auth for period reopening)                                                      |
+
+**Conditional approvals (Phase 3A S10).**
+
+- **Step `conditions`:** `{ minBaseAmount?, maxBaseAmount?, transactionTypes? }`. Amounts are decimal strings in the base currency: the minimum is inclusive and the maximum exclusive. Types must come from the action's list. The server stores `thresholdCurrency`, which is read-only.
+- **Validation:** unknown fields at any level return `400 VALIDATION_FAILED`, as do amounts on an action without amounts, a maximum not above the minimum, too many decimals, and unknown types.
+- **Facts are derived on the server:**
+  - journal posting: types `manual`, `imported` or `accounting_event`, with the posted base total;
+  - opening balances: type `opening_balance`, with the canonical S8 amount;
+  - period reopening: type `period_reopen`, with no amount.
+- A request keeps only the matching steps. With no matching step there is no request, and the action proceeds directly.
+- Journal detail adds `approvalFacts` and `approvalSteps`; `approvalRequiredForPosting` reflects the journal's facts. The opening-balance `approval` adds `facts` and `appliedSteps`.

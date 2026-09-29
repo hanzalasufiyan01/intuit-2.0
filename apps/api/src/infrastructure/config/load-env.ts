@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** The repository root: the nearest ancestor holding pnpm-workspace.yaml (works from src and dist). */
-function findRepoRoot(): string | undefined {
+export function findRepoRoot(): string | undefined {
   let dir = path.dirname(fileURLToPath(import.meta.url));
   for (;;) {
     if (existsSync(path.join(dir, 'pnpm-workspace.yaml'))) return dir;

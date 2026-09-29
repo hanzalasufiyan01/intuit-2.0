@@ -18,6 +18,9 @@ const baseEnv = {
   WEB_ORIGIN: 'http://localhost:5173',
   DATABASE_URL: 'postgres://intuit_app:x@localhost:5432/intuit2_dev',
   SESSION_SECRET: 'a'.repeat(40),
+  // S7-09: a test-only key ring (never a real key).
+  MFA_ENCRYPTION_KEYS: `k1:${Buffer.alloc(32, 7).toString('base64')}`,
+  MFA_ENCRYPTION_ACTIVE_KEY_ID: 'k1',
 };
 
 describe('configuration', () => {
@@ -76,6 +79,8 @@ describe('permission catalog', () => {
       'accounting.accounts.delete',
       'accounting.accounts.update',
       'accounting.accounts.view',
+      'accounting.dimensions.manage', // Phase 3A (Decision 65)
+      'accounting.dimensions.view', // Phase 3A (Decision 65)
       'accounting.journals.approve',
       'accounting.journals.create',
       'accounting.journals.edit_draft',
@@ -87,6 +92,7 @@ describe('permission catalog', () => {
       'accounting.periods.close',
       'accounting.periods.reopen',
       'accounting.periods.view',
+      'accounting.reports.view', // Phase 3A S3 (Decision 65, S3-01)
       'accounting.setup',
       'approvals.manage',
       'audit.read',
@@ -95,6 +101,10 @@ describe('permission catalog', () => {
       'members.read',
       'organization.read',
       'organization.update',
+      'parties.archive', // Phase 3A S4 (Decision 65)
+      'parties.create',
+      'parties.update',
+      'parties.view',
       'roles.manage',
       'roles.read',
     ]);
@@ -105,11 +115,14 @@ describe('permission catalog', () => {
     expect([...(templates.administrator?.permissions ?? [])].sort()).toEqual(keys);
     expect([...(templates.member?.permissions ?? [])].sort()).toEqual([
       'accounting.accounts.view',
+      'accounting.dimensions.view', // Phase 3A (Decision 65)
       'accounting.journals.view',
       'accounting.ledger.view',
       'accounting.periods.view',
+      'accounting.reports.view', // Phase 3A S3 (Decision 65, S3-01)
       'members.read',
       'organization.read',
+      'parties.view', // Phase 3A S4 (Decision 65)
     ]);
   });
 });
@@ -130,6 +143,10 @@ describe('session rules', () => {
     revokedReason: null,
     ipAddress: null,
     userAgent: null,
+    mfaPendingUntil: null,
+    mfaMethod: null,
+    mfaVerifiedAt: null,
+    mfaFailedAttempts: 0,
     ...overrides,
   });
   const at = (ms: number) => new Date(start.getTime() + ms);

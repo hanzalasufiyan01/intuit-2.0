@@ -25,9 +25,29 @@ export interface LedgerRow {
   runningBalance: string | null;
 }
 
+/**
+ * Reusable reporting filter (Decision 16): keeps journal lines (alias `l`) tagged with every
+ * given dimension value. Results filtered this way show tagged activity only.
+ */
+export function dimensionFilterSql(valueIds: readonly string[] | null) {
+  if (!valueIds?.length) return sql``;
+  return sql.join(
+    valueIds.map(
+      (id) => sql`AND EXISTS (SELECT 1 FROM accounting_journal_line_dimensions ld
+        WHERE ld.journal_line_id = l.id AND ld.organization_id = l.organization_id
+          AND ld.dimension_value_id = ${id}::uuid)`,
+    ),
+    sql` `,
+  );
+}
+
 export interface LedgerQuery {
   organizationId: string;
   accountIds: string[] | null;
+  /** Lines must carry every value (values of different dimension types). */
+  dimensionValueIds?: string[] | null;
+  /** Opening balance counts only lines dated on or after this date (fiscal-year basis). */
+  openingFrom?: string | null;
   fromDate: string | null;
   toDate: string | null;
   limit: number;
@@ -50,6 +70,7 @@ export async function queryLedger(
     : sql``;
   const fromFilter = query.fromDate ? sql`AND j.entry_date >= ${query.fromDate}::date` : sql``;
   const toFilter = query.toDate ? sql`AND j.entry_date <= ${query.toDate}::date` : sql``;
+  const dimensionFilter = dimensionFilterSql(query.dimensionValueIds ?? null);
 
   // Opening balance (debit minus credit, base currency) only makes sense for an account view.
   let opening: string | null = null;
@@ -58,8 +79,9 @@ export async function queryLedger(
       SELECT (coalesce(sum(l.base_debit), 0) - coalesce(sum(l.base_credit), 0))::text AS balance
       FROM accounting_journal_lines l
       JOIN accounting_journal_entries j ON j.id = l.journal_id AND j.organization_id = l.organization_id
-      WHERE l.organization_id = ${query.organizationId} AND ${POSTED} ${accountFilter}
-        ${query.fromDate ? sql`AND j.entry_date < ${query.fromDate}::date` : sql`AND false`}`);
+      WHERE l.organization_id = ${query.organizationId} AND ${POSTED} ${accountFilter} ${dimensionFilter}
+        ${query.fromDate ? sql`AND j.entry_date < ${query.fromDate}::date` : sql`AND false`}
+        ${query.openingFrom ? sql`AND j.entry_date >= ${query.openingFrom}::date` : sql``}`);
     opening = result.rows[0]?.balance ?? '0';
   }
 
@@ -67,7 +89,7 @@ export async function queryLedger(
     SELECT coalesce(sum(l.base_debit), 0)::text AS base_debit, coalesce(sum(l.base_credit), 0)::text AS base_credit
     FROM accounting_journal_lines l
     JOIN accounting_journal_entries j ON j.id = l.journal_id AND j.organization_id = l.organization_id
-    WHERE l.organization_id = ${query.organizationId} AND ${POSTED} ${accountFilter} ${fromFilter} ${toFilter}`);
+    WHERE l.organization_id = ${query.organizationId} AND ${POSTED} ${accountFilter} ${dimensionFilter} ${fromFilter} ${toFilter}`);
 
   const running = query.accountIds
     ? sql`(${opening ?? '0'}::numeric + sum(coalesce(l.base_debit, 0) - coalesce(l.base_credit, 0))
@@ -83,7 +105,7 @@ export async function queryLedger(
     FROM accounting_journal_lines l
     JOIN accounting_journal_entries j ON j.id = l.journal_id AND j.organization_id = l.organization_id
     JOIN accounting_accounts a ON a.id = l.account_id AND a.organization_id = l.organization_id
-    WHERE l.organization_id = ${query.organizationId} AND ${POSTED} ${accountFilter} ${fromFilter} ${toFilter}
+    WHERE l.organization_id = ${query.organizationId} AND ${POSTED} ${accountFilter} ${dimensionFilter} ${fromFilter} ${toFilter}
     ORDER BY j.entry_date, j.journal_number, l.line_number
     LIMIT ${query.limit + 1}`);
 

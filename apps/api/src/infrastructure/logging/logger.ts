@@ -1,6 +1,12 @@
 import type { FastifyServerOptions } from 'fastify';
 import type { AppConfig } from '../config/config.js';
 
+/** Replaces the values of token-like query parameters in a logged URL. */
+export function redactQuery(url: string | undefined): string | undefined {
+  if (!url) return url;
+  return url.replace(/([?&]token=)[^&#]*/gi, '$1[REDACTED]');
+}
+
 /** Minimal log destination (pino-compatible). */
 export interface LogDestination {
   write(line: string): void;
@@ -29,6 +35,14 @@ export function loggerOptions(
         '*.passwordHash',
       ],
       censor: '[REDACTED]',
+    },
+    serializers: {
+      // Signed download tokens travel in the query string (/files/content?token=); never log them.
+      req: (request: { method: string; url: string; id: string }) => ({
+        id: request.id,
+        method: request.method,
+        url: redactQuery(request.url) ?? '',
+      }),
     },
     ...(stream ? { stream } : {}),
   };

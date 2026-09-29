@@ -2,22 +2,36 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { useApiMutation } from '../../auth/auth-context';
+import { Permission, usePermission } from '../../permissions/permissions';
 import { api, type ApiError } from '../../services/api-client';
 import { COMMON_CURRENCIES, sumAmounts } from '../../shared/money';
 import { ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { TextField } from '../../shared/ui/TextField';
-import { useAccountingSetup, useAccounts } from './shared';
-import type { JournalDetail } from './types';
+import { requiredTypesFor, useAccountingSetup, useAccounts, useDimensions } from './shared';
+import type { DimensionType, JournalDetail } from './types';
 
 interface LineDraft {
   accountId: string;
   description: string;
   debit: string;
   credit: string;
+  /** Dimension type id -> value id. Line-level only (Decision 85). */
+  dimensions?: Record<string, string>;
 }
 
-const emptyLine = (): LineDraft => ({ accountId: '', description: '', debit: '', credit: '' });
+const emptyLine = (): LineDraft => ({
+  accountId: '',
+  description: '',
+  debit: '',
+  credit: '',
+  dimensions: {},
+});
+
+/** Values offered for a line: active values, plus the value already assigned (even if archived). */
+function valueOptions(type: DimensionType, current: string | undefined) {
+  return type.values.filter((v) => v.status === 'ACTIVE' || v.id === current);
+}
 
 export interface JournalEditorProps {
   journal?: JournalDetail;
@@ -37,6 +51,8 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
   const queryClient = useQueryClient();
   const setup = useAccountingSetup();
   const accounts = useAccounts();
+  const canViewDimensions = usePermission(Permission.DimensionsView);
+  const dimensions = useDimensions(canViewDimensions);
   const baseCurrency = setup.data?.settings?.baseCurrency ?? '';
   const [header, setHeader] = useState({
     entryDate: journal?.entryDate ?? '',
@@ -52,8 +68,17 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
           description: l.description,
           debit: l.debit ?? '',
           credit: l.credit ?? '',
+          dimensions: Object.fromEntries(
+            (l.dimensions ?? []).map((d) => [d.dimensionTypeId, d.dimensionValueId]),
+          ),
         }))
       : [emptyLine(), emptyLine()],
+  );
+  // Types shown on lines: active types, plus any type a line already carries.
+  const lineTypes = (dimensions.data ?? []).filter(
+    (t) =>
+      t.status === 'ACTIVE' ||
+      lines.some((l) => l.dimensions?.[t.id] !== undefined && l.dimensions[t.id] !== ''),
   );
   const postable = (accounts.data ?? []).filter((a) => a.isLeaf && a.status === 'ACTIVE');
   const currency = header.currency || baseCurrency;
@@ -72,6 +97,18 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
         description: l.description,
         debit: l.debit.trim() || null,
         credit: l.credit.trim() || null,
+        // Without accounting.dimensions.view the field is omitted, so the server keeps the
+        // line's existing assignments (Decision 91).
+        ...(canViewDimensions
+          ? {
+              dimensions: Object.entries(l.dimensions ?? {})
+                .filter(([, valueId]) => valueId)
+                .map(([dimensionTypeId, dimensionValueId]) => ({
+                  dimensionTypeId,
+                  dimensionValueId,
+                })),
+            }
+          : {}),
       })),
     };
     return journal
@@ -93,7 +130,14 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
   const update = (index: number, patch: Partial<LineDraft>) =>
     setLines((current) => current.map((l, i) => (i === index ? { ...l, ...patch } : l)));
   const lineError = (error: ApiError | null, index: number) =>
-    error?.issues.find((i) => i.path.startsWith(`lines.${index}`))?.message;
+    error?.issues.find(
+      (i) => i.path.startsWith(`lines.${index}`) && i.path !== `lines.${index}.dimensions`,
+    )?.message;
+  const dimensionError = (error: ApiError | null, index: number) =>
+    error?.issues
+      .filter((i) => i.path === `lines.${index}.dimensions`)
+      .map((i) => i.message)
+      .join(' ');
 
   return (
     <form className="form" onSubmit={submit} noValidate>
@@ -145,6 +189,7 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
           <tr>
             <th>Account</th>
             <th>Description</th>
+            {lineTypes.length ? <th>Dimensions</th> : null}
             <th>Debit</th>
             <th>Credit</th>
             <th />
@@ -177,6 +222,44 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
                   onChange={(e) => update(index, { description: e.target.value })}
                 />
               </td>
+              {lineTypes.length ? (
+                <td>
+                  {lineTypes.map((type) => {
+                    const required = requiredTypesFor(
+                      postable.find((a) => a.id === line.accountId),
+                      [type],
+                    ).length;
+                    const current = line.dimensions?.[type.id] ?? '';
+                    return (
+                      <select
+                        key={type.id}
+                        aria-label={`Line ${index + 1} ${type.name}`}
+                        value={current}
+                        onChange={(e) =>
+                          update(index, {
+                            dimensions: { ...line.dimensions, [type.id]: e.target.value },
+                          })
+                        }
+                      >
+                        <option value="">
+                          {type.name}
+                          {required ? ' (required)' : ''}: none
+                        </option>
+                        {valueOptions(type, current).map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {type.name}: {v.name}
+                          </option>
+                        ))}
+                      </select>
+                    );
+                  })}
+                  {dimensionError(save.error, index) ? (
+                    <small className="field__error" role="alert">
+                      {dimensionError(save.error, index)}
+                    </small>
+                  ) : null}
+                </td>
+              ) : null}
               <td>
                 <input
                   aria-label={`Line ${index + 1} debit`}
@@ -209,7 +292,7 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
         </tbody>
         <tfoot>
           <tr>
-            <th colSpan={2}>
+            <th colSpan={lineTypes.length ? 3 : 2}>
               <Button variant="secondary" onClick={() => setLines([...lines, emptyLine()])}>
                 Add line
               </Button>
