@@ -57,7 +57,8 @@ describe('organizations and ownership', () => {
     const ownerRole = roles.body.data.find((r: { isOwner: boolean }) => r.isOwner);
     expect(ownerRole.memberCount).toBe(1);
     // Owner holds the whole catalog (Phase 1: 8; Phase 2 adds 18; Phase 3A S2 adds 2, S3 adds 1).
-    expect(ownerRole.permissionKeys).toHaveLength(33); // + 4 parties.* keys (S4)
+    // + 4 parties.* keys (S4); Phase 3B adds 4 customers.*, 17 Sales keys and tax.codes.manage.
+    expect(ownerRole.permissionKeys).toHaveLength(55);
     const member = roles.body.data.find((r: { name: string }) => r.name === 'Member');
     expect(member.permissionKeys).toEqual([
       'accounting.accounts.view',
@@ -66,9 +67,14 @@ describe('organizations and ownership', () => {
       'accounting.ledger.view',
       'accounting.periods.view',
       'accounting.reports.view', // Phase 3A S3 (Decision 65, S3-01)
+      'credit_notes.view', // Phase 3B (D14): Sales view-only
+      'customers.view',
+      'invoices.view',
       'members.read',
       'organization.read',
       'parties.view', // Phase 3A S4 (Decision 65)
+      'receipts.view',
+      'sales.reports.view',
     ]);
 
     const members = await owner.get('/organizations/current/members');
@@ -140,9 +146,14 @@ describe('invitations', () => {
       'accounting.ledger.view',
       'accounting.periods.view',
       'accounting.reports.view', // Phase 3A S3 (Decision 65, S3-01)
+      'credit_notes.view', // Phase 3B (D14): Sales view-only
+      'customers.view',
+      'invoices.view',
       'members.read',
       'organization.read',
       'parties.view', // Phase 3A S4 (Decision 65)
+      'receipts.view',
+      'sales.reports.view',
     ]);
     expect((await invitee.get('/organizations/current')).body.data.name).toBe('Invite Org');
 
@@ -507,7 +518,8 @@ describe('cross-organization isolation', () => {
       alice.post(`/organizations/current/invitations/${bobInvitations[0].id}/revoke`),
     ];
     for (const response of await Promise.all(attempts)) {
-      expect(response.status).toBe(404);
+      // Status and body together, so a failure names the error code.
+      expect(response.status, JSON.stringify(response.body)).toBe(404);
     }
 
     // Using Bob's role id for Alice's own member or invitation is rejected too.
@@ -542,9 +554,14 @@ describe('cross-organization isolation', () => {
       'accounting.ledger.view',
       'accounting.periods.view',
       'accounting.reports.view', // Phase 3A S3 (Decision 65, S3-01)
+      'credit_notes.view', // Phase 3B (D14): Sales view-only
+      'customers.view',
+      'invoices.view',
       'members.read',
       'organization.read',
       'parties.view', // Phase 3A S4 (Decision 65)
+      'receipts.view',
+      'sales.reports.view',
     ]);
   });
 });

@@ -136,6 +136,37 @@ Read with `accounting.journals.view`; every change needs `accounting.setup` (S8-
 
 There are no revaluation endpoints yet; the user workflow and its routes arrive in Phase 4. Revaluation journals appear in the existing journal, ledger and report endpoints with `source: "system"` and `sourceType` `revaluation` (dated D) or `revaluation_reversal` (dated D + 1, or a cancellation). `POST /accounting/journals/:id/reverse` on either returns `409 SYSTEM_JOURNAL`.
 
+## Sales and receivables (Phase 3B, ADR 0003 D1–D15)
+
+Every Sales posting goes sales document → accounting event → journal; Sales never writes ledger tables. Amounts are decimal strings. Writes that change a document take its `version`; `POST` creates and lifecycle actions accept an optional `Idempotency-Key` header (Decision 23), and a replay returns the first result.
+
+| Method              | Path                                                                                  | Permission / notes                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| GET, POST           | `/customers`                                                                          | `customers.view` / `customers.create` (a customer is a Party with the `customer` role, D6)                                  |
+| GET, PATCH          | `/customers/:id`                                                                      | `customers.view` / `customers.update` (identity at the party's version)                                                     |
+| POST                | `/customers/:id/archive`, `/restore`                                                  | `customers.archive`                                                                                                         |
+| POST, PATCH, DELETE | `/customers/:id/contacts[/:contactId]`, `/customers/:id/addresses[/:addressId]`       | `customers.update`                                                                                                          |
+| GET                 | `/tax/codes`                                                                          | any Sales or tax permission; codes with their dated rate versions                                                           |
+| POST, PATCH         | `/tax/codes`, `/tax/codes/:id`                                                        | `tax.codes.manage` + re-auth                                                                                                |
+| POST                | `/tax/codes/:id/archive`, `/restore`, `/rates`; DELETE `/tax/codes/:id/rates/:rateId` | `tax.codes.manage` + re-auth; a rate version has a start date only                                                          |
+| GET, PUT            | `/sales/settings`                                                                     | view: Sales view/create keys; change: `sales.settings.manage` + re-auth (MFA set). AR account, defaults, numbering          |
+| GET, POST, PATCH    | `/sales/items[/:id]`, POST `/sales/items/:id/archive`, `/restore`                     | view: `invoices.view` or `sales.items.manage`; change: `sales.items.manage` (D8)                                            |
+| GET, POST           | `/sales/invoices`                                                                     | `invoices.view` / `invoices.create`; filters `status`, `customerId`, `search`, `from`, `to`, `open`; `kind: "opening"` (D5) |
+| GET, PUT, DELETE    | `/sales/invoices/:id`                                                                 | `invoices.view` / `invoices.edit_draft` / `invoices.delete_draft` (drafts only)                                             |
+| POST                | `/sales/invoices/:id/submit`, `/withdraw`, `/issue`, `/void`                          | `invoices.create` (submit/withdraw), `invoices.issue` (D1: re-checks approval and posts), `invoices.void` + re-auth         |
+| GET, POST           | `/sales/credit-notes`, GET/PUT/DELETE `/sales/credit-notes/:id`                       | `credit_notes.view` / `credit_notes.create` (drafts, D7)                                                                    |
+| POST                | `/sales/credit-notes/:id/submit`, `/withdraw`, `/issue`                               | `credit_notes.create`; issue: `credit_notes.issue`                                                                          |
+| GET, POST           | `/sales/receipts`, GET `/sales/receipts/:id`                                          | `receipts.view` / `receipts.create` (allocations; rate and deposit overrides D2, D3)                                        |
+| POST                | `/sales/receipts/:id/void`                                                            | `receipts.void` + re-auth                                                                                                   |
+| POST                | `/sales/customer-credit/apply`                                                        | `receipts.create`; applies a receipt's unallocated amount or an issued credit note to open invoices                         |
+| GET                 | `/sales/{invoices,credit-notes}/:id/pdf`, `/emails`; POST `/email`                    | view key; email: `invoices.issue` / `credit_notes.issue` (queued job; PDF attached)                                         |
+| GET                 | `/sales/search?q&limit`                                                               | `q` ≥ 2 characters; sections only for what the caller may view (D15)                                                        |
+| GET                 | `/sales/reports/aging?asOf&customerId`, `/statement?customerId&from&to`               | `sales.reports.view`                                                                                                        |
+| GET                 | `/sales/reports/ar-reconciliation?asOf`                                               | `sales.reports.view`; GL balance vs subledger, with revaluation adjustments as a reconciling item                           |
+| GET                 | `/sales/reports/sales-by-customer`, `/sales-by-item`, `/tax-summary` `?from&to`       | `sales.reports.view`; base currency; opening invoices excluded; the tax summary is not a tax return (U19 open)              |
+
+Import domains `customers`, `sales_items` and `opening_invoices` (drafts only) and export domains `customers`, `sales_items`, `invoices`, `receipts` and `ar_aging` use the S6 endpoints.
+
 ## Approvals endpoints (Phase 2, `/api/v1/approvals`)
 
 | Method      | Path                                         | Permission / notes                                                                                                     |

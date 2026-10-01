@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { Transaction } from '../../database/client.js';
 import {
   parties,
@@ -233,6 +233,8 @@ export interface PartyListQuery {
   search: string | null;
   limit: number;
   after: { name: string; id: string } | null;
+  /** A subquery of party ids to restrict to (a module listing its own parties, e.g. customers). */
+  partyIdsIn?: SQL | undefined;
 }
 
 /** Cursor-paginated list ordered by (lower(display_name), id); trigram-backed search (S4-15). */
@@ -252,6 +254,7 @@ export async function listParties(tx: Transaction, query: PartyListQuery) {
                   AND pr.organization_id = ${parties.organizationId} AND pr.role = ${query.role})`
           : undefined,
         escaped ? sql`search_text LIKE ${`%${escaped}%`} ESCAPE '\\'` : undefined,
+        query.partyIdsIn ? sql`${parties.id} IN (${query.partyIdsIn})` : undefined,
         query.after
           ? sql`(lower(${parties.displayName}), ${parties.id}) > (${query.after.name}, ${query.after.id}::uuid)`
           : undefined,
@@ -514,4 +517,11 @@ export async function getPartyExtras(tx: Transaction, organizationId: string, pa
   const roles = new Map<string, PartyRole[]>();
   for (const r of roleRows) roles.set(r.partyId, [...(roles.get(r.partyId) ?? []), r.role]);
   return { roles, contacts, addresses };
+}
+
+/** Party ids whose names, reference, email or TIN contain `search` (S4-15), as a subquery. */
+export function partyIdsMatching(organizationId: string, search: string): SQL {
+  const escaped = search.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`);
+  return sql`SELECT p.id FROM parties p WHERE p.organization_id = ${organizationId}
+               AND p.search_text LIKE ${`%${escaped}%`} ESCAPE '\\'`;
 }

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomInt, randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -132,6 +133,12 @@ export function nextTotpCode(email: string, now: Date): string {
  * when asked: MFA_ENROLLMENT_REQUIRED triggers enrollment, a login challenge is answered with a
  * code (remembering the device), then the request is retried. It never bypasses enforcement;
  * dedicated MFA tests turn `autoMfa` off to observe every step.
+ *
+ * Like a browser holding one cookie jar, the client must not let a late response to a request
+ * sent with a session token it has since replaced (its own enrollment or step-up rotates the
+ * token, S7) overwrite the newer session: the server answers such a request 401 and clears the
+ * cookie, which would sign the client out and drop its CSRF token. Such a stale response is
+ * ignored and the request is sent again once with the current session.
  */
 export class TestClient {
   sessionToken: string | undefined;
@@ -141,6 +148,8 @@ export class TestClient {
   autoMfa = true;
   /** One enrollment / step-up at a time; concurrent requests wait for it, then retry once. */
   private mfaWork: Promise<unknown> | null = null;
+  /** Marks the requests the MFA work itself makes, so they never wait for that work. */
+  private readonly inMfaWork = new AsyncLocalStorage<true>();
 
   constructor(
     readonly app: FastifyInstance,
@@ -166,6 +175,7 @@ export class TestClient {
     if (method !== 'GET' && this.csrfToken && !('x-csrf-token' in headers)) {
       allHeaders['x-csrf-token'] = this.csrfToken;
     }
+    const sentToken = this.sessionToken;
     const response = await this.app.inject({
       method,
       url: `/api/v1${url}`,
@@ -173,6 +183,13 @@ export class TestClient {
       remoteAddress: this.ip,
       ...(body === undefined ? {} : { payload: body as object }),
     });
+    // If this client's MFA work is rotating the session meanwhile, let it finish first; then a
+    // response answering the replaced token is stale and must not touch the session state.
+    if (this.mfaWork && !this.inMfaWork.getStore()) await this.mfaWork.catch(() => undefined);
+    if (sentToken !== undefined && this.sessionToken !== sentToken) {
+      if (retried) throw new Error(`${method} ${url}: the session changed again during a retry`);
+      return this.request<T>(method, url, body, headers, true);
+    }
     for (const cookie of response.cookies as { name: string; value: string; expires?: Date }[]) {
       const cleared =
         cookie.value === '' || (cookie.expires && cookie.expires.getTime() <= Date.now());
@@ -219,7 +236,7 @@ export class TestClient {
   }
 
   private async once(work: () => Promise<unknown>): Promise<void> {
-    this.mfaWork ??= work().finally(() => {
+    this.mfaWork ??= this.inMfaWork.run(true, work).finally(() => {
       this.mfaWork = null;
     });
     await this.mfaWork;
@@ -263,7 +280,8 @@ export class TestClient {
   }
 
   get = <T = any>(url: string) => this.request<T>('GET', url);
-  post = <T = any>(url: string, body: unknown = {}) => this.request<T>('POST', url, body);
+  post = <T = any>(url: string, body: unknown = {}, headers?: Record<string, string>) =>
+    this.request<T>('POST', url, body, headers);
   put = <T = any>(url: string, body: unknown = {}) => this.request<T>('PUT', url, body);
   patch = <T = any>(url: string, body: unknown = {}) => this.request<T>('PATCH', url, body);
   delete = <T = any>(url: string) => this.request<T>('DELETE', url);
@@ -349,4 +367,26 @@ export async function connectAs(role: 'app' | 'owner'): Promise<pg.Client> {
   const client = new pg.Client({ connectionString: url });
   await client.connect();
   return client;
+}
+
+/**
+ * Scopes a permission-backfill replay to the given organizations. Call it inside the caller's
+ * open transaction (which the tests always roll back): a temporary view named `roles` shadows
+ * the real table, because PostgreSQL resolves unqualified names in `pg_temp` first, so the
+ * unmodified migration SQL sees only these organizations' roles. The shared test database is
+ * never truncated, so an unscoped replay walks every organization ever registered: it slows down
+ * as data accumulates and locks rows that tests running in parallel use.
+ */
+export async function scopeBackfillToOrganizations(
+  client: pg.Client,
+  organizationIds: readonly string[],
+): Promise<void> {
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (organizationIds.length === 0 || !organizationIds.every((id) => uuid.test(id))) {
+    throw new Error('scopeBackfillToOrganizations needs organization UUIDs');
+  }
+  const ids = organizationIds.map((id) => `'${id}'`).join(', ');
+  await client.query(
+    `CREATE TEMPORARY VIEW roles AS SELECT * FROM public.roles WHERE organization_id IN (${ids})`,
+  );
 }

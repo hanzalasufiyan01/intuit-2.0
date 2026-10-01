@@ -34,6 +34,39 @@ import { ExportsPage } from '../features/data-exchange/ExportsPage';
 import { ImportsPage } from '../features/data-exchange/ImportsPage';
 import { ImportWizardPage } from '../features/data-exchange/ImportWizardPage';
 import { IMPORT_PERMISSIONS } from '../features/data-exchange/permissions';
+import {
+  CreditNoteDetailPage,
+  CreditNotesPage,
+  EditCreditNotePage,
+  NewCreditNotePage,
+} from '../features/sales/CreditNotePages';
+import {
+  CustomerDetailPage,
+  CustomersPage,
+  NewCustomerPage,
+} from '../features/sales/CustomerPages';
+import {
+  EditInvoicePage,
+  InvoiceDetailPage,
+  InvoicesPage,
+  NewInvoicePage,
+} from '../features/sales/InvoicePages';
+import { ItemsPage } from '../features/sales/ItemsPage';
+import {
+  ApplyCreditPage,
+  ReceiptDetailPage,
+  ReceiptsPage,
+  RecordReceiptPage,
+} from '../features/sales/ReceiptPages';
+import { SalesReportsPage } from '../features/sales/ReportsPage';
+import { SalesHomePage } from '../features/sales/SalesHomePage';
+import {
+  SALES_SETTINGS_VIEW_PERMISSIONS,
+  SALES_VIEW_PERMISSIONS,
+  SalesSection,
+  TAX_CODES_VIEW_PERMISSIONS,
+} from '../features/sales/SalesSection';
+import { SalesSettingsPage, TaxCodesPage } from '../features/sales/SettingsPages';
 import { Permission } from '../permissions/permissions';
 import { RequireAnyPermission, RequirePermission } from '../permissions/RequirePermission';
 import { AppLayout } from './AppLayout';
@@ -285,6 +318,102 @@ export const routes: RouteObject[] = [
                   <RequirePermission permission={Permission.ReportsView}>{page}</RequirePermission>
                 ),
               })),
+            ],
+          },
+          {
+            path: 'sales',
+            element: <SalesSection />,
+            children: [
+              {
+                index: true,
+                element: (
+                  <RequireAnyPermission permissions={SALES_VIEW_PERMISSIONS}>
+                    <SalesHomePage />
+                  </RequireAnyPermission>
+                ),
+              },
+              ...(
+                [
+                  ['invoices', Permission.InvoicesView, <InvoicesPage key="invoices" />],
+                  ['invoices/new', Permission.InvoicesCreate, <NewInvoicePage key="new-invoice" />],
+                  ['invoices/:id', Permission.InvoicesView, <InvoiceDetailPage key="invoice" />],
+                  [
+                    'invoices/:id/edit',
+                    Permission.InvoicesEditDraft,
+                    <EditInvoicePage key="edit-invoice" />,
+                  ],
+                  ['credit-notes', Permission.CreditNotesView, <CreditNotesPage key="notes" />],
+                  [
+                    'credit-notes/new',
+                    Permission.CreditNotesCreate,
+                    <NewCreditNotePage key="new-note" />,
+                  ],
+                  [
+                    'credit-notes/:id',
+                    Permission.CreditNotesView,
+                    <CreditNoteDetailPage key="note" />,
+                  ],
+                  [
+                    'credit-notes/:id/edit',
+                    Permission.CreditNotesCreate,
+                    <EditCreditNotePage key="edit-note" />,
+                  ],
+                  ['receipts', Permission.ReceiptsView, <ReceiptsPage key="receipts" />],
+                  [
+                    'receipts/new',
+                    Permission.ReceiptsCreate,
+                    <RecordReceiptPage key="new-receipt" />,
+                  ],
+                  ['receipts/:id', Permission.ReceiptsView, <ReceiptDetailPage key="receipt" />],
+                  [
+                    'customer-credit/apply',
+                    Permission.ReceiptsCreate,
+                    <ApplyCreditPage key="apply" />,
+                  ],
+                  ['customers', Permission.CustomersView, <CustomersPage key="customers" />],
+                  [
+                    'customers/new',
+                    Permission.CustomersCreate,
+                    <NewCustomerPage key="new-customer" />,
+                  ],
+                  [
+                    'customers/:id',
+                    Permission.CustomersView,
+                    <CustomerDetailPage key="customer" />,
+                  ],
+                  ['reports', Permission.SalesReportsView, <SalesReportsPage key="reports" />],
+                ] as const
+              ).map(([path, permission, page]) => ({
+                path,
+                element: <RequirePermission permission={permission}>{page}</RequirePermission>,
+              })),
+              {
+                path: 'items',
+                element: (
+                  <RequireAnyPermission
+                    permissions={[Permission.InvoicesView, Permission.SalesItemsManage]}
+                  >
+                    <ItemsPage />
+                  </RequireAnyPermission>
+                ),
+              },
+              // Reading is broader than changing (the server's rules); the pages gate changes.
+              {
+                path: 'settings',
+                element: (
+                  <RequireAnyPermission permissions={SALES_SETTINGS_VIEW_PERMISSIONS}>
+                    <SalesSettingsPage />
+                  </RequireAnyPermission>
+                ),
+              },
+              {
+                path: 'tax-codes',
+                element: (
+                  <RequireAnyPermission permissions={TAX_CODES_VIEW_PERMISSIONS}>
+                    <TaxCodesPage />
+                  </RequireAnyPermission>
+                ),
+              },
             ],
           },
           { path: '*', element: <p>Page not found.</p> },

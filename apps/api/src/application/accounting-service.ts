@@ -29,6 +29,8 @@ import {
   designationAccountTypes,
   designations as designationKeys,
   designationsOfAccount,
+  hasPostedLinesOutsideModule,
+  setControlAccount,
   isAccountReferencedOutsideDrafts,
   isBankOrCash,
   listDesignations,
@@ -65,6 +67,7 @@ import {
 } from '../modules/accounting/index.js';
 import { recordAuditEvent, type EventOrigin } from '../modules/audit/index.js';
 import { enqueueOutboxEvent } from '../modules/outbox/index.js';
+import { seedLocalizationTaxCodes } from '../modules/tax/index.js';
 import type { ApprovalService } from './approval-service.js';
 import {
   hasPermission,
@@ -272,6 +275,12 @@ export class AccountingService {
         if (result === 'already_set_up') {
           throw new ConflictError('ACCOUNTING_ALREADY_SET_UP', 'Accounting is already set up.');
         }
+        // Localization tax codes (Decisions 44, 60; Phase 3B D4), marked for MIRA verification.
+        const taxCodesSeeded = await seedLocalizationTaxCodes(tx, {
+          organizationId: ctx.organizationId,
+          templateKey: input.templateKey,
+          now,
+        });
         await recordAuditEvent(tx, {
           occurredAt: now,
           organizationId: ctx.organizationId,
@@ -283,6 +292,7 @@ export class AccountingService {
             baseCurrency: input.baseCurrency,
             templateKey: input.templateKey,
             accountsCreated: result.accountsCreated,
+            taxCodesSeeded,
           },
           origin,
         });
@@ -750,6 +760,81 @@ export class AccountingService {
         valueName: value.name,
       };
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Subledger control accounts (C3, Decision 11; Phase 3B E3, D12)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Makes `accountId` the receivables control account of the `sales` subledger, inside the
+   * caller's transaction (the Sales settings change that chose it). The account must be an
+   * active, base-currency, leaf Accounts Receivable account with no designation, and must not
+   * hold posted lines from outside Sales. The previous control account, if any, is released
+   * (also when no account is chosen).
+   * Manual journals to a control account are refused (C3). Audited here.
+   */
+  async setReceivablesControlInTransaction(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    input: { accountId: string | null; previousAccountId: string | null; path: string },
+    origin: EventOrigin,
+  ) {
+    const changes: { accountId: string; isControl: boolean }[] = [];
+    if (input.previousAccountId && input.previousAccountId !== input.accountId) {
+      changes.push({ accountId: input.previousAccountId, isControl: false });
+    }
+    if (input.accountId) {
+      const account = await this.assertReceivablesControl(tx, ctx, input.accountId, input.path);
+      if (!account.isControlAccount) changes.push({ accountId: account.id, isControl: true });
+    }
+    for (const change of changes) {
+      await setControlAccount(tx, {
+        organizationId: ctx.organizationId,
+        accountId: change.accountId,
+        isControl: change.isControl,
+        userId: ctx.userId,
+      });
+      await recordAuditEvent(tx, {
+        occurredAt: this.now,
+        organizationId: ctx.organizationId,
+        actorUserId: ctx.userId,
+        action: change.isControl ? 'account.control_marked' : 'account.control_released',
+        resourceType: 'accounting_account',
+        resourceId: change.accountId,
+        metadata: { subledger: 'sales', role: 'accounts_receivable' },
+        origin,
+      });
+    }
+  }
+
+  private async assertReceivablesControl(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    accountId: string,
+    path: string,
+  ) {
+    const settings = await requireAccountingSettings(tx, ctx.organizationId);
+    const account = await getAccount(tx, ctx.organizationId, accountId, { forUpdate: true });
+    if (!account) throw issue(path, 'Account not found.');
+    if (account.status !== 'ACTIVE') throw issue(path, 'The AR account must be active.');
+    if (!account.isLeaf) throw issue(path, 'The AR account must be a posting (leaf) account.');
+    if (account.accountType !== 'ASSET' || account.subtype !== 'ACCOUNTS_RECEIVABLE') {
+      throw issue(path, 'Choose an asset account classified as Accounts Receivable.');
+    }
+    if (account.currencyCode !== settings.baseCurrency) {
+      throw issue(path, 'The AR control account is in the base currency.');
+    }
+    if ((await designationsOfAccount(tx, ctx.organizationId, account.id)).length > 0) {
+      throw issue(path, 'A designated system account cannot be the AR control account.');
+    }
+    if (await hasPostedLinesOutsideModule(tx, ctx.organizationId, account.id, 'sales')) {
+      throw issue(
+        path,
+        'This account already has posted entries from outside Sales, so it cannot become the AR control account.',
+      );
+    }
+    return account;
   }
 
   // ---------------------------------------------------------------------------

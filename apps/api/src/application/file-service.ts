@@ -409,7 +409,14 @@ export class FileService {
   async storeGeneratedInTransaction(
     tx: Transaction,
     ctx: AuthorizationContext,
-    input: { linkType: FileLinkType; linkId: string; fileName: string; sourcePath: string },
+    input: {
+      linkType: FileLinkType;
+      linkId: string;
+      fileName: string;
+      sourcePath: string;
+      /** Phase 3B (Decisions 21, 29): issued Sales PDFs cannot be removed by users. */
+      legalHold?: boolean;
+    },
   ): Promise<FileRecord> {
     const { size } = await stat(input.sourcePath);
     if (size > MAX_FILE_BYTES) throw new FileTooLargeError();
@@ -440,6 +447,7 @@ export class FileService {
         scanStatus: scan,
         uploadedByUserId: ctx.userId,
         uploadedAt: now,
+        legalHold: input.legalHold === true,
       },
       { linkType: input.linkType, linkId: input.linkId, userId: ctx.userId },
     );

@@ -9,6 +9,21 @@ import { DimensionService } from './application/dimension-service.js';
 import { ReportService } from './application/report-service.js';
 import { OrganizationProfileService } from './application/organization-profile-service.js';
 import { PartyService } from './application/party-service.js';
+import { TaxService } from './application/tax-service.js';
+import { CustomerService } from './application/customer-service.js';
+import { ItemService } from './application/item-service.js';
+import { InvoiceService } from './application/invoice-service.js';
+import { ReceiptService } from './application/receipt-service.js';
+import { CreditNoteService } from './application/credit-note-service.js';
+import { ArReportService } from './application/ar-report-service.js';
+import { SalesSearchService } from './application/sales-search-service.js';
+import {
+  DOCUMENT_EMAIL_JOB,
+  DOCUMENT_PDF_JOB,
+  SalesOutputService,
+} from './application/sales-output-service.js';
+import { PdfkitRenderer } from './infrastructure/pdf/pdf-renderer.js';
+import { SalesSettingsService } from './application/sales-settings-service.js';
 import { FileService } from './application/file-service.js';
 import {
   FILES_PURGE_JOB,
@@ -33,6 +48,7 @@ import { ApprovalService } from './application/approval-service.js';
 import { AuthService } from './application/auth-service.js';
 import type { AppDependencies } from './application/dependencies.js';
 import { InvitationService } from './application/invitation-service.js';
+import { IdempotencyService } from './application/idempotency-service.js';
 import { JournalService } from './application/journal-service.js';
 import { MfaService } from './application/mfa-service.js';
 import { MfaVerifier } from './application/mfa-verifier.js';
@@ -76,6 +92,17 @@ export interface BuiltApp {
     organizationSecurity: OrganizationSecurityService;
     openingBalances: OpeningBalanceService;
     revaluations: RevaluationService;
+    idempotency: IdempotencyService;
+    tax: TaxService;
+    salesSettings: SalesSettingsService;
+    customers: CustomerService;
+    items: ItemService;
+    invoices: InvoiceService;
+    receipts: ReceiptService;
+    creditNotes: CreditNoteService;
+    salesOutput: SalesOutputService;
+    arReports: ArReportService;
+    salesSearch: SalesSearchService;
   };
   /** Every registered route (method + URL), e.g. for the MFA default-deny test (S7-44). */
   routes: { method: string; url: string }[];
@@ -117,12 +144,35 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     new Map([...attachmentTargets, ...dataExchangeTargets]),
   );
   const jobs = new JobService(deps);
+  // Phase 3B (Decision 23): reusable request idempotency for Sales create/issue and receipts.
+  const idempotency = new IdempotencyService(deps);
+  const receipts = new ReceiptService(deps, journals, idempotency);
+  const salesOutput = new SalesOutputService(deps, files, jobs, new PdfkitRenderer());
   // S8: opening balances are an accounting process posting through the system-journal path.
   const openingBalances = new OpeningBalanceService(deps, approvals, journals, files);
-  const domainServices = { accounting, journals, parties, dimensions, reports, openingBalances };
+  // Phase 3B Sales services used by the S6 import/export domains (step 18).
+  const customers = new CustomerService(deps, parties);
+  const items = new ItemService(deps);
+  const invoices = new InvoiceService(deps, approvals, journals, idempotency, salesOutput);
+  const arReports = new ArReportService(deps);
+  const domainServices = {
+    accounting,
+    journals,
+    parties,
+    dimensions,
+    reports,
+    openingBalances,
+    customers,
+    items,
+    invoices,
+    arReports,
+  };
   // S9: revaluation support (engine only; no routes until Phase 4). Later modules register
   // their read-only document exposure providers here.
-  const revaluations = new RevaluationService(deps, journals, new RevaluationExposureRegistry());
+  // Phase 3B E5: open foreign-currency AR is reported to S9 through a read-only provider.
+  const exposures = new RevaluationExposureRegistry();
+  exposures.register(arReports);
+  const revaluations = new RevaluationService(deps, journals, exposures);
   const services = {
     auth,
     organizations: new OrganizationService(deps),
@@ -144,6 +194,32 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     organizationSecurity: new OrganizationSecurityService(deps, auth),
     openingBalances,
     revaluations,
+    idempotency,
+    // Phase 3B step 2: tax codes (Decisions 15, 33, 60).
+    tax: new TaxService(deps),
+    // Phase 3B steps 3-5: Sales settings and numbering, customers, items.
+    salesSettings: new SalesSettingsService(deps, accounting),
+    customers,
+    items,
+    // Phase 3B steps 6-7: invoice drafts, conditional approval and atomic issue (D1).
+    invoices,
+    // Phase 3B steps 8-11: receipts, allocations, customer credit, realized FX, void.
+    receipts,
+    // Phase 3B step 12: credit notes (Decision 41).
+    creditNotes: new CreditNoteService(
+      deps,
+      approvals,
+      journals,
+      receipts,
+      idempotency,
+      salesOutput,
+    ),
+    // Phase 3B steps 14-15: PDFs (PDFKit, approved D14; docs/pdf-evaluation.md) and email.
+    salesOutput,
+    // Phase 3B step 16: aging, statements, AR reconciliation.
+    arReports,
+    // Phase 3B step 19: Sales search (D15).
+    salesSearch: new SalesSearchService(deps),
   };
   const handlers = new Map<string, JobHandler>([
     [FILES_PURGE_JOB, (job) => services.files.purge(job)],
@@ -152,6 +228,8 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     [IMPORT_COMMIT_JOB, (job) => services.imports.runCommit(job)],
     [EXPORT_GENERATE_JOB, (job) => services.exports.runGenerate(job)],
     [DATA_EXCHANGE_CLEANUP_JOB, (job) => services.dataExchangeCleanup.run(job)],
+    [DOCUMENT_PDF_JOB, (job) => services.salesOutput.runPdf(job)],
+    [DOCUMENT_EMAIL_JOB, (job) => services.salesOutput.runEmail(job)],
   ]);
   const worker = new JobWorker(deps, handlers);
 

@@ -36,6 +36,7 @@ import {
 import type { ExportRow } from '../../modules/reports/index.js';
 import { hasPermission, type AuthorizationContext } from '../authorization.js';
 import { importDomains } from './imports/index.js';
+import { salesExportDomains } from './sales-exports.js';
 import type { ExportCell, ExportDomain, ExportEnv } from './types.js';
 
 /**
@@ -724,6 +725,8 @@ export const exportDomains: ReadonlyMap<ExportDomainKey, ExportDomain<never>> = 
       balanceSheetExport,
       importErrorsExport,
       openingBalancesExport,
+      // Phase 3B (step 18): customers, items, invoices, receipts, AR aging.
+      ...salesExportDomains,
     ] as ExportDomain<never>[]
   ).map((d) => [d.key, d]),
 );

@@ -8,4 +8,8 @@ export const IMPORT_PERMISSIONS: PermissionKey[] = [
   Permission.DimensionsManage,
   Permission.AccountingSetup,
   Permission.JournalsCreate,
+  // Phase 3B: customers, items and AR opening invoices.
+  Permission.CustomersCreate,
+  Permission.SalesItemsManage,
+  Permission.InvoicesCreate,
 ];

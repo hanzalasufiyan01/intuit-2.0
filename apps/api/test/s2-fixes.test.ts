@@ -11,7 +11,12 @@ import {
   setUpAccountingOrg,
   type AccountingOrg,
 } from './fixtures.js';
-import { connectAs, createTestContext, type TestContext } from './helpers.js';
+import {
+  connectAs,
+  createTestContext,
+  scopeBackfillToOrganizations,
+  type TestContext,
+} from './helpers.js';
 
 /** Regression tests for the approved S2 discrepancy fixes (Decisions 80, 83, 90, 91). */
 
@@ -238,6 +243,7 @@ describe('Decision 90 — additive dimension permission backfill (migration 0008
     // Retry the whole transaction then; the assertions are unchanged.
     for (let attempt = 1; ; attempt += 1) {
       await owner.query('BEGIN');
+      await scopeBackfillToOrganizations(owner, [orgId, otherOrgId]);
       try {
         // Simulate a pre-S2 organization: its system roles lack the dimension keys, and the
         // Member role carries an extra customization that must survive.
@@ -331,6 +337,14 @@ describe('Decision 90 — additive dimension permission backfill (migration 0008
       '0016_opening_balances', // S8
       '0017_revaluation_support', // S9
       '0018_approval_conditions', // S10
+      '0019_idempotency_keys', // 3B step 1
+      '0020_tax_codes', // 3B step 2
+      '0021_customers_items_sales_settings', // 3B steps 3-5
+      '0022_sales_documents', // 3B steps 6-7, 12
+      '0023_receipts_allocations', // 3B steps 8-11
+      '0024_sales_integrations', // 3B steps 14-15, 18
+      '0025_sales_opening_invoices', // 3B step 16
+      '0026_sales_permission_backfill', // 3B step 21
     ]);
     const { rows } = await owner.query(
       `SELECT version FROM schema_migrations WHERE version = '0008_dimension_permission_backfill'`,

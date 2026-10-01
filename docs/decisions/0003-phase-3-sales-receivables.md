@@ -1256,20 +1256,117 @@ Approved 2026-09-29 with the final amendments. S10 extends the existing approval
 - In opening-balance posting, the batch is evaluated once before the approval check (step 4) and the same evaluation serves steps 5–7. The S8-10 order of verdicts is unchanged: approval first, then validation errors.
 - Requests created before S10 have no `facts` and their steps no `conditions`. They are read as unconditional and still decide as before.
 
+## Phase 3B decisions — Sales & Accounts Receivable (APPROVED / FROZEN)
+
+Approved 2026-09-30 from the Phase 3B architecture review. The scope is brief v2.4 §4, steps 1–22. The whole Sales area posts only through accounting: sales document → accounting event → journal → GL. The AR subledger always equals the AR control balance.
+
+### Clarifications decided (formerly open)
+
+- **D1 — U1, final approval semantics.** The final approval **authorizes** an invoice; it does not issue or post it. A separate **Issue** action, by a holder of `invoices.issue`, performs the one atomic operation: invoice issue, accounting event and journal posting. Issue re-checks every applicable approval and accounting fact inside its transaction (S10-06). "Approved and ready to issue" is derived from the approval request, never stored (the S8-03 pattern). Credit notes follow the same pattern.
+- **D2 — Decision 58.** Overriding a receipt's exchange rate uses **`receipts.create`**. A reason is mandatory, and the table rate is kept and audited next to the rate used.
+- **D3 — Decision 59.** Overriding a receipt's deposit account uses **`receipts.create`**. The eligible bank/cash and currency rules (Decision 42) stay mandatory, and the override is audited.
+- **D4 — Decision 60.** The Maldives seed includes the historical **Tourism GST 16% (2023-01-01 to 2025-06-30)**, alongside General GST 8% from 2023-01-01 and Tourism GST 17% from 2025-07-01. The seeded rates are editable configuration and are **marked for MIRA verification before production use**.
+
+### D5–D15
+
+- **D5 — AR opening invoices (Decision 69).**
+  - An invoice of kind `opening`, dated on or before the S8 opening date (conversion date − 1).
+  - No tax and no revenue: it posts Dr AR control / Cr Opening Balance Equity.
+  - Explicit carrying values are allowed, per S8-06.
+  - Same approval and Issue path, transaction type `opening`.
+- **D6 — Customer identity edits.** Edits made through the customer screens use `customers.update`; the Contacts (Party) screens keep `parties.update`.
+- **D7 — Credit-note drafts.** Editing and deleting draft credit notes uses `credit_notes.create`.
+- **D8 — Items.** Viewing items needs `invoices.view` or `sales.items.manage`; changing them needs `sales.items.manage`.
+- **D9 — Invoice rate.** The table rate on the invoice date, stored on the invoice. Only receipts may override a rate (Decision 37).
+- **D10 — Dimensions.**
+  - Revenue lines carry each line's dimensions.
+  - Document-level dimensions fill any type a line doesn't set.
+  - Tax lines and the AR line inherit the document-level dimensions.
+  - Required dimensions are enforced at Issue on the applicable lines (Decision 78).
+- **D11 — Revaluation provider.** Open foreign-currency invoices are reported to the S9 engine through its read-only provider interface (extension E5). The revaluation user workflow stays in Phase 4.
+- **D12 — AR control account.** An account that already has posted lines from outside Sales cannot be chosen. The AR account cannot change once Sales documents have been issued.
+- **D13 — i18n readiness.** An in-house, typed message catalog for new Sales strings; no dependency. RTL-ready styling for later languages.
+- **D14 — PDF library.** An evaluation report (Decisions 43, 62) comes before step 13. Adoption needs approval.
+- **D15 — Search.** Indexes plus `ILIKE` first; `pg_trgm` only on measured need (Decision 47), enabled by the user as a superuser step.
+
+### Extensions E1–E6
+
+- **E1 — Accounting events with system journals.** An event handler may return a system-journal payload, with explicit per-line base amounts and, for the allowlisted `realized_fx` type, `base_only` lines. It is posted through `postSystemJournal` in the same transaction and linked to its event. The frozen journal-type allowlist is unchanged.
+- **E2 — Sales journals reverse only through Sales.** Generic journal reversal refuses journals that Sales created (the S8-14 pattern). Sales reverses them in its own transaction for invoice and receipt voids.
+- **E3 — Marking the AR control account.** An audited accounting operation marks the chosen AR account as a control account. It is refused when the account has posted lines from outside Sales.
+- **E4 — Email attachments.** The email provider abstraction gains an optional attachment referenced by file id. The production vendor stays deferred (U18).
+- **E5 — AR revaluation provider.** A read-only S9 exposure provider for open foreign-currency invoices.
+- **E6 — Permissions and MFA.** The frozen Sales keys join the catalog; `sales.settings.manage` joins the Decision 57a MFA set (S7-28).
+
+### Rules carried into implementation
+
+- Sales never writes ledger tables. Posted documents are immutable; corrections use credit notes and voids (reversals).
+- Operations are idempotent (Decision 23, the `Idempotency-Key` header) and atomic.
+- XLSX stays deferred until its dependency approval. The MIRA foreign-currency tax conversion rule (U19) stays open and is not invented.
+- New migrations continue from `0019`. Earlier migrations are never edited.
+
+### Implementation clarifications (decided 2026-10-01)
+
+Recorded during implementation and approved by the decision maker:
+
+- **PDF library (D14, Decision 43).** **PDFKit 0.20.x is approved** behind the `PdfRenderer` provider interface (evaluation: `docs/pdf-evaluation.md`). Fonts are bundled with the application: Noto Sans and Noto Sans Thaana (SIL OFL). The §5 checks of the evaluation (advisories, Thaana rendering, no network access, size and time) run before adoption is finalized.
+- **Tax rate versions.** A version has a start date only; it ends where the next version starts, so versions can never overlap (Decision 15). No explicit end date is stored.
+- **Default tax.** Sales settings hold a default **tax code**, not a separate tax account; the tax payable account comes from the code (D7).
+- **Credit application journal.** Applying customer credit always posts the `sales.credit_applied` event journal (AR against AR, §Q). Without an FX difference it is a base-currency journal with no net GL effect, kept for the audit trail.
+- **Document email permission.** Emailing an issued invoice or credit note uses `invoices.issue` / `credit_notes.issue` (with the view key); no new permission key.
+
+### Implementation notes (Phase 3B, 2026-10-01; within the approved decisions)
+
+- **Migrations `0019`–`0026`.**
+  - `0019` idempotency keys;
+  - `0020` tax codes with the Maldives seed;
+  - `0021` customers, items, Sales settings and numbering;
+  - `0022` invoices and credit notes;
+  - `0023` receipts and allocations;
+  - `0024` Sales integrations (attachments and stored PDFs, document emails, data-exchange domains);
+  - `0025` AR opening invoices (D5): `opening_base_total`, plus the `carrying` exchange-rate source for an explicit carrying value;
+  - `0026` the permission backfill.
+
+  Because `0025` was added, the backfill became `0026` instead of the planned `0025`. No earlier migration was edited.
+
+- **Permission backfill (`0026`, D14).**
+  - Existing organizations' system roles receive the 22 Sales, customer and tax keys: Owner and Administrator get all of them; Member gets `customers.view`, `invoices.view`, `credit_notes.view`, `receipts.view` and `sales.reports.view`.
+  - It is additive and idempotent, custom roles are untouched, and each role that changes gets a `role.permissions_backfilled` audit event (the `0011` pattern).
+- **Routes.** Tax codes live at `/tax/codes`, outside `/sales` (the tax module is separate from Sales). Customers live at `/customers`.
+- **Search measurement (D15, Decision 47).** `ILIKE` on invoice number, reference and customer name over 50,000 invoices in one organization took 18–22 ms (the measurement was rolled back). No new trigram index was added; the S4 `pg_trgm` index on parties covers customer names.
+- **Idempotency from the web client.** Recording a receipt and applying customer credit send an `Idempotency-Key` generated once per form. A retried or double-clicked submission replays instead of posting twice. A failed request stores no key, so the corrected form can be resubmitted.
+- **i18n (D13).**
+  - The typed catalog is `apps/web/src/i18n/messages.en.ts`; a missing key is a compile error.
+  - The Sales area renders inside `LocaleProvider` (it sets `lang` and `dir`), and the Sales styles use logical CSS properties.
+  - English is the only shipped locale.
+- **PDF output.** PDFs are produced by `PdfkitRenderer` with the bundled Noto fonts. Thaana text is laid out right to left. A review of Dhivehi output by a native reader is still recommended before production (`docs/pdf-evaluation.md` §6).
+- **Test-harness fixes found during verification (2026-10-01).**
+  - **The intermittent failure.** `organizations.test.ts` › "cannot reach another organization's resources" failed intermittently, about 30% of runs under parallel load.
+  - **The failures were auth-gate refusals before any lookup.** The responses were 401 `UNAUTHENTICATED` or 403 `CSRF_REJECTED`; none was a 2xx or another organization's data.
+  - **Root cause, in the Phase 3A S7 harness.**
+    1. A new Owner's concurrent sensitive requests trigger MFA enrollment.
+    2. Enrollment rotates the session token, which is correct S7 behaviour.
+    3. A request still in flight with the old token is answered 401 with a cleared session cookie.
+    4. The harness applied that late clear over its newer session, dropping the CSRF token as well.
+  - **Fix.** The `TestClient` ignores a response to a request sent with a token it has since replaced, and sends that request again once. Requests wait for the client's own MFA work, which is marked with `AsyncLocalStorage`, before applying cookies. The test now prints the response body on failure.
+  - **Result.** 6 failures in 20 stress runs before the fix; 0 in 30 after.
+  - **Backfill replays.** The backfill-replay tests (0003, 0008, 0009, 0011, 0026) replayed across every organization in the never-truncated test database, so their runtime grew without limit; 0026 took 36 s. They now run the unmodified migration SQL scoped to their own organizations through a temporary `roles` view (`scopeBackfillToOrganizations`): about 0.2 s, with the same assertions.
+- **Development seed.** `pnpm db:seed:dev` adds a Sales demo through the real services and resumes after an interruption. On charts seeded before S1, it classifies the template's 1110/1120 as CASH/BANK, because receipts need a classified deposit account (Decision 42).
+
 ## Status items (must not be guessed)
 
-| Item                                               | Status                                                                                        | Rule                                                                                                                                                                                                                                                                          |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **U1** Final Sales approval behaviour              | **UNDECIDED**                                                                                 | Decision 13 fixes atomic issue + event + posting once approval is satisfied. Whether the final approval **itself** performs issue (number, date lock, post), or an explicit Issue command follows, is not approved. Flag before implementing the approval → issue transition. |
-| **U18** Production email provider                  | **DEFERRED** to production readiness                                                          | The provider abstraction and mock email are approved. Not an architecture blocker.                                                                                                                                                                                            |
-| **U19** MIRA foreign-currency tax conversion rules | **OPEN before production**; not a Phase 3 architecture blocker                                | The architecture must be able to implement the statutory rule. It must not be invented and must be verified before production use.                                                                                                                                            |
-| PDF library                                        | Evaluation → recommendation → approval (Decision 43)                                          | Not an open product question.                                                                                                                                                                                                                                                 |
-| Spreadsheet library                                | Evaluated in S6 ([XLSX evaluation](../xlsx-evaluation.md)); **awaiting Decision 62 approval** | Not an open product question.                                                                                                                                                                                                                                                 |
-| Production storage vendor                          | Deployment decision (Decision 29)                                                             | Not an open product question.                                                                                                                                                                                                                                                 |
-| Receivables model                                  | **Resolved** by Decision 11                                                                   | Single base-currency AR control account plus subledger.                                                                                                                                                                                                                       |
-| Decision 58 option (rate-override permission)      | **Phase 3B clarification**                                                                    | Choose `sales.rates.override` or `receipts.create` before Phase 3B step 7.                                                                                                                                                                                                    |
-| Decision 59 option (deposit-override permission)   | **Phase 3B clarification**                                                                    | Choose `receipts.create` or a new key before Phase 3B step 7.                                                                                                                                                                                                                 |
-| Decision 60 option (Tourism GST 16% seed)          | **Phase 3B clarification**                                                                    | Seed the 2023-01-01 → 2025-06-30 16% version only if approved, before Phase 3B step 1.                                                                                                                                                                                        |
+| Item                                               | Status                                                                                        | Rule                                                                                                                               |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **U1** Final Sales approval behaviour              | **DECIDED** (Phase 3B D1)                                                                     | Approval authorizes; a separate atomic Issue action issues and posts.                                                              |
+| **U18** Production email provider                  | **DEFERRED** to production readiness                                                          | The provider abstraction and mock email are approved. Not an architecture blocker.                                                 |
+| **U19** MIRA foreign-currency tax conversion rules | **OPEN before production**; not a Phase 3 architecture blocker                                | The architecture must be able to implement the statutory rule. It must not be invented and must be verified before production use. |
+| PDF library                                        | **DECIDED** 2026-10-01: PDFKit 0.20.x ([PDF evaluation](../pdf-evaluation.md))                | Behind the `PdfRenderer` interface; fonts bundled (SIL OFL).                                                                       |
+| Spreadsheet library                                | Evaluated in S6 ([XLSX evaluation](../xlsx-evaluation.md)); **awaiting Decision 62 approval** | Not an open product question.                                                                                                      |
+| Production storage vendor                          | Deployment decision (Decision 29)                                                             | Not an open product question.                                                                                                      |
+| Receivables model                                  | **Resolved** by Decision 11                                                                   | Single base-currency AR control account plus subledger.                                                                            |
+| Decision 58 option (rate-override permission)      | **DECIDED** (Phase 3B D2)                                                                     | `receipts.create`, with a mandatory reason.                                                                                        |
+| Decision 59 option (deposit-override permission)   | **DECIDED** (Phase 3B D3)                                                                     | `receipts.create`; eligibility rules unchanged.                                                                                    |
+| Decision 60 option (Tourism GST 16% seed)          | **DECIDED** (Phase 3B D4)                                                                     | Seeded for 2023-01-01 to 2025-06-30; verify against MIRA before production.                                                        |
 
 ## Supersessions of earlier frozen decisions
 

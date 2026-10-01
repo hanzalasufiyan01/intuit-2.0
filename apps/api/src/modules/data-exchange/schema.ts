@@ -12,6 +12,10 @@ export const importDomainKeys = [
   'manual_journals',
   // Phase 3A S8 (S8-16): fills the draft opening batch only; never posts.
   'opening_balances',
+  // Phase 3B (step 18): Sales imports; opening invoices are created as drafts.
+  'customers',
+  'sales_items',
+  'opening_invoices',
 ] as const;
 export type ImportDomainKey = (typeof importDomainKeys)[number];
 
@@ -26,6 +30,12 @@ export const exportDomainKeys = [
   'balance_sheet',
   'import_errors',
   'opening_balances',
+  // Phase 3B (step 18): Sales exports (CSV).
+  'customers',
+  'sales_items',
+  'invoices',
+  'receipts',
+  'ar_aging',
 ] as const;
 export type ExportDomainKey = (typeof exportDomainKeys)[number];
 

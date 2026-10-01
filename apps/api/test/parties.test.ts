@@ -3,7 +3,13 @@ import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readMigrationFiles } from '../src/database/migrator.js';
 import { joinWithRole } from './fixtures.js';
-import { connectAs, createTestContext, type TestClient, type TestContext } from './helpers.js';
+import {
+  connectAs,
+  createTestContext,
+  scopeBackfillToOrganizations,
+  type TestClient,
+  type TestContext,
+} from './helpers.js';
 
 /**
  * Phase 3A S4 — unified Party master (Decisions 8, 28, 65, 90; S4-08..S4-11, S4-13..S4-17,
@@ -547,6 +553,7 @@ describe('parties permission backfill (S4-17, migration 0011)', () => {
       permissionKeys: ['organization.read'],
     });
     await owner.query('BEGIN');
+    await scopeBackfillToOrganizations(owner, [orgId]);
     try {
       await owner.query(
         `DELETE FROM role_permissions WHERE organization_id = $1 AND permission_key LIKE 'parties.%'`,

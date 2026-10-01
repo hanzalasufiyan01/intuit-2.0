@@ -11,7 +11,10 @@ export type ImportDomainKey =
   | 'dimension_values'
   | 'exchange_rates'
   | 'manual_journals'
-  | 'opening_balances';
+  | 'opening_balances'
+  | 'customers'
+  | 'sales_items'
+  | 'opening_invoices';
 
 export type ExportDomainKey =
   | 'chart_of_accounts'
@@ -23,7 +26,12 @@ export type ExportDomainKey =
   | 'profit_and_loss'
   | 'balance_sheet'
   | 'import_errors'
-  | 'opening_balances';
+  | 'opening_balances'
+  | 'customers'
+  | 'sales_items'
+  | 'invoices'
+  | 'receipts'
+  | 'ar_aging';
 
 export type ImportStatus =
   | 'awaiting_file'

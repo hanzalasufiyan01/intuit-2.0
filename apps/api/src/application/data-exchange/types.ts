@@ -8,6 +8,10 @@ import type {
   RowMessage,
 } from '../../modules/data-exchange/index.js';
 import type { AccountingService } from '../accounting-service.js';
+import type { ArReportService } from '../ar-report-service.js';
+import type { CustomerService } from '../customer-service.js';
+import type { InvoiceService } from '../invoice-service.js';
+import type { ItemService } from '../item-service.js';
 import type { AuthorizationContext } from '../authorization.js';
 import type { DimensionService } from '../dimension-service.js';
 import type { JournalService } from '../journal-service.js';
@@ -29,6 +33,11 @@ export interface DomainServices {
   dimensions: DimensionService;
   reports: ReportService;
   openingBalances: OpeningBalanceService;
+  // Phase 3B (step 18): Sales imports and exports.
+  customers: CustomerService;
+  items: ItemService;
+  invoices: InvoiceService;
+  arReports: ArReportService;
 }
 
 export interface ImportField {

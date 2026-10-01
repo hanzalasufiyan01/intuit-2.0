@@ -7,7 +7,10 @@ import { AccountingPermissions, accountingViewPermissions } from '../modules/acc
 import { ApprovalPermissions } from '../modules/approvals/index.js';
 import { AuditPermissions } from '../modules/audit/index.js';
 import { OrganizationPermissions } from '../modules/organizations/index.js';
+import { CustomerPermissions } from '../modules/customers/index.js';
 import { PartyPermissions } from '../modules/parties/index.js';
+import { SalesPermissions, salesViewPermissions } from '../modules/sales/index.js';
+import { TaxPermissions } from '../modules/tax/index.js';
 
 /** Approved Phase 1 system role templates. */
 export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
@@ -39,6 +42,10 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       ApprovalPermissions.ApprovalsManage,
       // Phase 3A S4 (Decision 65): all party permissions.
       ...Object.values(PartyPermissions),
+      // Phase 3B (D14): all Sales, customer and tax permissions.
+      ...Object.values(CustomerPermissions),
+      ...Object.values(SalesPermissions),
+      ...Object.values(TaxPermissions),
     ],
   },
   {
@@ -54,6 +61,9 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       ...accountingViewPermissions,
       // Phase 3A S4 (Decision 65): party view.
       PartyPermissions.View,
+      // Phase 3B (D14): Sales view-only.
+      CustomerPermissions.View,
+      ...salesViewPermissions,
     ],
   },
 ];

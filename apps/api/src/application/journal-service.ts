@@ -111,6 +111,9 @@ export interface Actor {
   userId: string | null;
 }
 
+/** Phase 3B E2: journals from this module are reversed only through it. */
+const SALES_SOURCE_MODULE = 'sales';
+
 const CONTROL_ACCOUNT_MESSAGE =
   'Control accounts cannot be used in manual journals; they are maintained through their subledger.';
 const invalidState = (message: string) => new ConflictError('INVALID_STATE_TRANSITION', message);
@@ -215,10 +218,26 @@ function sumSide(lines: readonly JournalLineInput[], side: 'debit' | 'credit'): 
   return lines.reduce((acc, l) => (l[side] ? acc.plus(decimal(l[side]!)) : acc), decimal(0));
 }
 
+/**
+ * Phase 3B E1: a handler may instead return a system-journal payload (explicit per-line base
+ * amounts; base-only lines for the allowlisted FX type), posted through `postSystemJournal` in
+ * the same transaction and linked to its event. The journal-type allowlist is unchanged.
+ */
+export interface EventSystemJournal {
+  system: Omit<SystemJournalInput, 'organizationId' | 'userId' | 'accountingEventId'>;
+}
+
 export type AccountingEventHandler = (event: {
   eventType: string;
   payload: Record<string, unknown>;
-}) => (JournalInput & { sourceRef?: SourceRef }) | null;
+}) =>
+  | (JournalInput & {
+      sourceRef?: SourceRef;
+      /** Phase 3B E1: a document rate taken from the rate table is recorded as such. */
+      exchangeRateSource?: 'table' | 'manual';
+    })
+  | EventSystemJournal
+  | null;
 
 export interface EventHandlerOptions {
   /**
@@ -252,6 +271,8 @@ export interface SystemJournalInput {
   /** Where a supplied rate came from (default 'manual'); S9 passes 'table' for table rates. */
   exchangeRateSource?: 'manual' | 'table';
   lines: SystemJournalLineInput[];
+  /** Phase 3B E1: the accounting event this journal was posted for. */
+  accountingEventId?: string | null;
 }
 
 interface BaseLine {
@@ -1342,17 +1363,27 @@ export class JournalService {
     journalId: string,
     input: { reason: string; reversalDate?: string | undefined },
     origin: EventOrigin,
-    options: { openingBatch?: boolean } = {},
+    options: { openingBatch?: boolean; sales?: boolean } = {},
   ) {
     await requireAccountingSettings(tx, ctx.organizationId);
     const original = await getJournal(tx, ctx.organizationId, journalId, { forUpdate: true });
     if (!original) throw new NotFoundError('Journal not found.');
     if (original.status !== 'POSTED')
       throw invalidState(`A ${original.status} journal cannot be reversed.`);
+    // Phase 3B E2: Sales journals, and reversals of them, change only through Sales (void), so
+    // the AR subledger and the GL never drift apart.
+    if (!options.sales && (await this.isSalesJournal(tx, ctx.organizationId, original))) {
+      throw new ConflictError(
+        'SYSTEM_JOURNAL',
+        'Sales journals are reversed from their invoice or receipt in Sales (void), not manually.',
+      );
+    }
     if (
       original.source === 'system' &&
       original.sourceType === OPENING_SOURCE.type &&
-      !options.openingBatch
+      !options.openingBatch &&
+      // Phase 3B D5: Sales opening invoices are reversed by their invoice void (E2).
+      !(options.sales && original.sourceModule === SALES_SOURCE_MODULE)
     ) {
       throw new ConflictError(
         'SYSTEM_JOURNAL',
@@ -1557,6 +1588,19 @@ export class JournalService {
         payload: input.payload,
       });
       if (!journalInput) return null;
+      if ('system' in journalInput) {
+        const posted = await this.postSystemJournal(
+          unit,
+          {
+            ...journalInput.system,
+            organizationId: input.organizationId,
+            userId: null,
+            accountingEventId: received.event.id,
+          },
+          input.origin,
+        );
+        return posted.id;
+      }
       const { sourceRef, ...fields } = journalInput;
       const dimensionIssues = await this.assignmentIssues(
         unit,
@@ -1709,6 +1753,7 @@ export class JournalService {
       userId: input.userId,
       source: 'system',
       sourceRef: input.source,
+      accountingEventId: input.accountingEventId ?? null,
     });
     const { rate, rateSource } = await this.resolveRate(
       tx,
@@ -1753,6 +1798,118 @@ export class JournalService {
       settings,
       { period, rate, rateSource, total: validation.total, baseLines },
     );
+  }
+
+  /** A journal Sales posted, or the reversal of one (Phase 3B E2). */
+  private async isSalesJournal(
+    tx: Transaction,
+    organizationId: string,
+    journal: JournalEntry,
+  ): Promise<boolean> {
+    if (journal.sourceModule === SALES_SOURCE_MODULE) return true;
+    if (journal.source !== 'reversal') return false;
+    const { reverses } = await getReversalLinks(tx, organizationId, journal.id);
+    if (!reverses) return false;
+    const original = await getJournal(tx, organizationId, reverses.originalJournalId);
+    return original?.sourceModule === SALES_SOURCE_MODULE;
+  }
+
+  /**
+   * Phase 3B E2: Sales reverses its own journals (invoice and receipt voids) inside its own
+   * transaction. Event journals use the generic reversal engine; Sales realized-FX system journals
+   * (Decision 80: never reversed generically) are mirrored line by line as a `realized_fx` system
+   * journal, like the S9 cancellation. The original becomes REVERSED either way.
+   */
+  async reverseSalesJournalInTransaction(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    journalId: string,
+    input: { reason: string; reversalDate?: string | undefined },
+    origin: EventOrigin,
+  ) {
+    const original = await getJournal(tx, ctx.organizationId, journalId, { forUpdate: true });
+    if (!original) throw new NotFoundError('Journal not found.');
+    if (original.sourceModule !== SALES_SOURCE_MODULE) {
+      throw new ConflictError('SYSTEM_JOURNAL', 'Only Sales journals are reversed here.');
+    }
+    if (!isFxSystemJournal(original)) {
+      const result = await this.reverseJournalInTransaction(tx, ctx, journalId, input, origin, {
+        sales: true,
+      });
+      return { id: result.reversal.id, number: result.reversal.number };
+    }
+    if (original.status !== 'POSTED') {
+      throw invalidState(`A ${original.status} journal cannot be reversed.`);
+    }
+    const lines = await getJournalLines(tx, ctx.organizationId, [journalId]);
+    const reversal = await this.postSystemJournal(
+      tx,
+      {
+        organizationId: ctx.organizationId,
+        userId: ctx.userId,
+        source: {
+          module: SALES_SOURCE_MODULE,
+          type: original.sourceType!,
+          id: original.sourceId!,
+        },
+        entryDate: input.reversalDate ?? original.entryDate!,
+        description: `Reversal of journal ${original.journalNumber}: ${input.reason.trim()}`.slice(
+          0,
+          1000,
+        ),
+        reference: original.reference,
+        currency: original.currency,
+        exchangeRate: original.exchangeRate,
+        exchangeRateSource: original.exchangeRateSource === 'table' ? 'table' : 'manual',
+        lines: mirrorJournalLines(
+          lines.map((l) => ({
+            accountId: l.accountId!,
+            description: l.description,
+            kind: l.lineKind,
+            debit: l.debit,
+            credit: l.credit,
+            baseDebit: l.baseDebit,
+            baseCredit: l.baseCredit,
+          })),
+        ),
+      },
+      origin,
+    );
+    const now = this.now;
+    await recordReversal(tx, {
+      organizationId: ctx.organizationId,
+      originalJournalId: journalId,
+      reversalJournalId: reversal.id,
+      reason: input.reason,
+      userId: ctx.userId,
+      now,
+    });
+    const reversed = await transitionJournal(tx, {
+      organizationId: ctx.organizationId,
+      journalId,
+      from: 'POSTED',
+      set: { status: 'REVERSED', reversedAt: now, reversedByUserId: ctx.userId },
+    });
+    if (!reversed) throw invalidState('The journal changed while reversing; try again.');
+    await this.audit(tx, ctx, 'journal.reversed', journalId, now, origin, {
+      originalNumber: original.journalNumber,
+      reversalJournalId: reversal.id,
+      reversalNumber: reversal.journalNumber,
+      reversalDate: reversal.entryDate,
+      reason: input.reason.trim(),
+    });
+    await enqueueOutboxEvent(
+      tx,
+      {
+        eventType: 'accounting.journal_reversed',
+        aggregateType: 'accounting_journal',
+        aggregateId: journalId,
+        organizationId: ctx.organizationId,
+        payload: { journalId, reversalJournalId: reversal.id },
+      },
+      now,
+    );
+    return { id: reversal.id, number: reversal.journalNumber };
   }
 
   /**

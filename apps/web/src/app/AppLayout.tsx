@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router';
 import { useAuth } from '../auth/auth-context';
 import { Can, Permission, useAnyPermission } from '../permissions/permissions';
 import { IMPORT_PERMISSIONS } from '../features/data-exchange/permissions';
+import { SALES_VIEW_PERMISSIONS } from '../features/sales/SalesSection';
 import { MfaGate } from '../features/security/MfaGate';
 import { Alert } from '../shared/ui/Alert';
 import { Button } from '../shared/ui/Button';
@@ -12,6 +13,7 @@ export function AppLayout() {
   const navigate = useNavigate();
   const canAccounting = useAnyPermission([Permission.JournalsView, Permission.PeriodsView]);
   const canImport = useAnyPermission(IMPORT_PERMISSIONS);
+  const canSales = useAnyPermission(SALES_VIEW_PERMISSIONS);
   const remaining = session?.mfa.recoveryCodesRemaining;
   const lowRecoveryCodes =
     remaining === null || remaining === undefined
@@ -52,6 +54,7 @@ export function AppLayout() {
             <NavLink to="/parties">Contacts</NavLink>
           </Can>
           {canAccounting ? <NavLink to="/accounting">Accounting</NavLink> : null}
+          {canSales ? <NavLink to="/sales">Sales</NavLink> : null}
           {canImport ? <NavLink to="/imports">Import</NavLink> : null}
           <NavLink to="/exports">Exports</NavLink>
           <Can permission={Permission.ApprovalsManage}>

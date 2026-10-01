@@ -15,6 +15,10 @@ export const fileLinkTypes = [
   'export',
   // Phase 3A S8 (S8-17): supporting evidence for an opening batch.
   'opening_balance_batch',
+  // Phase 3B: Sales documents (attachments; issued PDFs under legal hold).
+  'invoice',
+  'credit_note',
+  'receipt',
 ] as const;
 export type FileLinkType = (typeof fileLinkTypes)[number];
 

@@ -71,7 +71,7 @@ describe('permission catalog', () => {
     ).not.toThrow();
   });
 
-  it('defines the approved Phase 1 + Phase 2 catalog and templates', () => {
+  it('defines the approved Phase 1 – Phase 3B catalog and templates', () => {
     const keys = permissionCatalog.map((p) => p.key).sort();
     expect(keys).toEqual([
       'accounting.accounts.archive',
@@ -96,6 +96,21 @@ describe('permission catalog', () => {
       'accounting.setup',
       'approvals.manage',
       'audit.read',
+      'credit_notes.approve', // Phase 3B (D11, Decision 30)
+      'credit_notes.create',
+      'credit_notes.issue',
+      'credit_notes.view',
+      'customers.archive', // Phase 3B (D11)
+      'customers.create',
+      'customers.update',
+      'customers.view',
+      'invoices.approve', // Phase 3B (D11, Decision 30)
+      'invoices.create',
+      'invoices.delete_draft',
+      'invoices.edit_draft',
+      'invoices.issue',
+      'invoices.view',
+      'invoices.void',
       'members.invite',
       'members.manage',
       'members.read',
@@ -105,8 +120,15 @@ describe('permission catalog', () => {
       'parties.create',
       'parties.update',
       'parties.view',
+      'receipts.create', // Phase 3B (D11, Decision 40)
+      'receipts.view',
+      'receipts.void',
       'roles.manage',
       'roles.read',
+      'sales.items.manage', // Phase 3B (Decision 31)
+      'sales.reports.view',
+      'sales.settings.manage',
+      'tax.codes.manage', // Phase 3B (Decision 60)
     ]);
     const templates = Object.fromEntries(roleTemplateDefinitions.map((t) => [t.key, t]));
     expect(templates.owner?.permissions).toBe('all');
@@ -120,9 +142,14 @@ describe('permission catalog', () => {
       'accounting.ledger.view',
       'accounting.periods.view',
       'accounting.reports.view', // Phase 3A S3 (Decision 65, S3-01)
+      'credit_notes.view', // Phase 3B (D14): Sales view-only
+      'customers.view',
+      'invoices.view',
       'members.read',
       'organization.read',
       'parties.view', // Phase 3A S4 (Decision 65)
+      'receipts.view',
+      'sales.reports.view',
     ]);
   });
 });

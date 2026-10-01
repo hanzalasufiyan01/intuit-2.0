@@ -17,6 +17,11 @@ const serialFiles = [
   'test/s2-fixes.test.ts',
   // S8: drives the job worker for opening-balance imports and exports.
   'test/opening-balances.test.ts',
+  // Phase 3B: drives the job worker for document PDFs and email.
+  'test/sales-output.test.ts',
+  'test/sales-data-exchange.test.ts',
+  // Phase 3B step 21: replays the Sales permission backfill (migration 0026).
+  'test/sales-permissions.test.ts',
 ];
 
 export default defineConfig({

@@ -6,6 +6,7 @@ import { AccountingPermissions, getJournal, getOpeningBatch } from '../modules/a
 import type { DetectedType, FileLinkType } from '../modules/files/index.js';
 import { OrganizationPermissions } from '../modules/organizations/index.js';
 import { getParty, PartyPermissions } from '../modules/parties/index.js';
+import { getCreditNote, getInvoice, getReceipt, SalesPermissions } from '../modules/sales/index.js';
 
 /**
  * Attachment-target registry (S5-01, S5-04, S5-05). Every file is linked to exactly one record,
@@ -100,6 +101,43 @@ export const attachmentTargets: ReadonlyMap<FileLinkType, AttachmentTarget> = ne
       },
     },
   ],
+  // Phase 3B: attachments on Sales documents; issued PDFs are stored here under legal hold.
+  ...(
+    [
+      ['invoice', SalesPermissions.InvoicesView, SalesPermissions.InvoicesCreate, 'Invoice'],
+      [
+        'credit_note',
+        SalesPermissions.CreditNotesView,
+        SalesPermissions.CreditNotesCreate,
+        'Credit note',
+      ],
+      ['receipt', SalesPermissions.ReceiptsView, SalesPermissions.ReceiptsCreate, 'Receipt'],
+    ] as const
+  ).map(([linkType, view, change, label]): [FileLinkType, AttachmentTarget] => [
+    linkType,
+    {
+      linkType,
+      allowedTypes: ALL_TYPES,
+      viewPermission: view,
+      changePermission: change,
+      resolve: async (tx, organizationId, linkId) => {
+        if (!linkId) return null;
+        const record =
+          linkType === 'invoice'
+            ? await getInvoice(tx, organizationId, linkId)
+            : linkType === 'credit_note'
+              ? await getCreditNote(tx, organizationId, linkId)
+              : await getReceipt(tx, organizationId, linkId);
+        if (!record) return null;
+        return record.status === 'DRAFT'
+          ? { removable: true }
+          : {
+              removable: false,
+              removableReason: `${label} attachments cannot be removed once it is issued or recorded.`,
+            };
+      },
+    },
+  ]),
   [
     'opening_balance_batch',
     {

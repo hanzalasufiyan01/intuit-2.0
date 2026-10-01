@@ -77,7 +77,7 @@ const profileBody = z
 // Parties (S4-08..S4-11, S4-13..S4-15, S4-20)
 // ---------------------------------------------------------------------------
 
-const headerShape = {
+export const headerShape = {
   kind: z.enum(partyKinds),
   displayName: optionalText(200),
   companyName: optionalText(200),
@@ -126,7 +126,7 @@ export const contactBody = z
   isPrimary: boolean;
   receivesDocuments: boolean;
 }>;
-const contactPatch = z.object(contactShape).partial().strict();
+export const contactPatch = z.object(contactShape).partial().strict();
 
 const addressShape = {
   kind: z.enum(partyAddressKinds),
@@ -150,7 +150,7 @@ export const addressBody = z
     isDefault: z.boolean().default(false),
   })
   .strict();
-const addressPatch = z.object(addressShape).partial().strict();
+export const addressPatch = z.object(addressShape).partial().strict();
 
 export const createPartyBody = z
   .object({

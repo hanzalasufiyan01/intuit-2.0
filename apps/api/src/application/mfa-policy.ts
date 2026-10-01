@@ -4,6 +4,7 @@ import { AccessControlPermissions, getEffectiveAccess } from '../modules/access-
 import { AccountingPermissions } from '../modules/accounting/index.js';
 import { ApprovalPermissions } from '../modules/approvals/index.js';
 import { hasActiveFactor, type Session } from '../modules/identity/index.js';
+import { SalesPermissions } from '../modules/sales/index.js';
 import {
   getSecurityPolicy,
   listMemberMfaEnrollment,
@@ -26,13 +27,14 @@ import {
 
 /**
  * Decision 57a, exactly (S7-28): the Owner plus holders of these keys. `sales.settings.manage`
- * joins when Phase 3B creates it; no other key is added.
+ * joined with Phase 3B (E6); no other key is added.
  */
 export const HIGH_PRIVILEGE_PERMISSIONS: readonly string[] = [
   AccessControlPermissions.RolesManage,
   OrganizationPermissions.MembersManage,
   ApprovalPermissions.ApprovalsManage,
   AccountingPermissions.Setup,
+  SalesPermissions.SettingsManage,
 ];
 
 export type MfaRequirementReason = 'owner' | 'privileged_permission' | 'organization_policy';

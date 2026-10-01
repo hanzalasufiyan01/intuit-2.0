@@ -60,6 +60,12 @@ if (config.jobs.workerEnabled) {
       config.dataExchange.cleanupIntervalMs,
       (error) => app.log.error({ err: error }, 'Import/export cleanup scheduling failed'),
     ),
+    // Phase 3B (Decision 23): expired idempotency keys, on the file purge interval.
+    poll(
+      () => services.idempotency.purgeExpired(),
+      config.storage.purgeIntervalMs,
+      (error) => app.log.error({ err: error }, 'Idempotency key purge failed'),
+    ),
   );
 }
 

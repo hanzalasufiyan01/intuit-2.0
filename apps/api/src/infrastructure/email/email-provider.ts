@@ -5,6 +5,11 @@ export interface EmailMessage {
   text: string;
   /** Machine-readable template identifier, safe to log. */
   template: string;
+  /**
+   * Phase 3B E4: files attached by reference (a stored file id). The provider resolves the
+   * content when delivering; the message itself never carries file bytes.
+   */
+  attachments?: { fileId: string; fileName: string; contentType: string }[];
 }
 
 /** Provider abstraction for outbound email (real providers are added in later phases). */

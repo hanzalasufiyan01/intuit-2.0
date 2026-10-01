@@ -19,6 +19,16 @@ import type { OpeningBalanceService } from '../../application/opening-balance-se
 import type { OrganizationSecurityService } from '../../application/organization-security-service.js';
 import type { OrganizationService } from '../../application/organization-service.js';
 import type { RoleService } from '../../application/role-service.js';
+import type { TaxService } from '../../application/tax-service.js';
+import type { CustomerService } from '../../application/customer-service.js';
+import type { ItemService } from '../../application/item-service.js';
+import type { InvoiceService } from '../../application/invoice-service.js';
+import type { ReceiptService } from '../../application/receipt-service.js';
+import type { CreditNoteService } from '../../application/credit-note-service.js';
+import type { SalesOutputService } from '../../application/sales-output-service.js';
+import type { ArReportService } from '../../application/ar-report-service.js';
+import type { SalesSearchService } from '../../application/sales-search-service.js';
+import type { SalesSettingsService } from '../../application/sales-settings-service.js';
 import { registerAccountingRoutes } from './accounting.routes.js';
 import { registerApprovalRoutes } from './approvals.routes.js';
 import { registerAuthRoutes } from './auth.routes.js';
@@ -30,6 +40,14 @@ import { registerPartyRoutes } from './parties.routes.js';
 import { registerFileRoutes } from './files.routes.js';
 import { registerJobRoutes } from './jobs.routes.js';
 import { registerDataExchangeRoutes } from './data-exchange.routes.js';
+import { registerTaxRoutes } from './tax.routes.js';
+import { registerCustomerRoutes } from './customers.routes.js';
+import { registerSalesRoutes } from './sales.routes.js';
+import { registerInvoiceRoutes } from './invoices.routes.js';
+import { registerReceiptRoutes } from './receipts.routes.js';
+import { registerCreditNoteRoutes } from './credit-notes.routes.js';
+import { registerSalesOutputRoutes } from './sales-output.routes.js';
+import { registerSalesReportRoutes } from './sales-reports.routes.js';
 
 export interface ApiV1Services {
   auth: AuthService;
@@ -50,6 +68,16 @@ export interface ApiV1Services {
   mfa: MfaService;
   organizationSecurity: OrganizationSecurityService;
   openingBalances: OpeningBalanceService;
+  tax: TaxService;
+  salesSettings: SalesSettingsService;
+  customers: CustomerService;
+  items: ItemService;
+  invoices: InvoiceService;
+  receipts: ReceiptService;
+  creditNotes: CreditNoteService;
+  salesOutput: SalesOutputService;
+  arReports: ArReportService;
+  salesSearch: SalesSearchService;
 }
 
 /** Version 1 of the REST API, mounted at /api/v1. */
@@ -78,5 +106,13 @@ export function apiV1(deps: AppDependencies, services: ApiV1Services) {
     registerFileRoutes(app, services);
     registerJobRoutes(app, services);
     registerDataExchangeRoutes(app, services);
+    registerTaxRoutes(app, services);
+    registerSalesRoutes(app, services);
+    registerCustomerRoutes(app, services);
+    registerInvoiceRoutes(app, services);
+    registerReceiptRoutes(app, services);
+    registerCreditNoteRoutes(app, services);
+    registerSalesOutputRoutes(app, services);
+    registerSalesReportRoutes(app, services);
   };
 }

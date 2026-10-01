@@ -1,7 +1,13 @@
 import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readMigrationFiles, runMigrations } from '../src/database/migrator.js';
-import { connectAs, createTestContext, uniqueEmail, type TestContext } from './helpers.js';
+import {
+  connectAs,
+  createTestContext,
+  scopeBackfillToOrganizations,
+  type TestContext,
+  uniqueEmail,
+} from './helpers.js';
 
 let ctx: TestContext;
 let owner: pg.Client;
@@ -191,6 +197,7 @@ describe('phase 2 migration', () => {
     // Retry the whole transaction then; the assertions are unchanged.
     for (let attempt = 1; ; attempt += 1) {
       await owner.query('BEGIN');
+      await scopeBackfillToOrganizations(owner, [orgId]);
       try {
         // Simulate an organization created before Phase 2: its template roles lack Phase 2 keys,
         // and the Member role was customized with an extra Phase 1 permission.
@@ -217,7 +224,8 @@ describe('phase 2 migration', () => {
           [orgId],
         );
         const keys = Object.fromEntries(rows.map((r) => [r.name, r.keys as string[]]));
-        expect(keys.Administrator).toHaveLength(33); // + 2 dimension (S2), 1 reports (S3), 4 parties (S4)
+        // + 2 dimension (S2), 1 reports (S3), 4 parties (S4), 22 Sales/customer/tax (Phase 3B).
+        expect(keys.Administrator).toHaveLength(55);
         expect(keys.Member).toEqual([
           'accounting.accounts.view',
           // No accounting.dimensions.view: 0003 grants Phase 2 keys only (Phase 3A keys: 0017).
@@ -225,12 +233,18 @@ describe('phase 2 migration', () => {
           'accounting.ledger.view',
           'accounting.periods.view',
           'audit.read', // customization preserved: additive only
+          // Phase 3B template grants (D14), untouched by the 0003 backfill test.
+          'credit_notes.view',
+          'customers.view',
+          'invoices.view',
           'members.read',
           'organization.read',
           'parties.view', // S4 template grant (untouched by the 0003 backfill test)
+          'receipts.view',
+          'sales.reports.view',
         ]);
         expect(keys['Custom viewer']).toEqual(['organization.read']);
-        expect(keys.Owner).toHaveLength(33);
+        expect(keys.Owner).toHaveLength(55);
 
         const audit = await owner.query(
           `SELECT metadata FROM audit_events WHERE organization_id = $1 AND action = 'role.permissions_backfilled'`,

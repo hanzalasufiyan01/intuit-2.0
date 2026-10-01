@@ -11,7 +11,13 @@ import {
   setUpAccountingOrg,
   type AccountingOrg,
 } from './fixtures.js';
-import { connectAs, createTestContext, type TestClient, type TestContext } from './helpers.js';
+import {
+  connectAs,
+  createTestContext,
+  scopeBackfillToOrganizations,
+  type TestClient,
+  type TestContext,
+} from './helpers.js';
 
 /**
  * Phase 3A S3 — financial statements (Decision 4; S3-01..S3-24) on real PostgreSQL.
@@ -707,6 +713,7 @@ describe('reports permission backfill (S3-02, migration 0009)', () => {
       permissionKeys: ['accounting.ledger.view'],
     });
     await owner.query('BEGIN');
+    await scopeBackfillToOrganizations(owner, [orgId]);
     try {
       await owner.query(
         `DELETE FROM role_permissions WHERE organization_id = $1 AND permission_key = 'accounting.reports.view'`,

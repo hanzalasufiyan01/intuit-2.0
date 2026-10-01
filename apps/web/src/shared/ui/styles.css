@@ -504,3 +504,128 @@ select {
 .badge--success {
   background: var(--color-success-bg);
 }
+
+/* Phase 3B: Sales. Logical properties throughout so layouts mirror in right-to-left locales (D13). */
+.table th,
+.table td {
+  text-align: start;
+}
+.num,
+.table th.num,
+.table td.num {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.table input.num {
+  text-align: end;
+}
+.table caption {
+  caption-side: top;
+  text-align: start;
+  padding-block-end: 4px;
+}
+.table tfoot th,
+.table tfoot td {
+  font-weight: 600;
+  border-block-start: 2px solid var(--color-border);
+}
+.subrow td {
+  background: var(--color-bg);
+  font-size: 0.9rem;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0 var(--space);
+}
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px var(--space);
+  margin: 0;
+}
+.facts dt {
+  color: var(--color-muted);
+}
+.facts dd {
+  margin: 0;
+}
+table.facts {
+  width: auto;
+  min-width: min(100%, 28rem);
+}
+.totals {
+  margin-inline-start: auto;
+  border-collapse: collapse;
+  min-width: min(100%, 18rem);
+}
+.totals th {
+  text-align: start;
+  font-weight: normal;
+  padding-block: 4px;
+  padding-inline: 0 12px;
+}
+.totals td {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+  padding-block: 4px;
+}
+.totals__grand th,
+.totals__grand td {
+  font-weight: 600;
+  border-block-start: 2px solid var(--color-border);
+}
+.table--lines td {
+  min-width: 6rem;
+}
+.steps {
+  margin: 0 0 12px;
+  padding-inline-start: 20px;
+}
+.memo {
+  white-space: pre-wrap;
+  border-inline-start: 3px solid var(--color-border);
+  padding-inline-start: 12px;
+}
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.list li {
+  padding-block: 6px;
+  border-block-end: 1px solid var(--color-border);
+}
+.badge {
+  margin-right: 0;
+  margin-inline-end: 4px;
+}
+.badge--warning,
+.badge--pending,
+.badge--queued {
+  background: #fffaeb;
+  color: #b54708;
+}
+.badge--issued,
+.badge--recorded,
+.badge--sent {
+  background: var(--color-success-bg);
+  color: #067647;
+}
+.badge--void,
+.badge--failed {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

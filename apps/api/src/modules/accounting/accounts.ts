@@ -363,3 +363,53 @@ export async function hasChildAccounts(tx: Transaction, organizationId: string, 
     .limit(1);
   return row !== undefined;
 }
+
+/**
+ * Whether the account has posted (or reversed) journal lines whose journal was not created by
+ * `module` (Phase 3B E3: an account with history from elsewhere cannot become a subledger control).
+ */
+export async function hasPostedLinesOutsideModule(
+  tx: Transaction,
+  organizationId: string,
+  accountId: string,
+  module: string,
+): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: accountingJournalLines.id })
+    .from(accountingJournalLines)
+    .innerJoin(
+      accountingJournalEntries,
+      and(
+        eq(accountingJournalEntries.id, accountingJournalLines.journalId),
+        eq(accountingJournalEntries.organizationId, accountingJournalLines.organizationId),
+      ),
+    )
+    .where(
+      and(
+        eq(accountingJournalLines.organizationId, organizationId),
+        eq(accountingJournalLines.accountId, accountId),
+        inArray(accountingJournalEntries.status, ['POSTED', 'REVERSED']),
+        sql`${accountingJournalEntries.sourceModule} IS DISTINCT FROM ${module}`,
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
+/** Sets or clears an account's control flag (C3; Phase 3B E3). Callers validate and audit. */
+export async function setControlAccount(
+  tx: Transaction,
+  input: { organizationId: string; accountId: string; isControl: boolean; userId: string },
+): Promise<Account | undefined> {
+  const [row] = await tx
+    .update(accountingAccounts)
+    .set({ isControlAccount: input.isControl, updatedByUserId: input.userId })
+    .where(
+      and(
+        eq(accountingAccounts.organizationId, input.organizationId),
+        eq(accountingAccounts.id, input.accountId),
+      ),
+    )
+    .returning();
+  return row;
+}

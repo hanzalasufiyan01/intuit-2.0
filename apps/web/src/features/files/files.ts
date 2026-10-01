@@ -4,7 +4,15 @@ import { ApiError, api, getCsrfToken, type ApiErrorBody } from '../../services/a
 /** File storage client (Phase 3A S5). */
 
 export type FileLinkType =
-  'organization_logo' | 'party' | 'journal' | 'import_batch' | 'export' | 'opening_balance_batch';
+  | 'organization_logo'
+  | 'party'
+  | 'journal'
+  | 'import_batch'
+  | 'export'
+  | 'opening_balance_batch'
+  | 'invoice'
+  | 'credit_note'
+  | 'receipt';
 
 export interface StoredFile {
   id: string;

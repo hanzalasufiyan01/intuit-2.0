@@ -73,6 +73,23 @@ export type UpdatePartyInput = { version: number; roles?: PartyRole[] | undefine
   [K in keyof PartyHeaderInput]?: PartyHeaderInput[K] | undefined;
 };
 
+/**
+ * Who may change a party through a given screen. The Contacts screens use `parties.*`; a module
+ * that owns a role edits its parties' identity under its own key (Phase 3B D6: `customers.update`
+ * on the customer screens) and may require the party to hold that role.
+ */
+export interface PartyAccess {
+  permission: string;
+  role?: PartyRole | undefined;
+}
+
+/** Refuses removing a role while a module still has a record for the party; returns a message. */
+export type PartyRoleGuard = (
+  tx: Transaction,
+  organizationId: string,
+  partyId: string,
+) => Promise<string | null>;
+
 /** S4-19: only these business fields are audited with values; others by name only. */
 const AUDITED_VALUES = new Set(['kind', 'displayName', 'reference', 'tin', 'roles', 'status']);
 
@@ -153,7 +170,14 @@ function decodeCursor(cursor: string): { name: string; id: string } {
 }
 
 export class PartyService {
+  private readonly roleGuards = new Map<PartyRole, PartyRoleGuard>();
+
   constructor(private readonly deps: AppDependencies) {}
+
+  /** A module that keeps records for a role registers a guard against removing it (3B). */
+  registerRoleGuard(role: PartyRole, guard: PartyRoleGuard): void {
+    this.roleGuards.set(role, guard);
+  }
 
   private get now() {
     return this.deps.clock.now();
@@ -197,9 +221,23 @@ export class PartyService {
     };
   }
 
-  private async requireParty(tx: Transaction, organizationId: string, partyId: string) {
+  /** The party detail inside the caller's transaction (callers check permissions). */
+  detailInTransaction(tx: Transaction, organizationId: string, partyId: string) {
+    return this.detail(tx, organizationId, partyId);
+  }
+
+  private async requireParty(
+    tx: Transaction,
+    organizationId: string,
+    partyId: string,
+    role?: PartyRole,
+  ) {
     const party = await getParty(tx, organizationId, partyId, { forUpdate: true });
     if (!party) throw new NotFoundError('Party not found.');
+    if (role) {
+      const detail = await getPartyDetail(tx, organizationId, partyId);
+      if (!detail?.roles.includes(role)) throw new NotFoundError('Party not found.');
+    }
     return party;
   }
 
@@ -349,8 +387,9 @@ export class PartyService {
     ctx: AuthorizationContext,
     input: CreatePartyInput,
     origin: EventOrigin,
+    permission: string = PartyPermissions.Create,
   ): Promise<Party> {
-    requirePermission(ctx, PartyPermissions.Create);
+    requirePermission(ctx, permission);
     const header = this.resolveHeader(input);
     const issues: ValidationIssue[] = [];
     if (input.contacts.filter((c) => c.isPrimary).length > 1) {
@@ -416,70 +455,96 @@ export class PartyService {
       principal,
       { permission: PartyPermissions.Update },
       async (tx, ctx) => {
-        const party = await this.requireParty(tx, ctx.organizationId, partyId);
-        if (party.version !== input.version) throw versionConflict();
-        const detail = await getPartyDetail(tx, ctx.organizationId, partyId);
-        const merged: PartyHeaderInput = {
-          kind: input.kind ?? party.kind,
-          displayName: input.displayName === undefined ? party.displayName : input.displayName,
-          companyName: input.companyName === undefined ? party.companyName : input.companyName,
-          firstName: input.firstName === undefined ? party.firstName : input.firstName,
-          lastName: input.lastName === undefined ? party.lastName : input.lastName,
-          reference: input.reference === undefined ? party.reference : input.reference,
-          tin: input.tin === undefined ? party.tin : input.tin,
-          email: input.email === undefined ? party.email : input.email,
-          phone: input.phone === undefined ? party.phone : input.phone,
-          website: input.website === undefined ? party.website : input.website,
-          notes: input.notes === undefined ? party.notes : input.notes,
-        };
-        const header = this.resolveHeader(merged);
-        await this.assertReferenceFree(tx, ctx.organizationId, header.reference, partyId);
-
-        const changes: Partial<PartyFields> = {};
-        for (const key of Object.keys(header) as (keyof PartyFields)[]) {
-          if (header[key] !== party[key]) (changes as Record<string, unknown>)[key] = header[key];
-        }
-        const beforeRoles = [...(detail?.roles ?? [])].sort();
-        const afterRoles = input.roles ? [...new Set(input.roles)].sort() : beforeRoles;
-        const rolesChanged = JSON.stringify(beforeRoles) !== JSON.stringify(afterRoles);
-
-        const updated = await updatePartyHeader(tx, {
-          organizationId: ctx.organizationId,
-          partyId,
-          expectedVersion: input.version,
-          changes,
-          userId: ctx.userId,
-        });
-        if (!updated) throw versionConflict();
-        if (rolesChanged) await replacePartyRoles(tx, ctx.organizationId, partyId, afterRoles);
-
-        const changedFields = [...Object.keys(changes), ...(rolesChanged ? ['roles'] : [])];
-        if (changedFields.length) {
-          const valueOf = (k: string) =>
-            k === 'roles' ? afterRoles : (changes as Record<string, unknown>)[k];
-          const beforeOf = (k: string) =>
-            k === 'roles' ? beforeRoles : (party as unknown as Record<string, unknown>)[k];
-          const audited = changedFields.filter((k) => AUDITED_VALUES.has(k));
-          await this.audit(
-            tx,
-            ctx,
-            'party.updated',
-            partyId,
-            {
-              version: updated.version,
-              changedFields,
-              before: Object.fromEntries(audited.map((k) => [k, beforeOf(k)])),
-              after: Object.fromEntries(audited.map((k) => [k, valueOf(k)])),
-            },
-            origin,
-          );
-        }
+        const updated = await this.updateInTransaction(tx, ctx, partyId, input, origin);
         return {
           ...(await this.detail(tx, ctx.organizationId, partyId)),
           warnings: await this.duplicateWarnings(tx, ctx.organizationId, updated),
         };
       },
     );
+  }
+
+  /**
+   * Updates a party's identity and roles inside the caller's transaction, with the rules and
+   * audit of the Contacts screen. `access` names the permission (and role) of the calling screen.
+   */
+  async updateInTransaction(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    partyId: string,
+    input: UpdatePartyInput,
+    origin: EventOrigin,
+    access: PartyAccess = { permission: PartyPermissions.Update },
+  ): Promise<Party> {
+    requirePermission(ctx, access.permission);
+    const party = await this.requireParty(tx, ctx.organizationId, partyId, access.role);
+    if (party.version !== input.version) throw versionConflict();
+    const detail = await getPartyDetail(tx, ctx.organizationId, partyId);
+    const merged: PartyHeaderInput = {
+      kind: input.kind ?? party.kind,
+      displayName: input.displayName === undefined ? party.displayName : input.displayName,
+      companyName: input.companyName === undefined ? party.companyName : input.companyName,
+      firstName: input.firstName === undefined ? party.firstName : input.firstName,
+      lastName: input.lastName === undefined ? party.lastName : input.lastName,
+      reference: input.reference === undefined ? party.reference : input.reference,
+      tin: input.tin === undefined ? party.tin : input.tin,
+      email: input.email === undefined ? party.email : input.email,
+      phone: input.phone === undefined ? party.phone : input.phone,
+      website: input.website === undefined ? party.website : input.website,
+      notes: input.notes === undefined ? party.notes : input.notes,
+    };
+    const header = this.resolveHeader(merged);
+    await this.assertReferenceFree(tx, ctx.organizationId, header.reference, partyId);
+
+    const changes: Partial<PartyFields> = {};
+    for (const key of Object.keys(header) as (keyof PartyFields)[]) {
+      if (header[key] !== party[key]) (changes as Record<string, unknown>)[key] = header[key];
+    }
+    const beforeRoles = [...(detail?.roles ?? [])].sort();
+    const afterRoles = input.roles ? [...new Set(input.roles)].sort() : beforeRoles;
+    const rolesChanged = JSON.stringify(beforeRoles) !== JSON.stringify(afterRoles);
+    for (const removed of beforeRoles.filter((r) => !afterRoles.includes(r))) {
+      const message = await this.roleGuards.get(removed)?.(tx, ctx.organizationId, partyId);
+      if (message) throw new ValidationError([{ path: 'roles', message }]);
+    }
+
+    const updated = await updatePartyHeader(tx, {
+      organizationId: ctx.organizationId,
+      partyId,
+      expectedVersion: input.version,
+      changes,
+      userId: ctx.userId,
+    });
+    if (!updated) throw versionConflict();
+    if (rolesChanged) await replacePartyRoles(tx, ctx.organizationId, partyId, afterRoles);
+
+    const changedFields = [...Object.keys(changes), ...(rolesChanged ? ['roles'] : [])];
+    if (changedFields.length) {
+      const valueOf = (k: string) =>
+        k === 'roles' ? afterRoles : (changes as Record<string, unknown>)[k];
+      const beforeOf = (k: string) =>
+        k === 'roles' ? beforeRoles : (party as unknown as Record<string, unknown>)[k];
+      const audited = changedFields.filter((k) => AUDITED_VALUES.has(k));
+      await this.audit(
+        tx,
+        ctx,
+        'party.updated',
+        partyId,
+        {
+          version: updated.version,
+          changedFields,
+          before: Object.fromEntries(audited.map((k) => [k, beforeOf(k)])),
+          after: Object.fromEntries(audited.map((k) => [k, valueOf(k)])),
+        },
+        origin,
+      );
+    }
+    return updated;
+  }
+
+  /** Duplicate hints for a party (S4-13), for callers that report them. */
+  duplicateWarningsInTransaction(tx: Transaction, organizationId: string, party: Party) {
+    return this.duplicateWarnings(tx, organizationId, party);
   }
 
   setStatus(principal: Principal, partyId: string, status: PartyStatus, origin: EventOrigin) {
@@ -518,8 +583,14 @@ export class PartyService {
   // Contact persons (S4-10)
   // ---------------------------------------------------------------------------
 
-  addContact(principal: Principal, partyId: string, input: ContactInput, origin: EventOrigin) {
-    return this.subresource(principal, partyId, (tx, ctx) =>
+  addContact(
+    principal: Principal,
+    partyId: string,
+    input: ContactInput,
+    origin: EventOrigin,
+    access?: PartyAccess,
+  ) {
+    return this.subresource(principal, partyId, access, (tx, ctx) =>
       this.insertContactAudited(tx, ctx, partyId, input, origin).then(() => undefined),
     );
   }
@@ -568,8 +639,9 @@ export class PartyService {
     contactId: string,
     input: { [K in keyof ContactInput]?: ContactInput[K] | undefined },
     origin: EventOrigin,
+    access?: PartyAccess,
   ) {
-    return this.subresource(principal, partyId, async (tx, ctx) => {
+    return this.subresource(principal, partyId, access, async (tx, ctx) => {
       const contact = await getContact(tx, ctx.organizationId, partyId, contactId);
       if (!contact) throw new NotFoundError('Contact person not found.');
       const next = { ...contact, ...definedOnly(input) };
@@ -593,8 +665,14 @@ export class PartyService {
     });
   }
 
-  removeContact(principal: Principal, partyId: string, contactId: string, origin: EventOrigin) {
-    return this.subresource(principal, partyId, async (tx, ctx) => {
+  removeContact(
+    principal: Principal,
+    partyId: string,
+    contactId: string,
+    origin: EventOrigin,
+    access?: PartyAccess,
+  ) {
+    return this.subresource(principal, partyId, access, async (tx, ctx) => {
       const contact = await getContact(tx, ctx.organizationId, partyId, contactId);
       if (!contact) throw new NotFoundError('Contact person not found.');
       await deleteContact(tx, ctx.organizationId, contactId);
@@ -613,8 +691,14 @@ export class PartyService {
   // Addresses
   // ---------------------------------------------------------------------------
 
-  addAddress(principal: Principal, partyId: string, input: AddressInput, origin: EventOrigin) {
-    return this.subresource(principal, partyId, async (tx, ctx) => {
+  addAddress(
+    principal: Principal,
+    partyId: string,
+    input: AddressInput,
+    origin: EventOrigin,
+    access?: PartyAccess,
+  ) {
+    return this.subresource(principal, partyId, access, async (tx, ctx) => {
       await this.assertCountries(tx, [{ path: 'countryCode', countryCode: input.countryCode }]);
       if (input.isDefault) await clearDefaultAddress(tx, ctx.organizationId, partyId, input.kind);
       const address = await insertAddress(tx, ctx.organizationId, partyId, input);
@@ -640,8 +724,9 @@ export class PartyService {
     addressId: string,
     input: { [K in keyof AddressInput]?: AddressInput[K] | undefined },
     origin: EventOrigin,
+    access?: PartyAccess,
   ) {
-    return this.subresource(principal, partyId, async (tx, ctx) => {
+    return this.subresource(principal, partyId, access, async (tx, ctx) => {
       const address = await getAddress(tx, ctx.organizationId, partyId, addressId);
       if (!address) throw new NotFoundError('Address not found.');
       const changes = definedOnly(input);
@@ -666,8 +751,14 @@ export class PartyService {
     });
   }
 
-  removeAddress(principal: Principal, partyId: string, addressId: string, origin: EventOrigin) {
-    return this.subresource(principal, partyId, async (tx, ctx) => {
+  removeAddress(
+    principal: Principal,
+    partyId: string,
+    addressId: string,
+    origin: EventOrigin,
+    access?: PartyAccess,
+  ) {
+    return this.subresource(principal, partyId, access, async (tx, ctx) => {
       const address = await getAddress(tx, ctx.organizationId, partyId, addressId);
       if (!address) throw new NotFoundError('Address not found.');
       await deleteAddress(tx, ctx.organizationId, addressId);
@@ -682,18 +773,22 @@ export class PartyService {
     });
   }
 
-  /** Contacts and addresses change under parties.update and make a new party version. */
+  /**
+   * Contacts and addresses change under parties.update, or the calling screen's `access`, and
+   * make a new party version.
+   */
   private subresource(
     principal: Principal,
     partyId: string,
+    access: PartyAccess | undefined,
     work: (tx: Transaction, ctx: AuthorizationContext) => Promise<void>,
   ) {
     return withOrganization(
       this.deps,
       principal,
-      { permission: PartyPermissions.Update },
+      { permission: access?.permission ?? PartyPermissions.Update },
       async (tx, ctx) => {
-        await this.requireParty(tx, ctx.organizationId, partyId);
+        await this.requireParty(tx, ctx.organizationId, partyId, access?.role);
         await work(tx, ctx);
         await touchParty(tx, ctx.organizationId, partyId, ctx.userId);
         return this.detail(tx, ctx.organizationId, partyId);

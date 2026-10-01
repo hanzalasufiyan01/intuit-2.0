@@ -7,7 +7,10 @@ import { accountingPermissionDefinitions } from '../modules/accounting/index.js'
 import { approvalPermissionDefinitions } from '../modules/approvals/index.js';
 import { auditPermissionDefinitions } from '../modules/audit/index.js';
 import { organizationPermissionDefinitions } from '../modules/organizations/index.js';
+import { customerPermissionDefinitions } from '../modules/customers/index.js';
 import { partyPermissionDefinitions } from '../modules/parties/index.js';
+import { salesPermissionDefinitions } from '../modules/sales/index.js';
+import { taxPermissionDefinitions } from '../modules/tax/index.js';
 
 /**
  * The global permission catalog, aggregated from every module's contribution.
@@ -20,4 +23,8 @@ export const permissionCatalog: readonly PermissionDefinition[] = validatePermis
   ...approvalPermissionDefinitions,
   ...accountingPermissionDefinitions,
   ...partyPermissionDefinitions,
+  // Phase 3B (D11, Decisions 30, 31, 40): Sales, customers and tax.
+  ...customerPermissionDefinitions,
+  ...salesPermissionDefinitions,
+  ...taxPermissionDefinitions,
 ]);
