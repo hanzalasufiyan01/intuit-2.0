@@ -534,7 +534,10 @@ describe('exposure eligibility', () => {
       ],
     } as never);
     await asOwnerDb((db) =>
-      db.query(`UPDATE accounting_accounts SET is_control_account = true WHERE id = $1`, [control]),
+      db.query(
+        `UPDATE accounting_accounts SET is_control_account = true, control_subledger = 'sales' WHERE id = $1`,
+        [control],
+      ),
     );
     const run = await post(o, '2026-03-31');
     const revalued = run.lines.map((l) => l.accountId).sort();

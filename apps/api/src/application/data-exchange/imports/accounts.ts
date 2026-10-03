@@ -190,6 +190,10 @@ export const accountsImport: ImportDomain = {
             if ((await designationsOfAccount(tx, ctx.organizationId, id)).length > 0) {
               return 'A designated system account cannot become a parent.';
             }
+            // ADR 0004, P4-08 amendment: an owned control account stays a posting account.
+            if ([...existing.values()].some((a) => a.id === id && a.controlSubledger !== null)) {
+              return 'A subledger control account cannot become a parent.';
+            }
             return null;
           })(),
         );

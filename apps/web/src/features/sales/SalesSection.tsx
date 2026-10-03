@@ -27,9 +27,23 @@ export const TAX_CODES_VIEW_PERMISSIONS = [
   Permission.TaxCodesManage,
   Permission.SalesSettingsManage,
   Permission.SalesItemsManage,
+  Permission.CatalogItemsManage, // ADR 0004 P4-06
+  Permission.PurchasesSettingsManage, // ADR 0004 P4-07
   Permission.InvoicesView,
   Permission.InvoicesCreate,
   Permission.CreditNotesView,
+] as const;
+
+/** Who may change the shared items catalog: the neutral key, or the superseded Sales key (P4-06). */
+export const CATALOG_MANAGE_PERMISSIONS = [
+  Permission.CatalogItemsManage,
+  Permission.SalesItemsManage,
+] as const;
+
+/** Who may open the items catalog (mirrors the server's item view rule). */
+export const CATALOG_VIEW_PERMISSIONS = [
+  Permission.InvoicesView,
+  ...CATALOG_MANAGE_PERMISSIONS,
 ] as const;
 
 /** The Sales area: its pages render inside the locale (and text-direction) provider (D13). */

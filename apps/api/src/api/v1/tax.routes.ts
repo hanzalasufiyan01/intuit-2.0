@@ -25,6 +25,8 @@ const createBody = z
     name,
     description: description.default(''),
     taxAccountId: fields.id,
+    // ADR 0004 P4-11: optional input tax account for purchases.
+    inputTaxAccountId: fields.id.nullable().default(null),
     rate,
     effectiveFrom: isoDate,
   })
@@ -35,6 +37,7 @@ const updateBody = z
     name: name.optional(),
     description: description.optional(),
     taxAccountId: fields.id.optional(),
+    inputTaxAccountId: fields.id.nullable().optional(),
   })
   .strict();
 const versionBody = z.object({ version }).strict();

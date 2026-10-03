@@ -9,10 +9,11 @@ import { getAccount, isBankOrCash, listAccounts } from '../modules/accounting/in
 import { recordAuditEvent, type EventOrigin } from '../modules/audit/index.js';
 import {
   DEFAULT_NUMBERING,
-  formatDocumentNumber,
   getSalesSettings,
   insertSalesSettings,
   listNumberSequences,
+  numberingView as sharedNumberingView,
+  planNumbering,
   salesDocumentTypes,
   SalesPermissions,
   updateNumberSequence,
@@ -66,23 +67,7 @@ const DEFAULT_FIELDS: SalesSettingsFields = {
 function numberingView(
   sequences: readonly Pick<SalesNumberSequence, 'documentType' | keyof NumberingFields>[],
 ) {
-  return Object.fromEntries(
-    salesDocumentTypes.map((type) => {
-      const s = sequences.find((q) => q.documentType === type) ?? {
-        documentType: type,
-        ...DEFAULT_NUMBERING[type],
-      };
-      return [
-        type,
-        {
-          prefix: s.prefix,
-          minDigits: s.minDigits,
-          nextNumber: s.nextNumber,
-          preview: formatDocumentNumber(s, s.nextNumber),
-        },
-      ];
-    }),
-  ) as Record<SalesDocumentType, NumberingFields & { preview: string }>;
+  return sharedNumberingView(salesDocumentTypes, sequences, DEFAULT_NUMBERING);
 }
 
 const versionConflict = () =>
@@ -217,23 +202,14 @@ export class SalesSettingsService {
         const sequences = current
           ? await listNumberSequences(tx, ctx.organizationId, { forUpdate: true })
           : [];
-        const numbering = {} as Record<SalesDocumentType, NumberingFields>;
-        for (const type of salesDocumentTypes) {
-          const existing = sequences.find((s) => s.documentType === type);
-          const base = existing ?? DEFAULT_NUMBERING[type];
-          const wanted = input.numbering?.[type] ?? base;
-          if (existing && wanted.nextNumber < existing.nextNumber) {
-            issues.push({
-              path: `numbering.${type}.nextNumber`,
-              message: `The next number cannot be lower than ${existing.nextNumber}.`,
-            });
-          }
-          numbering[type] = {
-            prefix: wanted.prefix,
-            minDigits: wanted.minDigits,
-            nextNumber: wanted.nextNumber,
-          };
-        }
+        const plan = planNumbering({
+          types: salesDocumentTypes,
+          existing: sequences,
+          defaults: DEFAULT_NUMBERING,
+          wanted: input.numbering,
+        });
+        issues.push(...plan.issues);
+        const numbering = plan.numbering as Record<SalesDocumentType, NumberingFields>;
         if (issues.length) throw new ValidationError(issues);
 
         if (fields.arAccountId !== before.arAccountId) {
@@ -250,27 +226,7 @@ export class SalesSettingsService {
         }
 
         const changed = FIELD_KEYS.filter((k) => fields[k] !== before[k]);
-        const numberingChanges: Record<
-          string,
-          { before: NumberingFields; after: NumberingFields }
-        > = {};
-        for (const type of salesDocumentTypes) {
-          const prior = sequences.find((s) => s.documentType === type);
-          const after = numbering[type];
-          if (
-            !prior ||
-            prior.prefix !== after.prefix ||
-            prior.minDigits !== after.minDigits ||
-            prior.nextNumber !== after.nextNumber
-          ) {
-            numberingChanges[type] = {
-              before: prior
-                ? { prefix: prior.prefix, minDigits: prior.minDigits, nextNumber: prior.nextNumber }
-                : DEFAULT_NUMBERING[type],
-              after,
-            };
-          }
-        }
+        const numberingChanges = plan.changes;
         const anyChange = changed.length > 0 || Object.keys(numberingChanges).length > 0;
 
         let saved: SalesSettings | undefined;

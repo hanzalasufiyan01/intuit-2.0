@@ -2,7 +2,8 @@ import { Decimal } from 'decimal.js';
 import { convertToBase, decimal, minorUnits } from '../../domain/money.js';
 
 /**
- * Settlement arithmetic (Decisions 10, 36–39; Phase 3B §P). Pure, exact decimals.
+ * Settlement arithmetic (Decisions 10, 36–39; Phase 3B §P), shared by Sales and Purchases
+ * (Phase 4 P4-04). Pure, exact decimals.
  *
  * - A receipt's parts (each allocation and any excess) are valued at the receipt rate; the
  *   receipt's base amount is their sum, so the deposit and the parts always agree.

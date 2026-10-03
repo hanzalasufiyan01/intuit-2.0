@@ -1,15 +1,16 @@
 /** Public contract of the sales module (Phase 3B). */
+// The document arithmetic moved to the shared `documents` engine (Phase 4 P4-04); Sales keeps
+// re-exporting it so its contract is unchanged.
+export * from '../documents/index.js';
+// The items catalog moved to the shared `catalog` module (Phase 4 P4-05); re-exported likewise.
+export * from '../catalog/index.js';
 export * from './ar-positions.js';
-export * from './calculation.js';
 export * from './credit-notes.js';
 export * from './document-output.js';
 export * from './invoices.js';
-export * from './items.js';
 export * from './permissions.js';
-export * from './posting.js';
 export * from './receipts.js';
 export * from './sales-reports.js';
-export * from './settlement.js';
 export * from './settings.js';
 export {
   creditNoteStatuses,
@@ -17,8 +18,6 @@ export {
   invoiceStatuses,
   receiptStatuses,
   salesDocumentTypes,
-  salesItemStatuses,
-  salesItemTypes,
 } from './schema.js';
 export type {
   CreditNoteStatus,
@@ -26,6 +25,4 @@ export type {
   InvoiceStatus,
   ReceiptStatus,
   SalesDocumentType,
-  SalesItemStatus,
-  SalesItemType,
 } from './schema.js';

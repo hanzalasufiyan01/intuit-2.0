@@ -71,7 +71,7 @@ describe('permission catalog', () => {
     ).not.toThrow();
   });
 
-  it('defines the approved Phase 1 – Phase 3B catalog and templates', () => {
+  it('defines the approved Phase 1 – Phase 4 catalog and templates', () => {
     const keys = permissionCatalog.map((p) => p.key).sort();
     expect(keys).toEqual([
       'accounting.accounts.archive',
@@ -96,6 +96,14 @@ describe('permission catalog', () => {
       'accounting.setup',
       'approvals.manage',
       'audit.read',
+      'bills.approve', // Phase 4A-5 (ADR 0004 P4-39)
+      'bills.create',
+      'bills.delete_draft',
+      'bills.edit_draft',
+      'bills.post',
+      'bills.view',
+      'bills.void',
+      'catalog.items.manage', // Phase 4A-4 (ADR 0004 P4-06)
       'credit_notes.approve', // Phase 3B (D11, Decision 30)
       'credit_notes.create',
       'credit_notes.issue',
@@ -120,6 +128,7 @@ describe('permission catalog', () => {
       'parties.create',
       'parties.update',
       'parties.view',
+      'purchases.settings.manage', // Phase 4A-4 (ADR 0004 P4-39)
       'receipts.create', // Phase 3B (D11, Decision 40)
       'receipts.view',
       'receipts.void',
@@ -129,6 +138,10 @@ describe('permission catalog', () => {
       'sales.reports.view',
       'sales.settings.manage',
       'tax.codes.manage', // Phase 3B (Decision 60)
+      'vendors.archive', // Phase 4 (ADR 0004 P4-39)
+      'vendors.create',
+      'vendors.update',
+      'vendors.view',
     ]);
     const templates = Object.fromEntries(roleTemplateDefinitions.map((t) => [t.key, t]));
     expect(templates.owner?.permissions).toBe('all');
@@ -142,6 +155,7 @@ describe('permission catalog', () => {
       'accounting.ledger.view',
       'accounting.periods.view',
       'accounting.reports.view', // Phase 3A S3 (Decision 65, S3-01)
+      'bills.view', // Phase 4A-5 (ADR 0004 P4-40)
       'credit_notes.view', // Phase 3B (D14): Sales view-only
       'customers.view',
       'invoices.view',
@@ -150,6 +164,7 @@ describe('permission catalog', () => {
       'parties.view', // Phase 3A S4 (Decision 65)
       'receipts.view',
       'sales.reports.view',
+      'vendors.view', // Phase 4 (ADR 0004 P4-40)
     ]);
   });
 });

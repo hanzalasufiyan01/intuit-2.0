@@ -64,7 +64,59 @@ import {
   type AccountingSettings,
   type FiscalYear,
   type Period,
+  type Subledger,
 } from '../modules/accounting/index.js';
+
+/**
+ * What each subledger's control account must be (Decision 11, ADR 0004 P4-07). The Sales messages
+ * are the Phase 3B ones, unchanged.
+ */
+const CONTROL_RULES: Record<
+  Subledger,
+  {
+    role: string;
+    label: string;
+    /** The module whose settings own and release the account. */
+    module: string;
+    type: AccountType;
+    subtype: AccountSubtype;
+    wrongClassification: string;
+    outsidePostings: string;
+  }
+> = {
+  sales: {
+    role: 'accounts_receivable',
+    label: 'AR',
+    module: 'Sales',
+    type: 'ASSET',
+    subtype: 'ACCOUNTS_RECEIVABLE',
+    wrongClassification: 'Choose an asset account classified as Accounts Receivable.',
+    outsidePostings:
+      'This account already has posted entries from outside Sales, so it cannot become the AR control account.',
+  },
+  purchases: {
+    role: 'accounts_payable',
+    label: 'AP',
+    module: 'Purchases',
+    type: 'LIABILITY',
+    subtype: 'ACCOUNTS_PAYABLE',
+    wrongClassification: 'Choose a liability account classified as Accounts Payable.',
+    outsidePostings:
+      'This account already has posted entries from outside Purchases, so it cannot become the AP control account.',
+  },
+};
+
+/**
+ * Control-account integrity (ADR 0004, P4-08 amendment): while a subledger owns an account it is
+ * not reclassified, moved, re-currencied, given children or archived. Its owner releases it first.
+ */
+function controlAccountLocked(account: { controlSubledger: Subledger | null }, action: string) {
+  const rule = CONTROL_RULES[account.controlSubledger!];
+  return new ConflictError(
+    'ACCOUNT_IN_USE',
+    `This account is the ${rule.label} control account of ${rule.module}. Release it in ${rule.module} settings before ${action}.`,
+  );
+}
 import { recordAuditEvent, type EventOrigin } from '../modules/audit/index.js';
 import { enqueueOutboxEvent } from '../modules/outbox/index.js';
 import { seedLocalizationTaxCodes } from '../modules/tax/index.js';
@@ -117,6 +169,7 @@ export function accountView(account: AccountWithFacts | Account) {
     subtype: account.subtype,
     isMonetary: account.isMonetary,
     isControlAccount: account.isControlAccount,
+    controlSubledger: account.controlSubledger,
     isBankOrCash: isBankOrCash(account.subtype),
     ...('isLeaf' in account
       ? { isLeaf: account.isLeaf, usedInPostedJournals: account.usedInPostedJournals }
@@ -348,6 +401,12 @@ export class AccountingService {
             'Withdraw journals pending approval before changing the base currency.',
           );
         }
+        // Decision 26 moves base-currency accounts to the new base; an owned control account's
+        // currency cannot change while it is owned (P4-08 amendment).
+        const owned = (await listAccounts(tx, ctx.organizationId)).find(
+          (a) => a.controlSubledger !== null,
+        );
+        if (owned) throw controlAccountLocked(owned, 'changing the base currency');
         const changed = await updateBaseCurrency(tx, ctx.organizationId, input.baseCurrency);
         await recordAuditEvent(tx, {
           occurredAt: this.now,
@@ -428,6 +487,12 @@ export class AccountingService {
       throw new ConflictError(
         'ACCOUNT_DESIGNATED',
         'A designated system account receives postings, so it cannot become a parent.',
+      );
+    }
+    if (parent.controlSubledger) {
+      throw new ConflictError(
+        'ACCOUNT_IN_USE',
+        'A subledger control account receives postings, so it cannot become a parent.',
       );
     }
   }
@@ -560,6 +625,15 @@ export class AccountingService {
         const parentId = input.parentId === undefined ? account.parentId : input.parentId;
         const currencyCode = input.currencyCode ?? account.currencyCode;
         const subtype = input.subtype === undefined ? account.subtype : input.subtype;
+        if (
+          account.controlSubledger &&
+          (type !== account.accountType ||
+            subtype !== account.subtype ||
+            currencyCode !== account.currencyCode ||
+            parentId !== account.parentId)
+        ) {
+          throw controlAccountLocked(account, 'changing its type, subtype, currency or parent');
+        }
         const isMonetary = this.classify(
           type,
           currencyCode,
@@ -654,6 +728,7 @@ export class AccountingService {
         if (account.status === 'ARCHIVED') {
           throw new ConflictError('INVALID_STATE_TRANSITION', 'The account is already archived.');
         }
+        if (account.controlSubledger) throw controlAccountLocked(account, 'archiving it');
         await this.assertNotDesignated(tx, ctx.organizationId, accountId);
         const archived = await archiveAccount(tx, {
           organizationId: ctx.organizationId,
@@ -763,16 +838,13 @@ export class AccountingService {
   }
 
   // ---------------------------------------------------------------------------
-  // Subledger control accounts (C3, Decision 11; Phase 3B E3, D12)
+  // Subledger control accounts (C3, Decision 11; Phase 3B E3, D12; ADR 0004 P4-07, P4-08)
   // ---------------------------------------------------------------------------
 
   /**
    * Makes `accountId` the receivables control account of the `sales` subledger, inside the
-   * caller's transaction (the Sales settings change that chose it). The account must be an
-   * active, base-currency, leaf Accounts Receivable account with no designation, and must not
-   * hold posted lines from outside Sales. The previous control account, if any, is released
-   * (also when no account is chosen).
-   * Manual journals to a control account are refused (C3). Audited here.
+   * caller's transaction (the Sales settings change that chose it). Phase 3B E3, unchanged: it is
+   * the `sales` case of {@link setSubledgerControlInTransaction}.
    */
   async setReceivablesControlInTransaction(
     tx: Transaction,
@@ -780,59 +852,100 @@ export class AccountingService {
     input: { accountId: string | null; previousAccountId: string | null; path: string },
     origin: EventOrigin,
   ) {
-    const changes: { accountId: string; isControl: boolean }[] = [];
+    await this.setSubledgerControlInTransaction(tx, ctx, { ...input, subledger: 'sales' }, origin);
+  }
+
+  /**
+   * Makes `accountId` the control account of `subledger` (the AR account for Sales, the AP
+   * account for Purchases), inside the caller's transaction (the settings change that chose it).
+   * The account must be an active, base-currency, leaf account of the subledger's nature and
+   * subtype, with no designation, not controlled by another subledger, and with no posted lines
+   * from outside the subledger's module. The previous control account, if any, is released (also
+   * when no account is chosen). Manual journals to a control account are refused (C3). Audited.
+   */
+  async setSubledgerControlInTransaction(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    input: {
+      subledger: Subledger;
+      accountId: string | null;
+      previousAccountId: string | null;
+      path: string;
+    },
+    origin: EventOrigin,
+  ) {
+    const rule = CONTROL_RULES[input.subledger];
+    const changes: { accountId: string; subledger: Subledger | null }[] = [];
     if (input.previousAccountId && input.previousAccountId !== input.accountId) {
-      changes.push({ accountId: input.previousAccountId, isControl: false });
+      const previous = await getAccount(tx, ctx.organizationId, input.previousAccountId, {
+        forUpdate: true,
+      });
+      // Only this subledger's own control account is ever released by it.
+      if (previous?.controlSubledger === input.subledger) {
+        changes.push({ accountId: previous.id, subledger: null });
+      }
     }
     if (input.accountId) {
-      const account = await this.assertReceivablesControl(tx, ctx, input.accountId, input.path);
-      if (!account.isControlAccount) changes.push({ accountId: account.id, isControl: true });
+      const account = await this.assertSubledgerControl(
+        tx,
+        ctx,
+        input.subledger,
+        input.accountId,
+        input.path,
+      );
+      if (account.controlSubledger !== input.subledger) {
+        changes.push({ accountId: account.id, subledger: input.subledger });
+      }
     }
     for (const change of changes) {
       await setControlAccount(tx, {
         organizationId: ctx.organizationId,
         accountId: change.accountId,
-        isControl: change.isControl,
+        subledger: change.subledger,
         userId: ctx.userId,
       });
       await recordAuditEvent(tx, {
         occurredAt: this.now,
         organizationId: ctx.organizationId,
         actorUserId: ctx.userId,
-        action: change.isControl ? 'account.control_marked' : 'account.control_released',
+        action: change.subledger ? 'account.control_marked' : 'account.control_released',
         resourceType: 'accounting_account',
         resourceId: change.accountId,
-        metadata: { subledger: 'sales', role: 'accounts_receivable' },
+        metadata: { subledger: input.subledger, role: rule.role },
         origin,
       });
     }
   }
 
-  private async assertReceivablesControl(
+  private async assertSubledgerControl(
     tx: Transaction,
     ctx: AuthorizationContext,
+    subledger: Subledger,
     accountId: string,
     path: string,
   ) {
+    const rule = CONTROL_RULES[subledger];
     const settings = await requireAccountingSettings(tx, ctx.organizationId);
     const account = await getAccount(tx, ctx.organizationId, accountId, { forUpdate: true });
     if (!account) throw issue(path, 'Account not found.');
-    if (account.status !== 'ACTIVE') throw issue(path, 'The AR account must be active.');
-    if (!account.isLeaf) throw issue(path, 'The AR account must be a posting (leaf) account.');
-    if (account.accountType !== 'ASSET' || account.subtype !== 'ACCOUNTS_RECEIVABLE') {
-      throw issue(path, 'Choose an asset account classified as Accounts Receivable.');
+    if (account.status !== 'ACTIVE') throw issue(path, `The ${rule.label} account must be active.`);
+    if (!account.isLeaf) {
+      throw issue(path, `The ${rule.label} account must be a posting (leaf) account.`);
+    }
+    if (account.accountType !== rule.type || account.subtype !== rule.subtype) {
+      throw issue(path, rule.wrongClassification);
     }
     if (account.currencyCode !== settings.baseCurrency) {
-      throw issue(path, 'The AR control account is in the base currency.');
+      throw issue(path, `The ${rule.label} control account is in the base currency.`);
     }
     if ((await designationsOfAccount(tx, ctx.organizationId, account.id)).length > 0) {
-      throw issue(path, 'A designated system account cannot be the AR control account.');
+      throw issue(path, `A designated system account cannot be the ${rule.label} control account.`);
     }
-    if (await hasPostedLinesOutsideModule(tx, ctx.organizationId, account.id, 'sales')) {
-      throw issue(
-        path,
-        'This account already has posted entries from outside Sales, so it cannot become the AR control account.',
-      );
+    if (account.controlSubledger !== null && account.controlSubledger !== subledger) {
+      throw issue(path, 'This account is already the control account of another subledger.');
+    }
+    if (await hasPostedLinesOutsideModule(tx, ctx.organizationId, account.id, subledger)) {
+      throw issue(path, rule.outsidePostings);
     }
     return account;
   }

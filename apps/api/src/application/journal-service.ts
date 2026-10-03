@@ -50,7 +50,9 @@ import {
   type PostableLine,
   type RuleIssue,
   type SourceRef,
+  type Subledger,
   type SystemJournalLineInput,
+  subledgers,
 } from '../modules/accounting/index.js';
 import { getApprovalRequest, type ApprovalFacts } from '../modules/approvals/index.js';
 import { recordAuditEvent, type EventOrigin } from '../modules/audit/index.js';
@@ -111,8 +113,26 @@ export interface Actor {
   userId: string | null;
 }
 
-/** Phase 3B E2: journals from this module are reversed only through it. */
-const SALES_SOURCE_MODULE = 'sales';
+/**
+ * Subledger-owned journals (Phase 3B E2, generalized by ADR 0004 P4-09): a journal a subledger
+ * module created, and any reversal of it, changes only through that module (its voids), so the
+ * subledger and the GL never drift apart. The Sales wording is the Phase 3B one, unchanged.
+ */
+const SUBLEDGER_JOURNALS: Record<Subledger, { label: string; refusal: string }> = {
+  sales: {
+    label: 'Sales',
+    refusal:
+      'Sales journals are reversed from their invoice or receipt in Sales (void), not manually.',
+  },
+  purchases: {
+    label: 'Purchases',
+    refusal:
+      'Purchases journals are reversed from their bill, vendor credit, payment or refund in Purchases (void), not manually.',
+  },
+};
+
+const isSubledger = (module: string | null): module is Subledger =>
+  module !== null && (subledgers as readonly string[]).includes(module);
 
 const CONTROL_ACCOUNT_MESSAGE =
   'Control accounts cannot be used in manual journals; they are maintained through their subledger.';
@@ -1355,7 +1375,9 @@ export class JournalService {
   /**
    * Reversal inside the caller's transaction (L-7 precedent). The caller has authorized the
    * action. Opening-balance journals are reversed only with their whole batch (S8-14): the
-   * opening-balance service passes `openingBatch`; generic reversal refuses them.
+   * opening-balance service passes `openingBatch`; generic reversal refuses them. A subledger's
+   * journals are reversed only by that subledger (`subledger`, through
+   * {@link reverseSubledgerJournalInTransaction}); generic reversal refuses them (P4-09).
    */
   async reverseJournalInTransaction(
     tx: Transaction,
@@ -1363,27 +1385,25 @@ export class JournalService {
     journalId: string,
     input: { reason: string; reversalDate?: string | undefined },
     origin: EventOrigin,
-    options: { openingBatch?: boolean; sales?: boolean } = {},
+    options: { openingBatch?: boolean; subledger?: Subledger } = {},
   ) {
     await requireAccountingSettings(tx, ctx.organizationId);
     const original = await getJournal(tx, ctx.organizationId, journalId, { forUpdate: true });
     if (!original) throw new NotFoundError('Journal not found.');
     if (original.status !== 'POSTED')
       throw invalidState(`A ${original.status} journal cannot be reversed.`);
-    // Phase 3B E2: Sales journals, and reversals of them, change only through Sales (void), so
-    // the AR subledger and the GL never drift apart.
-    if (!options.sales && (await this.isSalesJournal(tx, ctx.organizationId, original))) {
-      throw new ConflictError(
-        'SYSTEM_JOURNAL',
-        'Sales journals are reversed from their invoice or receipt in Sales (void), not manually.',
-      );
+    // Phase 3B E2 / P4-09: a subledger's journals, and reversals of them, change only through
+    // that subledger (void), so its subledger and the GL never drift apart.
+    const owner = await this.subledgerOwner(tx, ctx.organizationId, original);
+    if (owner && owner !== options.subledger) {
+      throw new ConflictError('SYSTEM_JOURNAL', SUBLEDGER_JOURNALS[owner].refusal);
     }
     if (
       original.source === 'system' &&
       original.sourceType === OPENING_SOURCE.type &&
       !options.openingBatch &&
-      // Phase 3B D5: Sales opening invoices are reversed by their invoice void (E2).
-      !(options.sales && original.sourceModule === SALES_SOURCE_MODULE)
+      // Phase 3B D5 / P4-35: a subledger's opening documents are reversed by their void (E2).
+      !(options.subledger && original.sourceModule === options.subledger)
     ) {
       throw new ConflictError(
         'SYSTEM_JOURNAL',
@@ -1800,41 +1820,47 @@ export class JournalService {
     );
   }
 
-  /** A journal Sales posted, or the reversal of one (Phase 3B E2). */
-  private async isSalesJournal(
+  /** The subledger that owns a journal: the one that posted it, or the original's (P4-09). */
+  private async subledgerOwner(
     tx: Transaction,
     organizationId: string,
     journal: JournalEntry,
-  ): Promise<boolean> {
-    if (journal.sourceModule === SALES_SOURCE_MODULE) return true;
-    if (journal.source !== 'reversal') return false;
+  ): Promise<Subledger | null> {
+    if (isSubledger(journal.sourceModule)) return journal.sourceModule;
+    if (journal.source !== 'reversal') return null;
     const { reverses } = await getReversalLinks(tx, organizationId, journal.id);
-    if (!reverses) return false;
+    if (!reverses) return null;
     const original = await getJournal(tx, organizationId, reverses.originalJournalId);
-    return original?.sourceModule === SALES_SOURCE_MODULE;
+    return original && isSubledger(original.sourceModule) ? original.sourceModule : null;
   }
 
   /**
-   * Phase 3B E2: Sales reverses its own journals (invoice and receipt voids) inside its own
-   * transaction. Event journals use the generic reversal engine; Sales realized-FX system journals
-   * (Decision 80: never reversed generically) are mirrored line by line as a `realized_fx` system
-   * journal, like the S9 cancellation. The original becomes REVERSED either way.
+   * Phase 3B E2, generalized by ADR 0004 P4-09: a subledger module (Sales, Purchases) reverses
+   * its own journals (its voids) inside its own transaction; the caller has authorized the
+   * action. The journal must have been created by `module`. Event journals use the generic
+   * reversal engine; realized-FX system journals (Decision 80: never reversed generically) are
+   * mirrored line by line as a `realized_fx` system journal of the same module, like the S9
+   * cancellation. The original becomes REVERSED either way.
    */
-  async reverseSalesJournalInTransaction(
+  async reverseSubledgerJournalInTransaction(
     tx: Transaction,
     ctx: AuthorizationContext,
+    module: Subledger,
     journalId: string,
     input: { reason: string; reversalDate?: string | undefined },
     origin: EventOrigin,
   ) {
     const original = await getJournal(tx, ctx.organizationId, journalId, { forUpdate: true });
     if (!original) throw new NotFoundError('Journal not found.');
-    if (original.sourceModule !== SALES_SOURCE_MODULE) {
-      throw new ConflictError('SYSTEM_JOURNAL', 'Only Sales journals are reversed here.');
+    if (original.sourceModule !== module) {
+      throw new ConflictError(
+        'SYSTEM_JOURNAL',
+        `Only ${SUBLEDGER_JOURNALS[module].label} journals are reversed here.`,
+      );
     }
     if (!isFxSystemJournal(original)) {
       const result = await this.reverseJournalInTransaction(tx, ctx, journalId, input, origin, {
-        sales: true,
+        subledger: module,
       });
       return { id: result.reversal.id, number: result.reversal.number };
     }
@@ -1848,7 +1874,7 @@ export class JournalService {
         organizationId: ctx.organizationId,
         userId: ctx.userId,
         source: {
-          module: SALES_SOURCE_MODULE,
+          module,
           type: original.sourceType!,
           id: original.sourceId!,
         },

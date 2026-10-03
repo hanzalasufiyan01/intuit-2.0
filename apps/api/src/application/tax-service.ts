@@ -7,6 +7,8 @@ import {
 import type { Transaction } from '../database/client.js';
 import { getAccount } from '../modules/accounting/index.js';
 import { recordAuditEvent, type EventOrigin } from '../modules/audit/index.js';
+import { CatalogPermissions } from '../modules/catalog/index.js';
+import { BillPermissions, PurchasesPermissions } from '../modules/purchases/index.js';
 import { SalesPermissions } from '../modules/sales/index.js';
 import {
   deleteTaxCodeRate,
@@ -30,6 +32,13 @@ const TAX_VIEW_PERMISSIONS = [
   TaxPermissions.CodesManage,
   SalesPermissions.SettingsManage,
   SalesPermissions.ItemsManage,
+  // ADR 0004 P4-06: the neutral catalog key (items carry sales and purchase tax codes).
+  CatalogPermissions.ItemsManage,
+  // ADR 0004 P4-07: choosing the Purchases default tax code.
+  PurchasesPermissions.SettingsManage,
+  // Phase 4A-5: choosing and reviewing tax on bills.
+  BillPermissions.View,
+  BillPermissions.Create,
   SalesPermissions.InvoicesView,
   SalesPermissions.InvoicesCreate,
   SalesPermissions.CreditNotesView,
@@ -52,6 +61,7 @@ function codeView(code: TaxCode, rates: readonly TaxCodeRate[]) {
     name: code.name,
     description: code.description,
     taxAccountId: code.taxAccountId,
+    inputTaxAccountId: code.inputTaxAccountId,
     status: code.status,
     version: code.version,
     systemSeeded: code.createdByUserId === null,
@@ -68,6 +78,8 @@ export interface TaxCodeInput {
   name: string;
   description: string;
   taxAccountId: string;
+  /** Optional input tax account for purchases (ADR 0004 P4-11). */
+  inputTaxAccountId?: string | null | undefined;
   rate: string;
   effectiveFrom: string;
 }
@@ -118,6 +130,28 @@ export class TaxService {
     }
   }
 
+  /**
+   * The input tax account (ADR 0004 P4-11; brief §12 "the account must be an asset"): an active
+   * leaf ASSET account in the base currency, not a control account. Kept separate from the output
+   * tax account rule, which is unchanged.
+   */
+  private async assertInputTaxAccount(tx: Transaction, organizationId: string, accountId: string) {
+    const settings = await requireAccountingSettings(tx, organizationId);
+    const account = await getAccount(tx, organizationId, accountId);
+    const invalid = (message: string) =>
+      new ValidationError([{ path: 'inputTaxAccountId', message }]);
+    if (!account) throw invalid('Account not found.');
+    if (account.accountType !== 'ASSET') throw invalid('The input tax account must be an asset.');
+    if (account.status !== 'ACTIVE') throw invalid('The input tax account must be active.');
+    if (!account.isLeaf) throw invalid('The input tax account must be a posting (leaf) account.');
+    if (account.isControlAccount) {
+      throw invalid('A control account cannot be an input tax account.');
+    }
+    if (account.currencyCode !== settings.baseCurrency) {
+      throw invalid('The input tax account must be in the base currency.');
+    }
+  }
+
   private async requireCode(tx: Transaction, organizationId: string, id: string) {
     const code = await getTaxCode(tx, organizationId, id, { forUpdate: true });
     if (!code) throw new NotFoundError('Tax code not found.');
@@ -151,12 +185,16 @@ export class TaxService {
       { permission: TaxPermissions.CodesManage, sensitive: true },
       async (tx, ctx) => {
         await this.assertTaxAccount(tx, ctx.organizationId, input.taxAccountId);
+        if (input.inputTaxAccountId) {
+          await this.assertInputTaxAccount(tx, ctx.organizationId, input.inputTaxAccountId);
+        }
         const code = await insertTaxCode(tx, {
           organizationId: ctx.organizationId,
           code: input.code,
           name: input.name.trim(),
           description: input.description.trim(),
           taxAccountId: input.taxAccountId,
+          inputTaxAccountId: input.inputTaxAccountId ?? null,
           userId: ctx.userId,
           now: this.now,
         });
@@ -178,6 +216,7 @@ export class TaxService {
             code: code.code,
             name: code.name,
             taxAccountId: code.taxAccountId,
+            inputTaxAccountId: code.inputTaxAccountId,
             rate: input.rate,
             effectiveFrom: input.effectiveFrom,
           },
@@ -191,7 +230,14 @@ export class TaxService {
   updateCode(
     principal: Principal,
     id: string,
-    input: { version: number; name?: string; description?: string; taxAccountId?: string },
+    input: {
+      version: number;
+      name?: string;
+      description?: string;
+      taxAccountId?: string;
+      /** null clears the mapping (purchases with the code are then blocked, P4-11). */
+      inputTaxAccountId?: string | null;
+    },
     origin: EventOrigin,
   ) {
     return withOrganization(
@@ -200,7 +246,12 @@ export class TaxService {
       { permission: TaxPermissions.CodesManage, sensitive: true },
       async (tx, ctx) => {
         const code = await this.requireCode(tx, ctx.organizationId, id);
-        const set: { name?: string; description?: string; taxAccountId?: string } = {};
+        const set: {
+          name?: string;
+          description?: string;
+          taxAccountId?: string;
+          inputTaxAccountId?: string | null;
+        } = {};
         if (input.name !== undefined && input.name.trim() !== code.name)
           set.name = input.name.trim();
         if (input.description !== undefined && input.description.trim() !== code.description) {
@@ -209,6 +260,15 @@ export class TaxService {
         if (input.taxAccountId !== undefined && input.taxAccountId !== code.taxAccountId) {
           await this.assertTaxAccount(tx, ctx.organizationId, input.taxAccountId);
           set.taxAccountId = input.taxAccountId;
+        }
+        if (
+          input.inputTaxAccountId !== undefined &&
+          input.inputTaxAccountId !== code.inputTaxAccountId
+        ) {
+          if (input.inputTaxAccountId !== null) {
+            await this.assertInputTaxAccount(tx, ctx.organizationId, input.inputTaxAccountId);
+          }
+          set.inputTaxAccountId = input.inputTaxAccountId;
         }
         if (Object.keys(set).length === 0) return this.view(tx, ctx.organizationId, code);
         const updated = await updateTaxCode(tx, {
@@ -253,6 +313,9 @@ export class TaxService {
         }
         if (input.status === 'ACTIVE') {
           await this.assertTaxAccount(tx, ctx.organizationId, code.taxAccountId);
+          if (code.inputTaxAccountId) {
+            await this.assertInputTaxAccount(tx, ctx.organizationId, code.inputTaxAccountId);
+          }
         }
         const updated = await updateTaxCode(tx, {
           organizationId: ctx.organizationId,

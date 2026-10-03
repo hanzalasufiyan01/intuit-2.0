@@ -59,6 +59,7 @@ export async function insertTaxCode(
     name: string;
     description: string;
     taxAccountId: string;
+    inputTaxAccountId?: string | null;
     userId: string | null;
     now: Date;
   },
@@ -71,6 +72,7 @@ export async function insertTaxCode(
       name: input.name,
       description: input.description,
       taxAccountId: input.taxAccountId,
+      inputTaxAccountId: input.inputTaxAccountId ?? null,
       createdByUserId: input.userId,
       createdAt: input.now,
       updatedByUserId: input.userId,
@@ -88,7 +90,9 @@ export async function updateTaxCode(
     organizationId: string;
     id: string;
     version: number;
-    set: Partial<Pick<TaxCode, 'name' | 'description' | 'taxAccountId' | 'status'>>;
+    set: Partial<
+      Pick<TaxCode, 'name' | 'description' | 'taxAccountId' | 'inputTaxAccountId' | 'status'>
+    >;
     userId: string;
     now: Date;
   },
@@ -186,6 +190,8 @@ export async function findRateOn(
  * the `maldives` chart: General GST 8% from 2023-01-01, Tourism GST 16% from 2023-01-01 and 17%
  * from 2025-07-01, on account 2130, marked for MIRA verification. Idempotent; returns how many
  * codes were created. The same data is backfilled for existing organizations by migration 0020.
+ * New organizations also get `1160 GST Input Tax Recoverable` mapped as the codes' input tax
+ * account (ADR 0004 P4-13); existing organizations map it explicitly (nothing is inferred).
  */
 export async function seedLocalizationTaxCodes(
   tx: Transaction,
@@ -201,6 +207,15 @@ export async function seedLocalizationTaxCodes(
       ? found
       : undefined;
   if (!account) return 0;
+  // P4-13: the template's input tax account, when it is a usable asset leaf.
+  const inputFound = await findAccountByCode(tx, input.organizationId, '1160');
+  const inputTaxAccountId =
+    inputFound &&
+    inputFound.accountType === 'ASSET' &&
+    inputFound.status === 'ACTIVE' &&
+    !(await hasChildAccounts(tx, input.organizationId, inputFound.id))
+      ? inputFound.id
+      : null;
   const seed = [
     {
       code: 'GST',
@@ -226,6 +241,7 @@ export async function seedLocalizationTaxCodes(
       name: item.name,
       description: item.description,
       taxAccountId: account.id,
+      inputTaxAccountId,
       userId: null,
       now: input.now,
     });

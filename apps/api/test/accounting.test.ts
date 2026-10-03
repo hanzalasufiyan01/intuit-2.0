@@ -32,8 +32,9 @@ describe('accounting setup', () => {
   it('applies the selected COA template once, with the chosen base currency', async () => {
     const org = await setUpAccountingOrg(ctx);
     const accounts = (await org.owner.get('/accounting/accounts')).body.data;
-    // 31 Phase 2 template accounts + 3900/4950/4960/5950 (Decision 64).
-    expect(accounts).toHaveLength(35);
+    // 31 Phase 2 template accounts + 3900/4950/4960/5950 (Decision 64) + 1160 GST Input Tax
+    // Recoverable (ADR 0004 P4-13, Maldives template).
+    expect(accounts).toHaveLength(36);
     const cash = accounts.find((a: { code: string }) => a.code === '1110');
     expect(cash).toMatchObject({ type: 'ASSET', isSystem: true, isLeaf: true, status: 'ACTIVE' });
     expect(accounts.find((a: { code: string }) => a.code === '1000').isLeaf).toBe(false);

@@ -55,10 +55,30 @@ const itemShape = {
     .nullable(),
   revenueAccountId: fields.id.nullable(),
   taxCodeId: fields.id.nullable(),
+  // Phase 4A-4 (ADR 0004 P4-05): the purchase side of the shared catalog.
+  isSold: z.boolean(),
+  isPurchased: z.boolean(),
+  purchaseDescription: z.string().trim().max(1000),
+  purchaseUnitCost: z
+    .string()
+    .regex(/^(0|[1-9]\d{0,23})(\.\d{1,4})?$/, 'Enter a non-negative cost.')
+    .nullable(),
+  expenseAccountId: fields.id.nullable(),
+  purchaseTaxCodeId: fields.id.nullable(),
+  // ADR 0004 P4-12: the item's default tax recoverability (null: no default).
+  purchaseTaxRecoverable: z.boolean().nullable(),
 };
 const createItemBody = z
   .object({
     ...itemShape,
+    // Omitted purchase fields take the catalog defaults: sold, not purchased (P4-05).
+    isSold: itemShape.isSold.optional(),
+    isPurchased: itemShape.isPurchased.optional(),
+    purchaseDescription: itemShape.purchaseDescription.optional(),
+    purchaseUnitCost: itemShape.purchaseUnitCost.optional(),
+    expenseAccountId: itemShape.expenseAccountId.optional(),
+    purchaseTaxCodeId: itemShape.purchaseTaxCodeId.optional(),
+    purchaseTaxRecoverable: itemShape.purchaseTaxRecoverable.optional(),
     sku: itemShape.sku.default(null),
     description: itemShape.description.default(''),
     unitPrice: itemShape.unitPrice.default(null),

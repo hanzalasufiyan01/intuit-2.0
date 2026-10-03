@@ -190,6 +190,9 @@ export async function resolveDocument(
     if (line.itemId && !item) issues.push({ path: `${path}.itemId`, message: 'Item not found.' });
     else if (item && item.status !== 'ACTIVE' && !keptItems.has(item.id)) {
       issues.push({ path: `${path}.itemId`, message: `${item.name} is archived.` });
+    } else if (item && !item.isSold && !keptItems.has(item.id)) {
+      // ADR 0004 P4-05: a purchase-only catalog item is not offered on Sales documents.
+      issues.push({ path: `${path}.itemId`, message: `${item.name} is not sold.` });
     }
     const description = line.description?.trim() || item?.name;
     if (!description) {
@@ -458,14 +461,19 @@ export async function assertRequiredDimensions(
       types,
     )) {
       if (assigned.has(type.id)) continue;
+      // Purchase documents (ADR 0004) use the shared builder's 'expense' and 'payable' roles.
       const issue = {
-        path: line.role === 'revenue' ? 'lines' : 'dimensionValueIds',
+        path: line.role === 'revenue' || line.role === 'expense' ? 'lines' : 'dimensionValueIds',
         message: `${type.name} is required for ${
           line.role === 'revenue'
             ? 'revenue lines'
-            : line.role === 'tax'
-              ? 'the tax line'
-              : 'the receivable'
+            : line.role === 'expense'
+              ? 'expense lines'
+              : line.role === 'tax'
+                ? 'the tax line'
+                : line.role === 'payable'
+                  ? 'the payable'
+                  : 'the receivable'
         }.`,
       };
       issues.set(`${issue.path}|${issue.message}`, issue);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AP_OPENING_MESSAGE,
   AR_OPENING_MESSAGE,
   CONTROL_OPENING_MESSAGE,
   openingDateFor,
@@ -39,6 +40,13 @@ const accounts = new Map<string, OpeningAccount>(
     account('capital', { accountType: 'EQUITY', subtype: 'EQUITY' }),
     account('obe', { accountType: 'EQUITY', subtype: 'EQUITY' }),
     account('ar', { subtype: 'ACCOUNTS_RECEIVABLE' }),
+    account('ap', { accountType: 'LIABILITY', subtype: 'ACCOUNTS_PAYABLE' }),
+    account('apcontrol', {
+      accountType: 'LIABILITY',
+      subtype: 'ACCOUNTS_PAYABLE',
+      isControlAccount: true,
+    }),
+    account('accrued', { accountType: 'LIABILITY', subtype: 'OTHER_CURRENT_LIABILITY' }),
     account('control', { subtype: 'OTHER_CURRENT_ASSET', isControlAccount: true }),
     account('sales', { accountType: 'REVENUE', subtype: 'OPERATING_REVENUE' }),
     account('parent', { isLeaf: false }),
@@ -183,6 +191,14 @@ describe('line rules (S8-05 to S8-08)', () => {
     expect(issuesFor(line('ar', 'debit', '10'))).toEqual([AR_OPENING_MESSAGE]);
     expect(issuesFor(line('control', 'debit', '10'))).toEqual([CONTROL_OPENING_MESSAGE]);
     expect(AR_OPENING_MESSAGE).toMatch(/opening invoices/);
+  });
+
+  it('rejects payables with or without control ownership (ADR 0004 P4-36)', () => {
+    expect(issuesFor(line('ap', 'credit', '10'))).toEqual([AP_OPENING_MESSAGE]);
+    expect(issuesFor(line('apcontrol', 'credit', '10'))).toEqual([CONTROL_OPENING_MESSAGE]);
+    expect(AP_OPENING_MESSAGE).toMatch(/opening bills/);
+    // Ordinary liabilities are unaffected.
+    expect(issuesFor(line('accrued', 'credit', '10'))).toEqual([]);
   });
 
   it('rejects unclassified accounts without inferring a subtype (S8-07 final ruling)', () => {

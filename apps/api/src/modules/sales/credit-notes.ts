@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import type { Transaction } from '../../database/client.js';
-import { likeContains } from './items.js';
+import { likeContains } from '../catalog/index.js';
 import { salesCreditNoteLines, salesCreditNotes, type CreditNoteStatus } from './schema.js';
 
 /** Credit note data access (Phase 3B step 12; Decision 41, D7). */

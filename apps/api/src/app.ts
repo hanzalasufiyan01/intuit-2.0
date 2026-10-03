@@ -11,8 +11,11 @@ import { OrganizationProfileService } from './application/organization-profile-s
 import { PartyService } from './application/party-service.js';
 import { TaxService } from './application/tax-service.js';
 import { CustomerService } from './application/customer-service.js';
+import { VendorService } from './application/vendor-service.js';
+import { PurchasesSettingsService } from './application/purchases-settings-service.js';
 import { ItemService } from './application/item-service.js';
 import { InvoiceService } from './application/invoice-service.js';
+import { BillService } from './application/bill-service.js';
 import { ReceiptService } from './application/receipt-service.js';
 import { CreditNoteService } from './application/credit-note-service.js';
 import { ArReportService } from './application/ar-report-service.js';
@@ -96,8 +99,11 @@ export interface BuiltApp {
     tax: TaxService;
     salesSettings: SalesSettingsService;
     customers: CustomerService;
+    vendors: VendorService;
+    purchasesSettings: PurchasesSettingsService;
     items: ItemService;
     invoices: InvoiceService;
+    bills: BillService;
     receipts: ReceiptService;
     creditNotes: CreditNoteService;
     salesOutput: SalesOutputService;
@@ -152,8 +158,12 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   const openingBalances = new OpeningBalanceService(deps, approvals, journals, files);
   // Phase 3B Sales services used by the S6 import/export domains (step 18).
   const customers = new CustomerService(deps, parties);
+  // Phase 4A-3: vendors on the shared Party master (ADR 0004 P4-03).
+  const vendors = new VendorService(deps, parties);
   const items = new ItemService(deps);
   const invoices = new InvoiceService(deps, approvals, journals, idempotency, salesOutput);
+  // Phase 4A-5: bills (ADR 0004 P4-15 to P4-22).
+  const bills = new BillService(deps, approvals, journals, idempotency);
   const arReports = new ArReportService(deps);
   const domainServices = {
     accounting,
@@ -200,6 +210,11 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     // Phase 3B steps 3-5: Sales settings and numbering, customers, items.
     salesSettings: new SalesSettingsService(deps, accounting),
     customers,
+    // Phase 4A-3: vendors (ADR 0004 P4-03).
+    vendors,
+    // Phase 4A-4: Purchases settings, numbering and the AP control account (P4-07, P4-08, P4-51).
+    purchasesSettings: new PurchasesSettingsService(deps, accounting),
+    bills,
     items,
     // Phase 3B steps 6-7: invoice drafts, conditional approval and atomic issue (D1).
     invoices,

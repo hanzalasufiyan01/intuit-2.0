@@ -307,11 +307,28 @@ export function TaxCodesPage() {
     code: '',
     name: '',
     taxAccountId: '',
+    inputTaxAccountId: '',
     rate: '',
     effectiveFrom: '',
   });
   const create = useApiMutation(() =>
-    sensitive(() => api.post<TaxCode>('/tax/codes', { ...form, description: '' })),
+    sensitive(() =>
+      api.post<TaxCode>('/tax/codes', {
+        ...form,
+        inputTaxAccountId: form.inputTaxAccountId || null,
+        description: '',
+      }),
+    ),
+  );
+  // ADR 0004 P4-11: map or change a code's input tax account (re-authenticated, tax.codes.manage).
+  const [inputFor, setInputFor] = useState<{ codeId: string; accountId: string } | null>(null);
+  const setInput = useApiMutation((code: TaxCode) =>
+    sensitive(() =>
+      api.patch<TaxCode>(`/tax/codes/${code.id}`, {
+        version: code.version,
+        inputTaxAccountId: inputFor?.accountId || null,
+      }),
+    ),
   );
   const [rateFor, setRateFor] = useState<string | null>(null);
   const [rate, setRate] = useState({ rate: '', effectiveFrom: '' });
@@ -332,11 +349,15 @@ export function TaxCodesPage() {
   const liabilities = (accounts.data ?? []).filter(
     (a) => a.type === 'LIABILITY' && a.status === 'ACTIVE' && a.isLeaf !== false,
   );
+  // Input tax accounts are assets (ADR 0004 P4-11); the server applies the full rule.
+  const assets = (accounts.data ?? []).filter(
+    (a) => a.type === 'ASSET' && a.status === 'ACTIVE' && a.isLeaf !== false && !a.isControlAccount,
+  );
   return (
     <>
       <PageHeader title={t('sales.tax.title')} description={t('sales.tax.description')} />
       <SalesNav />
-      <ErrorAlert error={addRate.error ?? toggle.error ?? removeRate.error} />
+      <ErrorAlert error={addRate.error ?? toggle.error ?? removeRate.error ?? setInput.error} />
       {codes.isPending ? (
         <Spinner label={t('common.loading')} />
       ) : codes.isError ? (
@@ -348,6 +369,66 @@ export function TaxCodesPage() {
             title={`${code.code} · ${code.name}`}
             actions={<StatusBadge status={code.status} />}
           >
+            <p className="muted">
+              {t('sales.tax.inputAccount')}:{' '}
+              {code.inputTaxAccountId
+                ? (() => {
+                    const a = (accounts.data ?? []).find((x) => x.id === code.inputTaxAccountId);
+                    return a ? `${a.code} ${a.name}` : t('sales.tax.inputMapped');
+                  })()
+                : t('sales.tax.inputNotSet')}
+            </p>
+            {canManage && canAccounts ? (
+              inputFor?.codeId === code.id ? (
+                <form
+                  className="form form--inline"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    setInput.mutate(code, {
+                      onSuccess: () => {
+                        setInputFor(null);
+                        refresh();
+                      },
+                    });
+                  }}
+                >
+                  <div className="field">
+                    <label htmlFor={`input-account-${code.id}`}>
+                      {t('sales.tax.inputAccountFor', { code: code.code })}
+                    </label>
+                    <select
+                      id={`input-account-${code.id}`}
+                      value={inputFor.accountId}
+                      onChange={(e) => setInputFor({ codeId: code.id, accountId: e.target.value })}
+                    >
+                      <option value="">{t('common.none')}</option>
+                      {assets.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.code} {a.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <Button type="submit" busy={setInput.isPending}>
+                    {t('common.save')}
+                  </Button>
+                  <Button variant="ghost" onClick={() => setInputFor(null)}>
+                    {t('common.cancel')}
+                  </Button>
+                </form>
+              ) : (
+                <p className="actions">
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      setInputFor({ codeId: code.id, accountId: code.inputTaxAccountId ?? '' })
+                    }
+                  >
+                    {t('sales.tax.setInputAccount')}
+                  </Button>
+                </p>
+              )
+            ) : null}
             <table className="table">
               <thead>
                 <tr>
@@ -450,7 +531,14 @@ export function TaxCodesPage() {
               e.preventDefault();
               create.mutate(undefined, {
                 onSuccess: () => {
-                  setForm({ code: '', name: '', taxAccountId: '', rate: '', effectiveFrom: '' });
+                  setForm({
+                    code: '',
+                    name: '',
+                    taxAccountId: '',
+                    inputTaxAccountId: '',
+                    rate: '',
+                    effectiveFrom: '',
+                  });
                   refresh();
                 },
               });
@@ -485,6 +573,22 @@ export function TaxCodesPage() {
                     </option>
                   ))}
                 </select>
+              </div>
+              <div className="field">
+                <label htmlFor="tax-input-account">{t('sales.tax.inputAccount')}</label>
+                <select
+                  id="tax-input-account"
+                  value={form.inputTaxAccountId}
+                  onChange={(e) => setForm({ ...form, inputTaxAccountId: e.target.value })}
+                >
+                  <option value="">{t('common.none')}</option>
+                  {assets.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} {a.name}
+                    </option>
+                  ))}
+                </select>
+                <small className="field__hint">{t('sales.tax.inputHint')}</small>
               </div>
               <TextField
                 label={t('sales.tax.rate')}

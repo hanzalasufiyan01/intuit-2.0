@@ -4,6 +4,7 @@ import { AccessControlPermissions, getEffectiveAccess } from '../modules/access-
 import { AccountingPermissions } from '../modules/accounting/index.js';
 import { ApprovalPermissions } from '../modules/approvals/index.js';
 import { hasActiveFactor, type Session } from '../modules/identity/index.js';
+import { PurchasesPermissions } from '../modules/purchases/index.js';
 import { SalesPermissions } from '../modules/sales/index.js';
 import {
   getSecurityPolicy,
@@ -35,6 +36,8 @@ export const HIGH_PRIVILEGE_PERMISSIONS: readonly string[] = [
   ApprovalPermissions.ApprovalsManage,
   AccountingPermissions.Setup,
   SalesPermissions.SettingsManage,
+  // Phase 4A-4 (ADR 0004 P4-41).
+  PurchasesPermissions.SettingsManage,
 ];
 
 export type MfaRequirementReason = 'owner' | 'privileged_permission' | 'organization_policy';

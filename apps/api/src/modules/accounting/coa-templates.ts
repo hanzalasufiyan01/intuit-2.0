@@ -199,12 +199,31 @@ const sharedStructure: readonly CoaTemplateAccount[] = [
   },
 ];
 
+/**
+ * The Maldives chart adds `1160 GST Input Tax Recoverable` (ADR 0004 P4-13), the seeded GST codes'
+ * input tax account for new organizations. It follows 1150 so parents still precede children.
+ */
+const maldivesStructure: readonly CoaTemplateAccount[] = (() => {
+  const at = sharedStructure.findIndex((a) => a.code === '1150') + 1;
+  return [
+    ...sharedStructure.slice(0, at),
+    {
+      code: '1160',
+      name: 'GST Input Tax Recoverable',
+      type: 'ASSET',
+      parentCode: '1100',
+      subtype: 'OTHER_CURRENT_ASSET',
+    },
+    ...sharedStructure.slice(at),
+  ];
+})();
+
 export const coaTemplateDefinitions: readonly CoaTemplateDefinition[] = [
   {
     key: 'maldives',
     name: 'Maldives',
     description: 'Starting chart for the Maldives',
-    accounts: sharedStructure,
+    accounts: maldivesStructure,
   },
   {
     key: 'india',

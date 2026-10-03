@@ -59,6 +59,22 @@ export const Permission = {
   SalesReportsView: 'sales.reports.view',
   SalesItemsManage: 'sales.items.manage',
   TaxCodesManage: 'tax.codes.manage',
+  // Phase 4: Purchases (ADR 0004 P4-39).
+  VendorsView: 'vendors.view',
+  VendorsCreate: 'vendors.create',
+  VendorsUpdate: 'vendors.update',
+  VendorsArchive: 'vendors.archive',
+  // Phase 4A-4: Purchases settings (P4-39) and the shared catalog (P4-06).
+  PurchasesSettingsManage: 'purchases.settings.manage',
+  CatalogItemsManage: 'catalog.items.manage',
+  // Phase 4A-5: bills (P4-39).
+  BillsView: 'bills.view',
+  BillsCreate: 'bills.create',
+  BillsEditDraft: 'bills.edit_draft',
+  BillsDeleteDraft: 'bills.delete_draft',
+  BillsPost: 'bills.post',
+  BillsVoid: 'bills.void',
+  BillsApprove: 'bills.approve',
 } as const;
 export type PermissionKey = (typeof Permission)[keyof typeof Permission];
 

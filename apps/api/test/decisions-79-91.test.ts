@@ -116,7 +116,8 @@ describe('Decision 81 — base-currency change', () => {
     const entry = audit.find(
       (e: { action: string }) => e.action === 'accounting.base_currency_changed',
     );
-    expect(entry.metadata).toMatchObject({ from: 'MVR', to: 'USD', accountsMoved: 35 });
+    // 36 Maldives template accounts, including 1160 (ADR 0004 P4-13).
+    expect(entry.metadata).toMatchObject({ from: 'MVR', to: 'USD', accountsMoved: 36 });
   });
 });
 

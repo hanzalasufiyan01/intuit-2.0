@@ -3,6 +3,7 @@ import { ValidationError } from '../domain/errors.js';
 import { customerPartyIds, listCustomersByParty } from '../modules/customers/index.js';
 import { CustomerPermissions } from '../modules/customers/index.js';
 import { listParties } from '../modules/parties/index.js';
+import { CatalogPermissions } from '../modules/catalog/index.js';
 import {
   listCreditNotes,
   listInvoices,
@@ -145,7 +146,11 @@ export class SalesSearchService {
           });
         }
       }
-      if (can(SalesPermissions.InvoicesView) || can(SalesPermissions.ItemsManage)) {
+      if (
+        can(SalesPermissions.InvoicesView) ||
+        can(SalesPermissions.ItemsManage) ||
+        can(CatalogPermissions.ItemsManage)
+      ) {
         const page = await listItems(tx, {
           organizationId: org,
           status: 'ACTIVE',

@@ -3,7 +3,8 @@ import { decimal, minorUnits } from '../../domain/money.js';
 import { allocateDiscount, lineTax, type TaxTreatment } from '../tax/index.js';
 
 /**
- * Sales document arithmetic (Decisions 32–35, D16). Pure rules, exact decimals.
+ * Document arithmetic (Decisions 32–35, D16), shared by Sales and Purchases (Phase 4 P4-04).
+ * Pure rules, exact decimals.
  *
  * Per line: amount = quantity x unit price (rounded to the currency) -> line discount -> share of
  * the document discount (pro rata by the line's value after its own discount, Decision 35) ->

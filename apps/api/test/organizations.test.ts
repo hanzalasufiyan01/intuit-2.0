@@ -58,7 +58,9 @@ describe('organizations and ownership', () => {
     expect(ownerRole.memberCount).toBe(1);
     // Owner holds the whole catalog (Phase 1: 8; Phase 2 adds 18; Phase 3A S2 adds 2, S3 adds 1).
     // + 4 parties.* keys (S4); Phase 3B adds 4 customers.*, 17 Sales keys and tax.codes.manage.
-    expect(ownerRole.permissionKeys).toHaveLength(55);
+    // Phase 4 adds 4 vendors.* keys (ADR 0004 P4-39); 4A-4 adds catalog.items.manage and
+    // purchases.settings.manage (P4-06, P4-39); 4A-5 adds the 7 bills.* keys.
+    expect(ownerRole.permissionKeys).toHaveLength(68);
     const member = roles.body.data.find((r: { name: string }) => r.name === 'Member');
     expect(member.permissionKeys).toEqual([
       'accounting.accounts.view',
@@ -67,6 +69,7 @@ describe('organizations and ownership', () => {
       'accounting.ledger.view',
       'accounting.periods.view',
       'accounting.reports.view', // Phase 3A S3 (Decision 65, S3-01)
+      'bills.view', // Phase 4A-5 (ADR 0004 P4-40)
       'credit_notes.view', // Phase 3B (D14): Sales view-only
       'customers.view',
       'invoices.view',
@@ -75,6 +78,7 @@ describe('organizations and ownership', () => {
       'parties.view', // Phase 3A S4 (Decision 65)
       'receipts.view',
       'sales.reports.view',
+      'vendors.view', // Phase 4 (ADR 0004 P4-40)
     ]);
 
     const members = await owner.get('/organizations/current/members');
@@ -146,6 +150,7 @@ describe('invitations', () => {
       'accounting.ledger.view',
       'accounting.periods.view',
       'accounting.reports.view', // Phase 3A S3 (Decision 65, S3-01)
+      'bills.view', // Phase 4A-5 (ADR 0004 P4-40)
       'credit_notes.view', // Phase 3B (D14): Sales view-only
       'customers.view',
       'invoices.view',
@@ -154,6 +159,7 @@ describe('invitations', () => {
       'parties.view', // Phase 3A S4 (Decision 65)
       'receipts.view',
       'sales.reports.view',
+      'vendors.view', // Phase 4 (ADR 0004 P4-40)
     ]);
     expect((await invitee.get('/organizations/current')).body.data.name).toBe('Invite Org');
 
@@ -554,6 +560,7 @@ describe('cross-organization isolation', () => {
       'accounting.ledger.view',
       'accounting.periods.view',
       'accounting.reports.view', // Phase 3A S3 (Decision 65, S3-01)
+      'bills.view', // Phase 4A-5 (ADR 0004 P4-40)
       'credit_notes.view', // Phase 3B (D14): Sales view-only
       'customers.view',
       'invoices.view',
@@ -562,6 +569,7 @@ describe('cross-organization isolation', () => {
       'parties.view', // Phase 3A S4 (Decision 65)
       'receipts.view',
       'sales.reports.view',
+      'vendors.view', // Phase 4 (ADR 0004 P4-40)
     ]);
   });
 });

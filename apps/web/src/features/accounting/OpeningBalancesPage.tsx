@@ -151,9 +151,11 @@ function eligible(account: Account, obeId: string | null, includeProfitAndLoss: 
     account.status === 'ACTIVE' &&
     account.isLeaf &&
     !account.isControlAccount &&
-    // S8-07 final ruling: an explicit subtype is required; receivables are excluded.
+    // S8-07 final ruling: an explicit subtype is required; receivables are excluded, and
+    // payables too (ADR 0004 P4-36: vendor balances come in as opening bills).
     account.subtype !== null &&
     account.subtype !== 'ACCOUNTS_RECEIVABLE' &&
+    account.subtype !== 'ACCOUNTS_PAYABLE' &&
     account.id !== obeId &&
     (includeProfitAndLoss || (account.type !== 'REVENUE' && account.type !== 'EXPENSE'))
   );

@@ -219,7 +219,7 @@ describe('tax code management', () => {
     const owner = await connectAs('owner');
     try {
       await owner.query(
-        `UPDATE accounting_accounts SET is_control_account = true WHERE organization_id = $1 AND code = '2120'`,
+        `UPDATE accounting_accounts SET is_control_account = true, control_subledger = 'sales' WHERE organization_id = $1 AND code = '2120'`,
         [org.organizationId],
       );
     } finally {

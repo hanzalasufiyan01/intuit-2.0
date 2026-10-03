@@ -4,7 +4,11 @@ import { useAuth } from '../../auth/auth-context';
 import { useT, type MessageKey } from '../../i18n/i18n';
 import { Can, Permission, useAnyPermission } from '../../permissions/permissions';
 import { api } from '../../services/api-client';
-import { SALES_SETTINGS_VIEW_PERMISSIONS, TAX_CODES_VIEW_PERMISSIONS } from './SalesSection';
+import {
+  CATALOG_VIEW_PERMISSIONS,
+  SALES_SETTINGS_VIEW_PERMISSIONS,
+  TAX_CODES_VIEW_PERMISSIONS,
+} from './SalesSection';
 import type { CustomerSummary, Item, Page, SalesSettings, TaxCode } from './types';
 
 export function useOrgKey(): string {
@@ -14,7 +18,7 @@ export function useOrgKey(): string {
 /** Sales sub-navigation; every link is permission-aware (UX only; the server decides). */
 export function SalesNav() {
   const t = useT();
-  const canItems = useAnyPermission([Permission.InvoicesView, Permission.SalesItemsManage]);
+  const canItems = useAnyPermission(CATALOG_VIEW_PERMISSIONS);
   const canSettings = useAnyPermission(SALES_SETTINGS_VIEW_PERMISSIONS);
   const canTax = useAnyPermission(TAX_CODES_VIEW_PERMISSIONS);
   return (

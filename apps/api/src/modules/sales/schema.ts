@@ -52,31 +52,6 @@ export const salesNumberSequences = pgTable(
   (t) => [primaryKey({ columns: [t.organizationId, t.documentType] })],
 );
 
-export const salesItemTypes = ['service', 'product'] as const;
-export type SalesItemType = (typeof salesItemTypes)[number];
-export const salesItemStatuses = ['ACTIVE', 'ARCHIVED'] as const;
-export type SalesItemStatus = (typeof salesItemStatuses)[number];
-
-export const salesItems = pgTable('sales_items', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  organizationId: uuid('organization_id').notNull(),
-  sku: text('sku'),
-  name: text('name').notNull(),
-  itemType: text('item_type', { enum: salesItemTypes }).notNull(),
-  description: text('description').notNull().default(''),
-  unitPrice: numeric('unit_price', { precision: 28, scale: 4 }),
-  revenueAccountId: uuid('revenue_account_id'),
-  taxCodeId: uuid('tax_code_id'),
-  status: text('status', { enum: salesItemStatuses }).notNull().default('ACTIVE'),
-  version: integer('version').notNull().default(1),
-  createdByUserId: uuid('created_by_user_id').notNull(),
-  createdAt: timestamptz('created_at').notNull(),
-  updatedByUserId: uuid('updated_by_user_id'),
-  updatedAt: timestamptz('updated_at').notNull(),
-  archivedByUserId: uuid('archived_by_user_id'),
-  archivedAt: timestamptz('archived_at'),
-});
-
 // ---------------------------------------------------------------------------
 // Documents (migration 0022)
 // ---------------------------------------------------------------------------

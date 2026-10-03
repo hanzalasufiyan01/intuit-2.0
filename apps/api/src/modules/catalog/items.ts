@@ -2,12 +2,25 @@ import { and, asc, eq, gt, ilike, or, sql, type SQL } from 'drizzle-orm';
 import type { Transaction } from '../../database/client.js';
 import { salesItems, type SalesItemStatus } from './schema.js';
 
-/** Items catalog data access (D4, Decision 31). No inventory. */
+/** Items catalog data access (D4, Decision 31; shared catalog, ADR 0004 P4-05). No inventory. */
 
 export type SalesItem = typeof salesItems.$inferSelect;
 export type SalesItemFields = Pick<
   SalesItem,
-  'sku' | 'name' | 'itemType' | 'description' | 'unitPrice' | 'revenueAccountId' | 'taxCodeId'
+  | 'sku'
+  | 'name'
+  | 'itemType'
+  | 'description'
+  | 'unitPrice'
+  | 'revenueAccountId'
+  | 'taxCodeId'
+  | 'isSold'
+  | 'isPurchased'
+  | 'purchaseDescription'
+  | 'purchaseUnitCost'
+  | 'expenseAccountId'
+  | 'purchaseTaxCodeId'
+  | 'purchaseTaxRecoverable'
 >;
 
 const scoped = (organizationId: string, id: string) =>

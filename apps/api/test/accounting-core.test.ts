@@ -139,7 +139,7 @@ async function insertLine(
 async function markControl(org: AccountingOrg, code: string) {
   await asOwner((db) =>
     db.query(
-      `UPDATE accounting_accounts SET is_control_account = true WHERE organization_id = $1 AND code = $2`,
+      `UPDATE accounting_accounts SET is_control_account = true, control_subledger = 'sales' WHERE organization_id = $1 AND code = $2`,
       [org.organizationId, code],
     ),
   );

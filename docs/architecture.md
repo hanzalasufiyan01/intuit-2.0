@@ -74,7 +74,7 @@ Emails that contain one-time links (password reset, invitation) are sent directl
 - [Security architecture](security.md): authentication, sessions, CSRF, authorization/RBAC, RLS, audit, logging
 - [API conventions](api.md): versioning, envelopes, errors, endpoints
 - [Module boundaries](module-boundaries.md)
-- Decisions: [ADR 0001 (Phase 1)](decisions/0001-phase-1-foundation.md), [ADR 0002 (Phase 2)](decisions/0002-phase-2-accounting.md)
+- Decisions: [ADR 0001 (Phase 1)](decisions/0001-phase-1-foundation.md), [ADR 0002 (Phase 2)](decisions/0002-phase-2-accounting.md), [ADR 0003 (Phase 3)](decisions/0003-phase-3-sales-receivables.md), [ADR 0004 (Phase 4)](decisions/0004-phase-4-purchases-payables.md)
 
 ## Accounting (Phase 2)
 

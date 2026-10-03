@@ -13,6 +13,8 @@ export const taxCodes = pgTable('tax_codes', {
   name: text('name').notNull(),
   description: text('description').notNull().default(''),
   taxAccountId: uuid('tax_account_id').notNull(),
+  /** Recoverable purchase tax posts here (ADR 0004 P4-11, migration 0032); NULL until mapped. */
+  inputTaxAccountId: uuid('input_tax_account_id'),
   status: text('status', { enum: taxCodeStatuses }).notNull().default('ACTIVE'),
   version: integer('version').notNull().default(1),
   createdByUserId: uuid('created_by_user_id'),

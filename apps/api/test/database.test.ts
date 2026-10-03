@@ -225,7 +225,9 @@ describe('phase 2 migration', () => {
         );
         const keys = Object.fromEntries(rows.map((r) => [r.name, r.keys as string[]]));
         // + 2 dimension (S2), 1 reports (S3), 4 parties (S4), 22 Sales/customer/tax (Phase 3B).
-        expect(keys.Administrator).toHaveLength(55);
+        // + 4 vendors.* (Phase 4, ADR 0004 P4-39); + catalog.items.manage and
+        // purchases.settings.manage (Phase 4A-4, P4-06, P4-39); + 7 bills.* keys (4A-5).
+        expect(keys.Administrator).toHaveLength(68);
         expect(keys.Member).toEqual([
           'accounting.accounts.view',
           // No accounting.dimensions.view: 0003 grants Phase 2 keys only (Phase 3A keys: 0017).
@@ -233,6 +235,7 @@ describe('phase 2 migration', () => {
           'accounting.ledger.view',
           'accounting.periods.view',
           'audit.read', // customization preserved: additive only
+          'bills.view', // Phase 4A-5 template grant (P4-40)
           // Phase 3B template grants (D14), untouched by the 0003 backfill test.
           'credit_notes.view',
           'customers.view',
@@ -242,9 +245,10 @@ describe('phase 2 migration', () => {
           'parties.view', // S4 template grant (untouched by the 0003 backfill test)
           'receipts.view',
           'sales.reports.view',
+          'vendors.view', // Phase 4 template grant (P4-40)
         ]);
         expect(keys['Custom viewer']).toEqual(['organization.read']);
-        expect(keys.Owner).toHaveLength(55);
+        expect(keys.Owner).toHaveLength(68);
 
         const audit = await owner.query(
           `SELECT metadata FROM audit_events WHERE organization_id = $1 AND action = 'role.permissions_backfilled'`,

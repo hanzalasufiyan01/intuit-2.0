@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, ilike, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { Transaction } from '../../database/client.js';
-import { likeContains } from './items.js';
+import { likeContains } from '../catalog/index.js';
 import { salesInvoiceLines, salesInvoices, type InvoiceStatus } from './schema.js';
 
 /** Invoice data access (Phase 3B steps 6–7, 12–13). Rules live in the application service. */

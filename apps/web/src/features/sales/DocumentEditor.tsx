@@ -302,11 +302,13 @@ export function DocumentEditor({
                     onChange={(e) => pickItem(line.key, e.target.value)}
                   >
                     <option value="">{t('sales.editor.noItem')}</option>
-                    {items.data?.items.map((i) => (
-                      <option key={i.id} value={i.id}>
-                        {i.sku ? `${i.sku} · ${i.name}` : i.name}
-                      </option>
-                    ))}
+                    {items.data?.items
+                      .filter((i) => i.isSold !== false || i.id === line.itemId)
+                      .map((i) => (
+                        <option key={i.id} value={i.id}>
+                          {i.sku ? `${i.sku} · ${i.name}` : i.name}
+                        </option>
+                      ))}
                   </select>
                 </td>
                 <td>

@@ -3,3 +3,5 @@ dist
 coverage
 pnpm-lock.yaml
 *.sql
+# Generated test fixtures (written by the tests themselves with UPDATE_GOLDEN=1)
+apps/api/test/golden

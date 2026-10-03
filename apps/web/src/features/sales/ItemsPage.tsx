@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { useApiMutation } from '../../auth/auth-context';
 import { useT } from '../../i18n/i18n';
-import { Permission, usePermission } from '../../permissions/permissions';
+import { Permission, useAnyPermission, usePermission } from '../../permissions/permissions';
 import { api, ApiError } from '../../services/api-client';
 import { ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
@@ -11,6 +11,13 @@ import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
 import { useAccounts } from '../accounting/shared';
 import { ExportButton } from '../data-exchange/ExportButton';
+import {
+  fromRecoverableChoice,
+  PURCHASE_ACCOUNT_SUBTYPES,
+  toRecoverableChoice,
+  type RecoverableChoice,
+} from '../purchases/types';
+import { CATALOG_MANAGE_PERMISSIONS } from './SalesSection';
 import { orNull, SalesNav, StatusBadge, useOrgKey, useTaxCodes } from './shared';
 import type { Item, Page } from './types';
 
@@ -22,6 +29,13 @@ interface ItemForm {
   unitPrice: string;
   revenueAccountId: string;
   taxCodeId: string;
+  isSold: boolean;
+  isPurchased: boolean;
+  purchaseDescription: string;
+  purchaseUnitCost: string;
+  expenseAccountId: string;
+  purchaseTaxCodeId: string;
+  purchaseTaxRecoverable: RecoverableChoice;
 }
 
 const blank: ItemForm = {
@@ -32,14 +46,25 @@ const blank: ItemForm = {
   unitPrice: '',
   revenueAccountId: '',
   taxCodeId: '',
+  isSold: true,
+  isPurchased: false,
+  purchaseDescription: '',
+  purchaseUnitCost: '',
+  expenseAccountId: '',
+  purchaseTaxCodeId: '',
+  purchaseTaxRecoverable: '',
 };
 
-/** The items catalog (D4, Decision 31, D8): view with invoices.view, change with sales.items.manage. */
+/**
+ * The shared items catalog (D4, Decision 31, D8; ADR 0004 P4-05, P4-06): sold and/or purchased
+ * items. View with invoices.view or a catalog key; change with catalog.items.manage (or the
+ * superseded sales.items.manage). UX only: the server validates and authorizes everything.
+ */
 export function ItemsPage() {
   const t = useT();
   const org = useOrgKey();
   const queryClient = useQueryClient();
-  const canManage = usePermission(Permission.SalesItemsManage);
+  const canManage = useAnyPermission(CATALOG_MANAGE_PERMISSIONS);
   const canAccounts = usePermission(Permission.AccountsView);
   const accounts = useAccounts(canManage && canAccounts);
   const taxCodes = useTaxCodes();
@@ -64,6 +89,13 @@ export function ItemsPage() {
     unitPrice: orNull(form.unitPrice),
     revenueAccountId: form.revenueAccountId || null,
     taxCodeId: form.taxCodeId || null,
+    isSold: form.isSold,
+    isPurchased: form.isPurchased,
+    purchaseDescription: form.purchaseDescription.trim(),
+    purchaseUnitCost: orNull(form.purchaseUnitCost),
+    expenseAccountId: form.expenseAccountId || null,
+    purchaseTaxCodeId: form.purchaseTaxCodeId || null,
+    purchaseTaxRecoverable: fromRecoverableChoice(form.purchaseTaxRecoverable),
   });
   const save = useApiMutation(() =>
     editing
@@ -94,6 +126,17 @@ export function ItemsPage() {
   const revenueAccounts = (accounts.data ?? []).filter(
     (a) => a.type === 'REVENUE' && a.status === 'ACTIVE' && a.isLeaf !== false,
   );
+  const expenseAccounts = (accounts.data ?? []).filter(
+    (a) =>
+      (a.status === 'ACTIVE' &&
+        a.isLeaf !== false &&
+        !a.isControlAccount &&
+        a.subtype !== null &&
+        (PURCHASE_ACCOUNT_SUBTYPES as readonly string[]).includes(a.subtype)) ||
+      a.id === form.expenseAccountId,
+  );
+  const activeCodes = (current: string) =>
+    (taxCodes.data ?? []).filter((c) => c.status === 'ACTIVE' || c.id === current);
   const codeOf = (id: string | null) => taxCodes.data?.find((c) => c.id === id)?.code ?? '';
 
   return (
@@ -186,6 +229,100 @@ export function ItemsPage() {
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
             />
+            <fieldset className="field">
+              <legend>{t('sales.items.facets')}</legend>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={form.isSold}
+                  onChange={(e) => setForm({ ...form, isSold: e.target.checked })}
+                />{' '}
+                {t('sales.items.isSold')}
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={form.isPurchased}
+                  onChange={(e) => setForm({ ...form, isPurchased: e.target.checked })}
+                />{' '}
+                {t('sales.items.isPurchased')}
+              </label>
+              {issue('isSold') ? <small className="field__error">{issue('isSold')}</small> : null}
+            </fieldset>
+            {form.isPurchased ? (
+              <>
+                <h3>{t('sales.items.purchaseSide')}</h3>
+                <div className="form-grid">
+                  <TextField
+                    label={t('sales.items.purchaseUnitCost')}
+                    inputMode="decimal"
+                    value={form.purchaseUnitCost}
+                    hint={t('sales.items.costHint')}
+                    error={issue('purchaseUnitCost')}
+                    onChange={(e) => setForm({ ...form, purchaseUnitCost: e.target.value })}
+                  />
+                  {canAccounts ? (
+                    <div className="field">
+                      <label htmlFor="item-expense">{t('sales.items.expenseAccount')}</label>
+                      <select
+                        id="item-expense"
+                        value={form.expenseAccountId}
+                        onChange={(e) => setForm({ ...form, expenseAccountId: e.target.value })}
+                      >
+                        <option value="">{t('sales.items.defaultExpense')}</option>
+                        {expenseAccounts.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.code} {a.name}
+                          </option>
+                        ))}
+                      </select>
+                      {issue('expenseAccountId') ? (
+                        <small className="field__error">{issue('expenseAccountId')}</small>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <div className="field">
+                    <label htmlFor="item-purchase-tax">{t('sales.items.purchaseTaxCode')}</label>
+                    <select
+                      id="item-purchase-tax"
+                      value={form.purchaseTaxCodeId}
+                      onChange={(e) => setForm({ ...form, purchaseTaxCodeId: e.target.value })}
+                    >
+                      <option value="">{t('sales.editor.noTax')}</option>
+                      {activeCodes(form.purchaseTaxCodeId).map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.code}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="item-tax-recoverable">
+                      {t('purchases.field.taxRecoverable')}
+                    </label>
+                    <select
+                      id="item-tax-recoverable"
+                      value={form.purchaseTaxRecoverable}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          purchaseTaxRecoverable: e.target.value as RecoverableChoice,
+                        })
+                      }
+                    >
+                      <option value="">{t('purchases.recoverable.none')}</option>
+                      <option value="true">{t('purchases.recoverable.yes')}</option>
+                      <option value="false">{t('purchases.recoverable.no')}</option>
+                    </select>
+                  </div>
+                </div>
+                <TextField
+                  label={t('sales.items.purchaseDescription')}
+                  value={form.purchaseDescription}
+                  onChange={(e) => setForm({ ...form, purchaseDescription: e.target.value })}
+                />
+              </>
+            ) : null}
             <p className="actions">
               <Button type="submit" busy={save.isPending}>
                 {editing ? t('common.save') : t('sales.items.create')}
@@ -244,6 +381,7 @@ export function ItemsPage() {
                 <th>{t('sales.field.itemType')}</th>
                 <th className="num">{t('sales.field.unitPrice')}</th>
                 <th>{t('sales.field.taxCode')}</th>
+                <th>{t('sales.items.facets')}</th>
                 <th>{t('sales.field.status')}</th>
                 {canManage ? (
                   <th>
@@ -261,6 +399,14 @@ export function ItemsPage() {
                   <td className="num">{item.unitPrice ?? ''}</td>
                   <td>{codeOf(item.taxCodeId)}</td>
                   <td>
+                    {[
+                      item.isSold !== false ? t('sales.items.sold') : null,
+                      item.isPurchased ? t('sales.items.purchased') : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </td>
+                  <td>
                     <StatusBadge status={item.status} />
                   </td>
                   {canManage ? (
@@ -277,6 +423,15 @@ export function ItemsPage() {
                             unitPrice: item.unitPrice ?? '',
                             revenueAccountId: item.revenueAccountId ?? '',
                             taxCodeId: item.taxCodeId ?? '',
+                            isSold: item.isSold !== false,
+                            isPurchased: item.isPurchased === true,
+                            purchaseDescription: item.purchaseDescription ?? '',
+                            purchaseUnitCost: item.purchaseUnitCost ?? '',
+                            expenseAccountId: item.expenseAccountId ?? '',
+                            purchaseTaxCodeId: item.purchaseTaxCodeId ?? '',
+                            purchaseTaxRecoverable: toRecoverableChoice(
+                              item.purchaseTaxRecoverable,
+                            ),
                           });
                         }}
                       >

@@ -240,10 +240,12 @@ describe('MFA policy (S7-27, S7-28, S7-36)', () => {
   const none = new Set<string>();
 
   it('is exactly the Decision 57a set (sales.settings.manage joined with Phase 3B E6)', () => {
+    // purchases.settings.manage joined with Phase 4A-4 (ADR 0004 P4-41).
     expect([...HIGH_PRIVILEGE_PERMISSIONS].sort()).toEqual([
       'accounting.setup',
       'approvals.manage',
       'members.manage',
+      'purchases.settings.manage',
       'roles.manage',
       'sales.settings.manage',
     ]);

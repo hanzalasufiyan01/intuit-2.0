@@ -57,7 +57,9 @@ export type ErrorCode =
   | 'MFA_STEP_UP_REQUIRED'
   | 'INVALID_MFA_CODE'
   | 'MFA_CHALLENGE_FAILED'
-  | 'MFA_UNAVAILABLE';
+  | 'MFA_UNAVAILABLE'
+  // Phase 4A-5 (ADR 0004 P4-18): a bill's supplier reference is already used by the vendor.
+  | 'DUPLICATE_VENDOR_REFERENCE';
 
 export interface ValidationIssue {
   path: string;

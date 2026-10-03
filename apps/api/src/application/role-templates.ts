@@ -6,11 +6,18 @@ import {
 import { AccountingPermissions, accountingViewPermissions } from '../modules/accounting/index.js';
 import { ApprovalPermissions } from '../modules/approvals/index.js';
 import { AuditPermissions } from '../modules/audit/index.js';
+import { CatalogPermissions } from '../modules/catalog/index.js';
 import { OrganizationPermissions } from '../modules/organizations/index.js';
 import { CustomerPermissions } from '../modules/customers/index.js';
 import { PartyPermissions } from '../modules/parties/index.js';
+import {
+  BillPermissions,
+  billViewPermissions,
+  PurchasesPermissions,
+} from '../modules/purchases/index.js';
 import { SalesPermissions, salesViewPermissions } from '../modules/sales/index.js';
 import { TaxPermissions } from '../modules/tax/index.js';
+import { VendorPermissions } from '../modules/vendors/index.js';
 
 /** Approved Phase 1 system role templates. */
 export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
@@ -46,6 +53,13 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       ...Object.values(CustomerPermissions),
       ...Object.values(SalesPermissions),
       ...Object.values(TaxPermissions),
+      // Phase 4 (ADR 0004 P4-39): all vendor permissions.
+      ...Object.values(VendorPermissions),
+      // Phase 4A-4 (P4-06, P4-39): the shared catalog and Purchases settings.
+      ...Object.values(CatalogPermissions),
+      ...Object.values(PurchasesPermissions),
+      // Phase 4A-5 (P4-39): all bill permissions.
+      ...Object.values(BillPermissions),
     ],
   },
   {
@@ -64,6 +78,10 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       // Phase 3B (D14): Sales view-only.
       CustomerPermissions.View,
       ...salesViewPermissions,
+      // Phase 4 (ADR 0004 P4-40): vendor view.
+      VendorPermissions.View,
+      // Phase 4A-5 (P4-40): bill view.
+      ...billViewPermissions,
     ],
   },
 ];

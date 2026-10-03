@@ -1183,9 +1183,10 @@ export class InvoiceService {
           );
         }
         const reason = input.reason.trim();
-        const reversal = await this.journals.reverseSalesJournalInTransaction(
+        const reversal = await this.journals.reverseSubledgerJournalInTransaction(
           tx,
           ctx,
+          'sales',
           invoice.journalId!,
           { reason: `Invoice ${invoice.number} voided: ${reason}` },
           origin,

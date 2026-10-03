@@ -85,6 +85,8 @@ export interface Account {
   subtype: AccountSubtype | null;
   isMonetary: boolean;
   isControlAccount: boolean;
+  /** The subledger that maintains this control account (ADR 0004 P4-08). */
+  controlSubledger?: 'sales' | 'purchases' | null;
   isBankOrCash: boolean;
 }
 

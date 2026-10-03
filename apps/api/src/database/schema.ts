@@ -17,4 +17,7 @@ export * from '../modules/data-exchange/schema.js';
 export * from '../modules/idempotency/schema.js';
 export * from '../modules/tax/schema.js';
 export * from '../modules/customers/schema.js';
+export * from '../modules/catalog/schema.js';
 export * from '../modules/sales/schema.js';
+export * from '../modules/vendors/schema.js';
+export * from '../modules/purchases/schema.js';

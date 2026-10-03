@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, ilike, or, sql, type SQL } from 'drizzle-orm';
 import type { Transaction } from '../../database/client.js';
-import { likeContains } from './items.js';
+import { likeContains } from '../catalog/index.js';
 import { salesAllocations, salesInvoices, salesReceipts, type ReceiptStatus } from './schema.js';
 
 /** Receipt and allocation data access (Phase 3B steps 8–11). */

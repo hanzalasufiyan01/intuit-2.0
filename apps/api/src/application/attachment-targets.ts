@@ -7,6 +7,7 @@ import type { DetectedType, FileLinkType } from '../modules/files/index.js';
 import { OrganizationPermissions } from '../modules/organizations/index.js';
 import { getParty, PartyPermissions } from '../modules/parties/index.js';
 import { getCreditNote, getInvoice, getReceipt, SalesPermissions } from '../modules/sales/index.js';
+import { BillPermissions, getBill } from '../modules/purchases/index.js';
 
 /**
  * Attachment-target registry (S5-01, S5-04, S5-05). Every file is linked to exactly one record,
@@ -138,6 +139,29 @@ export const attachmentTargets: ReadonlyMap<FileLinkType, AttachmentTarget> = ne
       },
     },
   ]),
+  // Phase 4A-5 (P4-22): bill evidence can be added at any time and removed only while the bill
+  // is a draft (the Sales rule); posted evidence stays.
+  [
+    'bill',
+    {
+      linkType: 'bill',
+      allowedTypes: ALL_TYPES,
+      viewPermission: BillPermissions.View,
+      changePermission: BillPermissions.Create,
+      resolve: async (tx, organizationId, linkId) => {
+        if (!linkId) return null;
+        const bill = await getBill(tx, organizationId, linkId);
+        if (!bill) return null;
+        return bill.status === 'DRAFT'
+          ? { removable: true }
+          : {
+              removable: false,
+              removableReason:
+                'Bill evidence cannot be removed once the bill is submitted or posted.',
+            };
+      },
+    },
+  ],
   [
     'opening_balance_batch',
     {

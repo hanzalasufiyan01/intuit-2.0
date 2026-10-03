@@ -22,6 +22,12 @@ const serialFiles = [
   'test/sales-data-exchange.test.ts',
   // Phase 3B step 21: replays the Sales permission backfill (migration 0026).
   'test/sales-permissions.test.ts',
+  // Phase 4A-1: replays the 0027 backfill, dropping a CHECK inside a rolled-back transaction.
+  'test/subledger-control.test.ts',
+  // Phase 4A-4: replays the catalog permission backfill (migration 0031).
+  'test/catalog-permissions.test.ts',
+  // ADR 0004 P4-36: drives the job worker for an opening-balance import.
+  'test/opening-balance-ap-guard.test.ts',
 ];
 
 export default defineConfig({

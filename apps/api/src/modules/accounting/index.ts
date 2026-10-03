@@ -32,6 +32,7 @@ export {
   revaluationJournalRoles,
   revaluationMethods,
   revaluationRunStatuses,
+  subledgers,
 } from './schema.js';
 export type {
   AccountSubtype,
@@ -46,5 +47,6 @@ export type {
   RevaluationJournalRole,
   RevaluationMethod,
   RevaluationRunStatus,
+  Subledger,
 } from './schema.js';
 export * from './export-queries.js';

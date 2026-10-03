@@ -20,11 +20,19 @@ import {
   type CustomerFields,
   type CustomerStatus,
 } from '../modules/customers/index.js';
-import { getParty, listParties, type Party, type PartyRole } from '../modules/parties/index.js';
+import { listParties, type Party } from '../modules/parties/index.js';
 import { requireAccountingSettings } from './accounting-service.js';
 import { requirePermission, type AuthorizationContext, type Principal } from './authorization.js';
 import type { AppDependencies } from './dependencies.js';
 import { withOrganization } from './organization-service.js';
+import {
+  assertPartyActiveForRestore,
+  decodePartyCursor,
+  encodePartyCursor,
+  partyForRoleRecord,
+  partyIdentity,
+  type PartyRoleRecordKind,
+} from './party-role-records.js';
 import type {
   AddressInput,
   ContactInput,
@@ -64,30 +72,7 @@ const versionConflict = () =>
     'This customer was changed by someone else. Reload it and apply your changes again.',
   );
 
-function encodeCursor(party: Party) {
-  return Buffer.from(JSON.stringify({ n: party.displayName.toLowerCase(), i: party.id })).toString(
-    'base64url',
-  );
-}
-
-function decodeCursor(cursor: string): { name: string; id: string } {
-  try {
-    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
-      n?: unknown;
-      i?: unknown;
-    };
-    if (
-      typeof parsed.n === 'string' &&
-      typeof parsed.i === 'string' &&
-      /^[0-9a-f-]{36}$/i.test(parsed.i)
-    ) {
-      return { name: parsed.n, id: parsed.i };
-    }
-  } catch {
-    // fall through
-  }
-  throw new ValidationError([{ path: 'after', message: 'Invalid cursor.' }]);
-}
+const CUSTOMER: PartyRoleRecordKind = { role: 'customer', noun: 'customer' };
 
 function money(value: string | null, currency: string) {
   return value === null ? null : new Decimal(value).toFixed(minorUnits(currency));
@@ -155,18 +140,8 @@ export class CustomerService {
   }
 
   private async detail(tx: Transaction, organizationId: string, customer: Customer) {
-    const party = await this.parties.detailInTransaction(tx, organizationId, customer.partyId);
-    const row = await getParty(tx, organizationId, customer.partyId);
-    return {
-      ...customerView(customer, row!),
-      website: party.website,
-      notes: party.notes,
-      firstName: party.firstName,
-      lastName: party.lastName,
-      roles: party.roles,
-      contacts: party.contacts,
-      addresses: party.addresses,
-    };
+    const { row, extra } = await partyIdentity(this.parties, tx, organizationId, customer.partyId);
+    return { ...customerView(customer, row), ...extra };
   }
 
   private async requireCustomer(tx: Transaction, organizationId: string, id: string) {
@@ -227,7 +202,7 @@ export class CustomerService {
           role: null,
           search: query.search?.trim() || null,
           limit: query.limit,
-          after: query.after ? decodeCursor(query.after) : null,
+          after: query.after ? decodePartyCursor(query.after) : null,
           partyIdsIn: customerPartyIds(ctx.organizationId, status),
         });
         const rows = await listCustomersByParty(
@@ -239,7 +214,7 @@ export class CustomerService {
         const last = page.items.at(-1)?.party;
         return {
           items: page.items.map((i) => customerView(byParty.get(i.party.id)!, i.party)),
-          nextCursor: page.hasMore && last ? encodeCursor(last) : null,
+          nextCursor: page.hasMore && last ? encodePartyCursor(last) : null,
         };
       },
     );
@@ -310,43 +285,13 @@ export class CustomerService {
     });
     if (issues.length) throw new ValidationError(issues);
 
-    let party: Party;
-    let newParty = false;
-    if (input.partyId !== undefined) {
-      const existing = await getParty(tx, ctx.organizationId, input.partyId, {
-        forUpdate: true,
-      });
-      if (!existing) throw new NotFoundError('Party not found.');
-      if (existing.status !== 'ACTIVE') {
-        throw new ValidationError([
-          { path: 'partyId', message: 'Restore the archived contact first.' },
-        ]);
-      }
-      if (await getCustomerByParty(tx, ctx.organizationId, existing.id)) {
-        throw new ConflictError('CONFLICT', 'This contact is already a customer.');
-      }
-      const detail = await this.parties.detailInTransaction(tx, ctx.organizationId, existing.id);
-      party = detail.roles.includes('customer')
-        ? existing
-        : await this.parties.updateInTransaction(
-            tx,
-            ctx,
-            existing.id,
-            { version: existing.version, roles: [...detail.roles, 'customer'] },
-            origin,
-            { permission: CustomerPermissions.Create },
-          );
-    } else {
-      const roles: PartyRole[] = [...new Set([...input.party.roles, 'customer' as const])];
-      party = await this.parties.createInTransaction(
-        tx,
-        ctx,
-        { ...input.party, roles },
-        origin,
-        CustomerPermissions.Create,
-      );
-      newParty = true;
-    }
+    const { party, newParty } = await partyForRoleRecord(this.parties, tx, ctx, input, {
+      kind: CUSTOMER,
+      permission: CustomerPermissions.Create,
+      hasRecord: async (partyId) =>
+        (await getCustomerByParty(tx, ctx.organizationId, partyId)) !== undefined,
+      origin,
+    });
 
     const customer = await insertCustomer(tx, {
       ...fields,
@@ -457,13 +402,7 @@ export class CustomerService {
         }
         const archived = input.status === 'ARCHIVED';
         if (!archived) {
-          const party = await getParty(tx, ctx.organizationId, customer.partyId);
-          if (party?.status !== 'ACTIVE') {
-            throw new ConflictError(
-              'INVALID_STATE_TRANSITION',
-              'Restore the archived contact before restoring the customer.',
-            );
-          }
+          await assertPartyActiveForRestore(tx, ctx.organizationId, customer.partyId, CUSTOMER);
         }
         const saved = await updateCustomer(tx, {
           organizationId: ctx.organizationId,

@@ -19,6 +19,8 @@ export interface TaxCode {
   name: string;
   description: string;
   taxAccountId: string;
+  /** Recoverable purchase tax posts here (ADR 0004 P4-11); null until mapped. */
+  inputTaxAccountId: string | null;
   status: 'ACTIVE' | 'ARCHIVED';
   version: number;
   systemSeeded: boolean;
@@ -94,6 +96,15 @@ export interface Item {
   unitPrice: string | null;
   revenueAccountId: string | null;
   taxCodeId: string | null;
+  /** The purchase side of the shared catalog (ADR 0004 P4-05). */
+  isSold: boolean;
+  isPurchased: boolean;
+  purchaseDescription: string;
+  purchaseUnitCost: string | null;
+  expenseAccountId: string | null;
+  purchaseTaxCodeId: string | null;
+  /** Default tax recoverability on purchase lines (P4-12); null = no default. */
+  purchaseTaxRecoverable: boolean | null;
   status: 'ACTIVE' | 'ARCHIVED';
   version: number;
 }

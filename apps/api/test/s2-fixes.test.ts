@@ -345,6 +345,14 @@ describe('Decision 90 — additive dimension permission backfill (migration 0008
       '0024_sales_integrations', // 3B steps 14-15, 18
       '0025_sales_opening_invoices', // 3B step 16
       '0026_sales_permission_backfill', // 3B step 21
+      '0027_subledger_control_ownership', // 4A-1
+      '0028_control_account_integrity', // 4A-1 guard (P4-08 amendment)
+      '0029_vendors', // 4A-3 vendors (P4-03)
+      '0030_purchases_settings_catalog', // 4A-4 (P4-05, P4-07, P4-51)
+      '0031_catalog_items_permission_backfill', // 4A-4 (P4-06)
+      '0032_input_tax', // input-tax stage (P4-11, P4-12, P4-13)
+      '0033_bills', // 4A-5 bills (P4-15 to P4-22)
+      '0034_opening_balance_ap_guard', // P4-36
     ]);
     const { rows } = await owner.query(
       `SELECT version FROM schema_migrations WHERE version = '0008_dimension_permission_backfill'`,

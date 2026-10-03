@@ -30,6 +30,15 @@ export const AR_OPENING_MESSAGE =
   'Accounts receivable cannot be given an opening balance here. Customer balances are brought in ' +
   'as opening invoices in the Sales module (Phase 3B), which keeps the customer subledger in ' +
   'balance with the control account.';
+/**
+ * ADR 0004 P4-36: payables are never opened here, whether or not the account is (yet) the
+ * Purchases AP control account. Vendor balances come in as opening bills and opening vendor
+ * credits in Purchases (a later Phase 4 stage), which keeps the AP subledger in balance.
+ */
+export const AP_OPENING_MESSAGE =
+  'Accounts payable cannot be given an opening balance here. Vendor balances are brought in as ' +
+  'opening bills and opening vendor credits in the Purchases module, which keeps the vendor ' +
+  'subledger in balance with the control account.';
 export const CONTROL_OPENING_MESSAGE =
   'Control accounts are maintained through their subledger and cannot take an opening balance here.';
 /** S8-07 final ruling: opening balances need an explicitly classified account; none is inferred. */
@@ -277,8 +286,8 @@ export interface PlanLine extends OpeningLineInput {
 }
 
 /**
- * Line-level rules (S8-05, S8-06, S8-07, S8-08): a known active leaf account that is not a
- * control, receivable or Opening Balance Equity account; P&L accounts only when allowed; exactly
+ * Line-level rules (S8-05, S8-06, S8-07, S8-08; ADR 0004 P4-36): a known active leaf account
+ * that is not a control, receivable, payable or Opening Balance Equity account; P&L accounts only when allowed; exactly
  * one positive side in the account's currency precision; a base amount only on foreign-currency
  * accounts, in base-currency precision.
  */
@@ -311,6 +320,8 @@ export function openingLineIssues(
     issues.push({ path: `${path}.accountId`, message: UNCLASSIFIED_OPENING_MESSAGE });
   } else if (account.subtype === 'ACCOUNTS_RECEIVABLE') {
     issues.push({ path: `${path}.accountId`, message: AR_OPENING_MESSAGE });
+  } else if (account.subtype === 'ACCOUNTS_PAYABLE') {
+    issues.push({ path: `${path}.accountId`, message: AP_OPENING_MESSAGE });
   }
   if (context.obeAccountId !== null && account.id === context.obeAccountId) {
     issues.push({

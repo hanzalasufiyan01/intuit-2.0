@@ -1,5 +1,6 @@
 import { and, asc, eq, sql } from 'drizzle-orm';
 import type { Transaction } from '../../database/client.js';
+import { formatDocumentNumber } from '../documents/index.js';
 import { salesNumberSequences, salesSettings, type SalesDocumentType } from './schema.js';
 
 /** Sales settings and document numbering data access (D3, D7; R37). */
@@ -22,14 +23,6 @@ export const DEFAULT_NUMBERING: Record<SalesDocumentType, NumberingFields> = {
   credit_note: { prefix: 'CN-', minDigits: 5, nextNumber: 1 },
   receipt: { prefix: 'RCT-', minDigits: 5, nextNumber: 1 },
 };
-
-/** The number a sequence produces, e.g. INV-00042. */
-export function formatDocumentNumber(
-  sequence: Pick<NumberingFields, 'prefix' | 'minDigits'>,
-  n: number,
-) {
-  return `${sequence.prefix}${String(n).padStart(sequence.minDigits, '0')}`;
-}
 
 export async function getSalesSettings(
   tx: Transaction,

@@ -2,7 +2,8 @@ import type { Decimal } from 'decimal.js';
 import { convertLinesToBase, decimal, minorUnits } from '../../domain/money.js';
 
 /**
- * The journal a Sales document posts (Phase 3B §Q, D10). Pure: the application resolves accounts,
+ * The journal a Sales document posts (Phase 3B §Q, D10); shared engine since Phase 4 (P4-04).
+ * Pure: the application resolves accounts,
  * rates and dimensions first. The same builder yields the approval amount (the AR line's base,
  * Decision 77) and the event payload, so the approved amount is exactly what posts.
  *
@@ -27,7 +28,8 @@ export interface PostingTaxLine {
 }
 
 export interface PostingLine {
-  role: 'receivable' | 'revenue' | 'tax';
+  /** Sales: receivable, revenue, tax. Purchases (P4-12): payable, expense, tax. */
+  role: 'receivable' | 'revenue' | 'tax' | 'payable' | 'expense';
   accountId: string | null;
   side: 'debit' | 'credit';
   amount: Decimal;
@@ -122,5 +124,59 @@ export function buildDocumentJournal(input: {
     lines,
     total,
     baseTotal: lines[0]!.baseAmount.toDecimalPlaces(minorUnits(input.baseCurrency)),
+  };
+}
+
+/** A purchase line for posting: its account, dimensions, net and capitalized tax (P4-12). */
+export interface PostingPurchaseLine {
+  accountId: string | null;
+  dimensionValueIds: readonly string[];
+  net: Decimal;
+  /** Non-recoverable tax, added to the line's own account (capitalized into the cost). */
+  nonRecoverableTax: Decimal;
+}
+
+/**
+ * The journal a purchase document posts (ADR 0004 architecture rules, P4-11, P4-12):
+ * Dr each line's account (net plus non-recoverable tax) / Dr input tax per code (recoverable tax,
+ * on the code's input tax account) / Cr AP control (total). A vendor credit is the reverse.
+ * It reuses the Sales builder (same grouping, dimension merge D10 and base conversion), shaped
+ * like a credit note, and only renames the line roles; Sales output is unchanged.
+ */
+export function buildPurchaseJournal(input: {
+  direction: 'bill' | 'vendor_credit';
+  documentLabel: string;
+  apAccountId: string | null;
+  documentDimensionValueIds: readonly string[];
+  typeOf: ReadonlyMap<string, string>;
+  lines: readonly PostingPurchaseLine[];
+  inputTaxes: readonly PostingTaxLine[];
+  currency: string;
+  baseCurrency: string;
+  rate: Decimal;
+}): { lines: PostingLine[]; total: Decimal; baseTotal: Decimal } {
+  const built = buildDocumentJournal({
+    direction: input.direction === 'bill' ? 'credit_note' : 'invoice',
+    documentLabel: input.documentLabel,
+    arAccountId: input.apAccountId,
+    documentDimensionValueIds: input.documentDimensionValueIds,
+    typeOf: input.typeOf,
+    revenue: input.lines.map((l) => ({
+      accountId: l.accountId,
+      dimensionValueIds: l.dimensionValueIds,
+      net: l.net.plus(l.nonRecoverableTax),
+    })),
+    taxes: input.inputTaxes,
+    currency: input.currency,
+    baseCurrency: input.baseCurrency,
+    rate: input.rate,
+  });
+  const roles = { receivable: 'payable', revenue: 'expense', tax: 'tax' } as const;
+  return {
+    ...built,
+    lines: built.lines.map((l) => ({
+      ...l,
+      role: roles[l.role as keyof typeof roles],
+    })),
   };
 }

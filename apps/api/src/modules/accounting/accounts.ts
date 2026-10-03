@@ -7,6 +7,7 @@ import {
   accountingJournalLines,
   type AccountSubtype,
   type AccountType,
+  type Subledger,
 } from './schema.js';
 
 export type Account = typeof accountingAccounts.$inferSelect;
@@ -396,14 +397,22 @@ export async function hasPostedLinesOutsideModule(
   return row !== undefined;
 }
 
-/** Sets or clears an account's control flag (C3; Phase 3B E3). Callers validate and audit. */
+/**
+ * Makes an account the control account of `subledger`, or releases it (`subledger: null`)
+ * (C3; Phase 3B E3; ADR 0004 P4-08). The flag and its owner always change together. Callers
+ * validate and audit.
+ */
 export async function setControlAccount(
   tx: Transaction,
-  input: { organizationId: string; accountId: string; isControl: boolean; userId: string },
+  input: { organizationId: string; accountId: string; subledger: Subledger | null; userId: string },
 ): Promise<Account | undefined> {
   const [row] = await tx
     .update(accountingAccounts)
-    .set({ isControlAccount: input.isControl, updatedByUserId: input.userId })
+    .set({
+      isControlAccount: input.subledger !== null,
+      controlSubledger: input.subledger,
+      updatedByUserId: input.userId,
+    })
     .where(
       and(
         eq(accountingAccounts.organizationId, input.organizationId),

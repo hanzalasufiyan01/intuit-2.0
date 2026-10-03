@@ -43,6 +43,13 @@ export const accountSubtypesByType = {
 export type AccountSubtype = (typeof accountSubtypesByType)[AccountType][number];
 export const accountSubtypes = Object.values(accountSubtypesByType).flat() as AccountSubtype[];
 
+/**
+ * Subledgers that maintain a control account (ADR 0004 P4-08): Sales owns the AR control account
+ * (Phase 3B E3) and Purchases the AP control account (Phase 4).
+ */
+export const subledgers = ['sales', 'purchases'] as const;
+export type Subledger = (typeof subledgers)[number];
+
 export const accountingCurrencies = pgTable('accounting_currencies', {
   code: char('code', { length: 3 }).primaryKey(),
   minorUnits: smallint('minor_units').notNull(),
@@ -99,6 +106,8 @@ export const accountingAccounts = pgTable('accounting_accounts', {
   subtype: text('subtype').$type<AccountSubtype>(),
   isMonetary: boolean('is_monetary').notNull().default(false),
   isControlAccount: boolean('is_control_account').notNull().default(false),
+  /** The subledger that maintains this control account (P4-08); NULL when not a control account. */
+  controlSubledger: text('control_subledger').$type<Subledger>(),
   createdByUserId: uuid('created_by_user_id').notNull(),
   createdAt: timestamptz('created_at').notNull().defaultNow(),
   updatedByUserId: uuid('updated_by_user_id'),

@@ -1140,9 +1140,10 @@ export class ReceiptService {
           ...new Set(open.filter((a) => a.mode === 'credit').map((a) => a.journalId)),
         ];
         for (const journalId of journalIds) {
-          const reversal = await this.journals.reverseSalesJournalInTransaction(
+          const reversal = await this.journals.reverseSubledgerJournalInTransaction(
             tx,
             ctx,
+            'sales',
             journalId,
             { reason: `Receipt ${receipt.number} voided: ${reason}` },
             origin,

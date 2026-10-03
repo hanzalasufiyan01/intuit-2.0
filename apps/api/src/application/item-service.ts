@@ -8,8 +8,9 @@ import {
 } from '../domain/errors.js';
 import { minorUnits } from '../domain/money.js';
 import type { Transaction } from '../database/client.js';
-import { getAccount } from '../modules/accounting/index.js';
+import { designationsOfAccount, getAccount } from '../modules/accounting/index.js';
 import { recordAuditEvent, type EventOrigin } from '../modules/audit/index.js';
+import { CatalogPermissions } from '../modules/catalog/index.js';
 import {
   findItemBySku,
   getItem,
@@ -23,20 +24,20 @@ import {
   type SalesItemType,
 } from '../modules/sales/index.js';
 import { getTaxCode } from '../modules/tax/index.js';
+import { BillPermissions } from '../modules/purchases/index.js';
+import { purchaseAccountProblem } from '../modules/vendors/index.js';
 import { requireAccountingSettings } from './accounting-service.js';
-import {
-  hasPermission,
-  requirePermission,
-  type AuthorizationContext,
-  type Principal,
-} from './authorization.js';
+import { hasPermission, type AuthorizationContext, type Principal } from './authorization.js';
 import type { AppDependencies } from './dependencies.js';
 import { withOrganization } from './organization-service.js';
 
 /**
- * The items catalog (D4, Decision 31; Phase 3B D8): products and services with a default price,
- * revenue account and tax code that invoice lines may override. No inventory. Viewing needs
- * `invoices.view` or `sales.items.manage`; changes need `sales.items.manage`.
+ * The shared items catalog (D4, Decision 31; Phase 3B D8; ADR 0004 P4-05, P4-06): products and
+ * services that are sold and/or purchased. The sales side holds a default price, revenue account
+ * and tax code that invoice lines may override; the purchase side holds a purchase description,
+ * default cost, expense account (P4-19 eligibility) and purchase tax code for later bill lines.
+ * No inventory. Changes need `catalog.items.manage` (or, during the transition, the superseded
+ * `sales.items.manage`); viewing also works with `invoices.view`.
  */
 
 export interface ItemInput {
@@ -47,6 +48,28 @@ export interface ItemInput {
   unitPrice: string | null;
   revenueAccountId: string | null;
   taxCodeId: string | null;
+  /** Purchase side (P4-05). Omitted on create: sold, not purchased, no purchase defaults. */
+  isSold?: boolean | undefined;
+  isPurchased?: boolean | undefined;
+  purchaseDescription?: string | undefined;
+  purchaseUnitCost?: string | null | undefined;
+  expenseAccountId?: string | null | undefined;
+  purchaseTaxCodeId?: string | null | undefined;
+  /** P4-12: NULL = no item default. */
+  purchaseTaxRecoverable?: boolean | null | undefined;
+}
+
+/** Catalog management (P4-06): the neutral key, or the superseded Sales key during the transition. */
+const MANAGE_PERMISSIONS = [CatalogPermissions.ItemsManage, SalesPermissions.ItemsManage] as const;
+const VIEW_PERMISSIONS = [
+  SalesPermissions.InvoicesView,
+  // ADR 0004 P4-06 (amended): bill users read the shared catalog.
+  BillPermissions.View,
+  ...MANAGE_PERMISSIONS,
+] as const;
+
+function requireAny(ctx: AuthorizationContext, keys: readonly string[]) {
+  if (!keys.some((k) => hasPermission(ctx, k))) throw new PermissionDeniedError();
 }
 
 const ITEM_FIELDS = [
@@ -57,6 +80,13 @@ const ITEM_FIELDS = [
   'unitPrice',
   'revenueAccountId',
   'taxCodeId',
+  'isSold',
+  'isPurchased',
+  'purchaseDescription',
+  'purchaseUnitCost',
+  'expenseAccountId',
+  'purchaseTaxCodeId',
+  'purchaseTaxRecoverable',
 ] as const satisfies readonly (keyof SalesItemFields)[];
 
 const versionConflict = () =>
@@ -110,6 +140,16 @@ export class ItemService {
           : new Decimal(item.unitPrice).toFixed(minorUnits(baseCurrency)),
       revenueAccountId: item.revenueAccountId,
       taxCodeId: item.taxCodeId,
+      isSold: item.isSold,
+      isPurchased: item.isPurchased,
+      purchaseDescription: item.purchaseDescription,
+      purchaseUnitCost:
+        item.purchaseUnitCost === null
+          ? null
+          : new Decimal(item.purchaseUnitCost).toFixed(minorUnits(baseCurrency)),
+      expenseAccountId: item.expenseAccountId,
+      purchaseTaxCodeId: item.purchaseTaxCodeId,
+      purchaseTaxRecoverable: item.purchaseTaxRecoverable,
       status: item.status,
       version: item.version,
       createdAt: item.createdAt.toISOString(),
@@ -179,13 +219,59 @@ export class ItemService {
         issues.push({ path, message: 'The revenue account is in the base currency.' });
       }
     }
-    if (input.taxCodeId && input.taxCodeId !== current?.taxCodeId) {
-      const code = await getTaxCode(tx, organizationId, input.taxCodeId);
-      if (!code) issues.push({ path: 'taxCodeId', message: 'Tax code not found.' });
-      else if (code.status !== 'ACTIVE') {
-        issues.push({ path: 'taxCodeId', message: 'Choose an active tax code.' });
-      }
+    const taxCode = async (
+      id: string | null | undefined,
+      previous: string | null | undefined,
+      path: string,
+    ) => {
+      if (!id || id === previous) return;
+      const code = await getTaxCode(tx, organizationId, id);
+      if (!code) issues.push({ path, message: 'Tax code not found.' });
+      else if (code.status !== 'ACTIVE')
+        issues.push({ path, message: 'Choose an active tax code.' });
+    };
+    await taxCode(input.taxCodeId, current?.taxCodeId, 'taxCodeId');
+
+    // Purchase side (P4-05): at least one facet; a purchase account per P4-19 (clarified).
+    const isSold = input.isSold ?? current?.isSold ?? true;
+    const isPurchased = input.isPurchased ?? current?.isPurchased ?? false;
+    if (!isSold && !isPurchased) {
+      issues.push({ path: 'isSold', message: 'An item is sold, purchased, or both.' });
     }
+    let purchaseUnitCost: string | null = null;
+    const cost =
+      input.purchaseUnitCost === undefined
+        ? (current?.purchaseUnitCost ?? null)
+        : input.purchaseUnitCost;
+    if (cost !== null) {
+      const value = new Decimal(cost);
+      if (value.decimalPlaces() > 4) {
+        issues.push({ path: 'purchaseUnitCost', message: 'Use at most 4 decimal places.' });
+      }
+      purchaseUnitCost = value.toFixed(4);
+    }
+    const expenseAccountId =
+      input.expenseAccountId === undefined
+        ? (current?.expenseAccountId ?? null)
+        : input.expenseAccountId;
+    if (expenseAccountId && expenseAccountId !== current?.expenseAccountId) {
+      const account = await getAccount(tx, organizationId, expenseAccountId);
+      const problem = account
+        ? purchaseAccountProblem({
+            status: account.status,
+            isLeaf: account.isLeaf,
+            subtype: account.subtype,
+            isControlAccount: account.isControlAccount,
+            designated: (await designationsOfAccount(tx, organizationId, account.id)).length > 0,
+          })
+        : 'Account not found.';
+      if (problem) issues.push({ path: 'expenseAccountId', message: problem });
+    }
+    const purchaseTaxCodeId =
+      input.purchaseTaxCodeId === undefined
+        ? (current?.purchaseTaxCodeId ?? null)
+        : input.purchaseTaxCodeId;
+    await taxCode(purchaseTaxCodeId, current?.purchaseTaxCodeId, 'purchaseTaxCodeId');
     if (issues.length) throw new ValidationError(issues);
     return {
       sku: input.sku,
@@ -195,6 +281,16 @@ export class ItemService {
       unitPrice,
       revenueAccountId: input.revenueAccountId,
       taxCodeId: input.taxCodeId,
+      isSold,
+      isPurchased,
+      purchaseDescription: (input.purchaseDescription ?? current?.purchaseDescription ?? '').trim(),
+      purchaseUnitCost,
+      expenseAccountId,
+      purchaseTaxCodeId,
+      purchaseTaxRecoverable:
+        input.purchaseTaxRecoverable === undefined
+          ? (current?.purchaseTaxRecoverable ?? null)
+          : input.purchaseTaxRecoverable,
     };
   }
 
@@ -238,17 +334,12 @@ export class ItemService {
   }
 
   private requireView(ctx: AuthorizationContext) {
-    if (
-      !hasPermission(ctx, SalesPermissions.InvoicesView) &&
-      !hasPermission(ctx, SalesPermissions.ItemsManage)
-    ) {
-      throw new PermissionDeniedError();
-    }
+    requireAny(ctx, VIEW_PERMISSIONS);
   }
 
   /** The create rules without writing (step 18: items import validation). */
   async validateInTransaction(tx: Transaction, ctx: AuthorizationContext, input: ItemInput) {
-    requirePermission(ctx, SalesPermissions.ItemsManage);
+    requireAny(ctx, MANAGE_PERMISSIONS);
     return this.validate(tx, ctx.organizationId, input);
   }
 
@@ -259,7 +350,7 @@ export class ItemService {
     input: ItemInput,
     origin: EventOrigin,
   ): Promise<SalesItem> {
-    requirePermission(ctx, SalesPermissions.ItemsManage);
+    requireAny(ctx, MANAGE_PERMISSIONS);
     const fields = await this.validate(tx, ctx.organizationId, input);
     const item = await insertItem(tx, {
       ...fields,
@@ -272,16 +363,12 @@ export class ItemService {
   }
 
   create(principal: Principal, input: ItemInput, origin: EventOrigin) {
-    return withOrganization(
-      this.deps,
-      principal,
-      { permission: SalesPermissions.ItemsManage },
-      async (tx, ctx) => {
-        const settings = await requireAccountingSettings(tx, ctx.organizationId);
-        const item = await this.createInTransaction(tx, ctx, input, origin);
-        return this.view(item, settings.baseCurrency);
-      },
-    );
+    return withOrganization(this.deps, principal, {}, async (tx, ctx) => {
+      requireAny(ctx, MANAGE_PERMISSIONS);
+      const settings = await requireAccountingSettings(tx, ctx.organizationId);
+      const item = await this.createInTransaction(tx, ctx, input, origin);
+      return this.view(item, settings.baseCurrency);
+    });
   }
 
   update(
@@ -290,45 +377,41 @@ export class ItemService {
     input: { version: number } & { [K in keyof ItemInput]?: ItemInput[K] | undefined },
     origin: EventOrigin,
   ) {
-    return withOrganization(
-      this.deps,
-      principal,
-      { permission: SalesPermissions.ItemsManage },
-      async (tx, ctx) => {
-        const settings = await requireAccountingSettings(tx, ctx.organizationId);
-        const item = await this.requireItem(tx, ctx.organizationId, id);
-        if (item.version !== input.version) throw versionConflict();
-        const merged = Object.fromEntries(
-          ITEM_FIELDS.map((k) => [k, input[k] === undefined ? item[k] : input[k]]),
-        ) as unknown as ItemInput;
-        const fields = await this.validate(tx, ctx.organizationId, merged, item);
-        const changed = ITEM_FIELDS.filter((k) => fields[k] !== item[k]);
-        if (!changed.length) return this.view(item, settings.baseCurrency);
-        const saved = await updateItem(tx, {
-          organizationId: ctx.organizationId,
-          id,
-          version: input.version,
-          set: Object.fromEntries(changed.map((k) => [k, fields[k]])),
-          userId: ctx.userId,
-          now: this.now,
-        });
-        if (!saved) throw versionConflict();
-        await this.audit(
-          tx,
-          ctx,
-          'sales_item.updated',
-          id,
-          {
-            version: saved.version,
-            changedFields: changed,
-            before: Object.fromEntries(changed.map((k) => [k, item[k]])),
-            after: Object.fromEntries(changed.map((k) => [k, fields[k]])),
-          },
-          origin,
-        );
-        return this.view(saved, settings.baseCurrency);
-      },
-    );
+    return withOrganization(this.deps, principal, {}, async (tx, ctx) => {
+      requireAny(ctx, MANAGE_PERMISSIONS);
+      const settings = await requireAccountingSettings(tx, ctx.organizationId);
+      const item = await this.requireItem(tx, ctx.organizationId, id);
+      if (item.version !== input.version) throw versionConflict();
+      const merged = Object.fromEntries(
+        ITEM_FIELDS.map((k) => [k, input[k] === undefined ? item[k] : input[k]]),
+      ) as unknown as ItemInput;
+      const fields = await this.validate(tx, ctx.organizationId, merged, item);
+      const changed = ITEM_FIELDS.filter((k) => fields[k] !== item[k]);
+      if (!changed.length) return this.view(item, settings.baseCurrency);
+      const saved = await updateItem(tx, {
+        organizationId: ctx.organizationId,
+        id,
+        version: input.version,
+        set: Object.fromEntries(changed.map((k) => [k, fields[k]])),
+        userId: ctx.userId,
+        now: this.now,
+      });
+      if (!saved) throw versionConflict();
+      await this.audit(
+        tx,
+        ctx,
+        'sales_item.updated',
+        id,
+        {
+          version: saved.version,
+          changedFields: changed,
+          before: Object.fromEntries(changed.map((k) => [k, item[k]])),
+          after: Object.fromEntries(changed.map((k) => [k, fields[k]])),
+        },
+        origin,
+      );
+      return this.view(saved, settings.baseCurrency);
+    });
   }
 
   setStatus(
@@ -337,44 +420,40 @@ export class ItemService {
     input: { version: number; status: SalesItemStatus },
     origin: EventOrigin,
   ) {
-    return withOrganization(
-      this.deps,
-      principal,
-      { permission: SalesPermissions.ItemsManage },
-      async (tx, ctx) => {
-        const settings = await requireAccountingSettings(tx, ctx.organizationId);
-        const item = await this.requireItem(tx, ctx.organizationId, id);
-        if (item.version !== input.version) throw versionConflict();
-        if (item.status === input.status) {
-          throw new ConflictError(
-            'INVALID_STATE_TRANSITION',
-            `The item is already ${input.status.toLowerCase()}.`,
-          );
-        }
-        const archived = input.status === 'ARCHIVED';
-        const saved = await updateItem(tx, {
-          organizationId: ctx.organizationId,
-          id,
-          version: input.version,
-          set: {
-            status: input.status,
-            archivedAt: archived ? this.now : null,
-            archivedByUserId: archived ? ctx.userId : null,
-          },
-          userId: ctx.userId,
-          now: this.now,
-        });
-        if (!saved) throw versionConflict();
-        await this.audit(
-          tx,
-          ctx,
-          archived ? 'sales_item.archived' : 'sales_item.restored',
-          id,
-          { name: item.name, sku: item.sku },
-          origin,
+    return withOrganization(this.deps, principal, {}, async (tx, ctx) => {
+      requireAny(ctx, MANAGE_PERMISSIONS);
+      const settings = await requireAccountingSettings(tx, ctx.organizationId);
+      const item = await this.requireItem(tx, ctx.organizationId, id);
+      if (item.version !== input.version) throw versionConflict();
+      if (item.status === input.status) {
+        throw new ConflictError(
+          'INVALID_STATE_TRANSITION',
+          `The item is already ${input.status.toLowerCase()}.`,
         );
-        return this.view(saved, settings.baseCurrency);
-      },
-    );
+      }
+      const archived = input.status === 'ARCHIVED';
+      const saved = await updateItem(tx, {
+        organizationId: ctx.organizationId,
+        id,
+        version: input.version,
+        set: {
+          status: input.status,
+          archivedAt: archived ? this.now : null,
+          archivedByUserId: archived ? ctx.userId : null,
+        },
+        userId: ctx.userId,
+        now: this.now,
+      });
+      if (!saved) throw versionConflict();
+      await this.audit(
+        tx,
+        ctx,
+        archived ? 'sales_item.archived' : 'sales_item.restored',
+        id,
+        { name: item.name, sku: item.sku },
+        origin,
+      );
+      return this.view(saved, settings.baseCurrency);
+    });
   }
 }

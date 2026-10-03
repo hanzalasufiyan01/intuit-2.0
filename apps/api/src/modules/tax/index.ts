@@ -3,6 +3,7 @@
  * calculation rules used by Sales. It never posts; Sales documents carry tax into their journals.
  */
 export * from './calculation.js';
+export * from './input-tax.js';
 export * from './permissions.js';
 export * from './tax-codes.js';
 export { taxCodeStatuses } from './schema.js';

@@ -12,7 +12,8 @@ export type FileLinkType =
   | 'opening_balance_batch'
   | 'invoice'
   | 'credit_note'
-  | 'receipt';
+  | 'receipt'
+  | 'bill';
 
 export interface StoredFile {
   id: string;

@@ -4,6 +4,15 @@ import { MfaChallengePage } from '../auth/pages/MfaChallengePage';
 import { ForgotPasswordPage, ResetPasswordPage } from '../auth/pages/PasswordResetPages';
 import { RegisterPage } from '../auth/pages/RegisterPage';
 import { RedirectIfAuthenticated, RequireAuth, RequirePendingMfa } from '../auth/RequireAuth';
+import { PurchasesHome, PurchasesSection } from '../features/purchases/PurchasesSection';
+import { PurchasesSettingsPage } from '../features/purchases/SettingsPage';
+import {
+  BillDetailPage,
+  BillsPage,
+  EditBillPage,
+  NewBillPage,
+} from '../features/purchases/BillPages';
+import { NewVendorPage, VendorDetailPage, VendorsPage } from '../features/purchases/VendorPages';
 import { AccountingDashboardPage } from '../features/accounting/AccountingDashboardPage';
 import { AccountsPage } from '../features/accounting/AccountsPage';
 import { DesignationsPage } from '../features/accounting/DesignationsPage';
@@ -61,6 +70,7 @@ import {
 import { SalesReportsPage } from '../features/sales/ReportsPage';
 import { SalesHomePage } from '../features/sales/SalesHomePage';
 import {
+  CATALOG_VIEW_PERMISSIONS,
   SALES_SETTINGS_VIEW_PERMISSIONS,
   SALES_VIEW_PERMISSIONS,
   SalesSection,
@@ -390,9 +400,7 @@ export const routes: RouteObject[] = [
               {
                 path: 'items',
                 element: (
-                  <RequireAnyPermission
-                    permissions={[Permission.InvoicesView, Permission.SalesItemsManage]}
-                  >
+                  <RequireAnyPermission permissions={CATALOG_VIEW_PERMISSIONS}>
                     <ItemsPage />
                   </RequireAnyPermission>
                 ),
@@ -412,6 +420,58 @@ export const routes: RouteObject[] = [
                   <RequireAnyPermission permissions={TAX_CODES_VIEW_PERMISSIONS}>
                     <TaxCodesPage />
                   </RequireAnyPermission>
+                ),
+              },
+            ],
+          },
+          {
+            path: 'purchases',
+            element: <PurchasesSection />,
+            children: [
+              { index: true, element: <PurchasesHome /> },
+              {
+                path: 'vendors',
+                element: (
+                  <RequirePermission permission={Permission.VendorsView}>
+                    <VendorsPage />
+                  </RequirePermission>
+                ),
+              },
+              {
+                path: 'vendors/new',
+                element: (
+                  <RequirePermission permission={Permission.VendorsCreate}>
+                    <NewVendorPage />
+                  </RequirePermission>
+                ),
+              },
+              {
+                path: 'vendors/:id',
+                element: (
+                  <RequirePermission permission={Permission.VendorsView}>
+                    <VendorDetailPage />
+                  </RequirePermission>
+                ),
+              },
+              // Phase 4A-5: bills (P4-15 to P4-22).
+              ...(
+                [
+                  ['bills', Permission.BillsView, <BillsPage key="bills" />],
+                  ['bills/new', Permission.BillsCreate, <NewBillPage key="new-bill" />],
+                  ['bills/:id', Permission.BillsView, <BillDetailPage key="bill" />],
+                  ['bills/:id/edit', Permission.BillsEditDraft, <EditBillPage key="edit-bill" />],
+                ] as const
+              ).map(([path, permission, page]) => ({
+                path,
+                element: <RequirePermission permission={permission}>{page}</RequirePermission>,
+              })),
+              // Phase 4A-4: Purchases settings and numbering (P4-07, P4-51).
+              {
+                path: 'settings',
+                element: (
+                  <RequirePermission permission={Permission.PurchasesSettingsManage}>
+                    <PurchasesSettingsPage />
+                  </RequirePermission>
                 ),
               },
             ],
