@@ -16,6 +16,12 @@ import { PurchasesSettingsService } from './application/purchases-settings-servi
 import { ItemService } from './application/item-service.js';
 import { InvoiceService } from './application/invoice-service.js';
 import { BillService } from './application/bill-service.js';
+import { VendorCreditService } from './application/vendor-credit-service.js';
+import {
+  PURCHASES_EMAIL_JOB,
+  PURCHASES_PDF_JOB,
+  PurchasesOutputService,
+} from './application/purchases-output-service.js';
 import { ReceiptService } from './application/receipt-service.js';
 import { CreditNoteService } from './application/credit-note-service.js';
 import { ArReportService } from './application/ar-report-service.js';
@@ -104,6 +110,8 @@ export interface BuiltApp {
     items: ItemService;
     invoices: InvoiceService;
     bills: BillService;
+    vendorCredits: VendorCreditService;
+    purchasesOutput: PurchasesOutputService;
     receipts: ReceiptService;
     creditNotes: CreditNoteService;
     salesOutput: SalesOutputService;
@@ -164,6 +172,15 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   const invoices = new InvoiceService(deps, approvals, journals, idempotency, salesOutput);
   // Phase 4A-5: bills (ADR 0004 P4-15 to P4-22).
   const bills = new BillService(deps, approvals, journals, idempotency);
+  // Phase 4B-1: vendor credits and debit notes, with debit-note PDFs and email (P4-23, P4-46).
+  const purchasesOutput = new PurchasesOutputService(deps, files, jobs, new PdfkitRenderer());
+  const vendorCredits = new VendorCreditService(
+    deps,
+    approvals,
+    journals,
+    idempotency,
+    purchasesOutput,
+  );
   const arReports = new ArReportService(deps);
   const domainServices = {
     accounting,
@@ -215,6 +232,8 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     // Phase 4A-4: Purchases settings, numbering and the AP control account (P4-07, P4-08, P4-51).
     purchasesSettings: new PurchasesSettingsService(deps, accounting),
     bills,
+    vendorCredits,
+    purchasesOutput,
     items,
     // Phase 3B steps 6-7: invoice drafts, conditional approval and atomic issue (D1).
     invoices,
@@ -245,6 +264,8 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     [DATA_EXCHANGE_CLEANUP_JOB, (job) => services.dataExchangeCleanup.run(job)],
     [DOCUMENT_PDF_JOB, (job) => services.salesOutput.runPdf(job)],
     [DOCUMENT_EMAIL_JOB, (job) => services.salesOutput.runEmail(job)],
+    [PURCHASES_PDF_JOB, (job) => services.purchasesOutput.runPdf(job)],
+    [PURCHASES_EMAIL_JOB, (job) => services.purchasesOutput.runEmail(job)],
   ]);
   const worker = new JobWorker(deps, handlers);
 

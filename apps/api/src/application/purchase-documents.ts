@@ -19,7 +19,7 @@ import {
   type PostingTaxLine,
 } from '../modules/documents/index.js';
 import { getOrganizationProfile } from '../modules/organizations/index.js';
-import { getParty } from '../modules/parties/index.js';
+import { getParty, getPartyDetail } from '../modules/parties/index.js';
 import type { BillLineValues, PurchasesSettings } from '../modules/purchases/index.js';
 import {
   defaultTaxRecoverable,
@@ -452,12 +452,14 @@ export async function purchaseDocumentPosting(
     currencyCode: string;
     dimensionValueIds: readonly string[];
     rateOverride: string | null;
+    /** 4B-1: a vendor credit linked to a bill follows the bill's posted rate (source 'bill'). */
+    fixedRate?: string | null | undefined;
   },
   lines: readonly (BillLineValues & { inputTaxAccountId?: string | null })[],
 ) {
   let rate: Decimal | null;
   let tableRate: Decimal | null = null;
-  let rateSource: 'base' | 'table' | 'manual' = 'base';
+  let rateSource: 'base' | 'table' | 'manual' | 'bill' = 'base';
   if (document.currencyCode === accounting.baseCurrency) {
     rate = decimal(1);
   } else {
@@ -468,7 +470,10 @@ export async function purchaseDocumentPosting(
       onDate: document.date,
     });
     tableRate = found ? decimal(found.rate) : null;
-    if (document.rateOverride) {
+    if (document.fixedRate) {
+      rate = decimal(document.fixedRate);
+      rateSource = 'bill';
+    } else if (document.rateOverride) {
       rate = decimal(document.rateOverride);
       rateSource = 'manual';
     } else {
@@ -516,4 +521,120 @@ export async function purchaseDocumentPosting(
     baseCurrency: accounting.baseCurrency,
   };
   return { journal, rate, rateSource, tableRate, facts, typeOf };
+}
+
+/**
+ * Everything a debit-note PDF needs, frozen at post (Decision 21; ADR 0004 P4-23, P4-46): the
+ * organization as issuer, the vendor as the addressee, the lines and the totals. The shape is the
+ * renderer's snapshot (shared with Sales documents).
+ */
+export async function purchaseRenderSnapshot(
+  tx: Transaction,
+  organizationId: string,
+  document: {
+    documentType: 'debit_note';
+    number: string;
+    vendorId: string;
+    creditDate: string;
+    billNumber: string | null;
+    currencyCode: string;
+    taxTreatment: string;
+    memo: string;
+    subtotal: string;
+    discountTotal: string;
+    taxTotal: string;
+    total: string;
+  },
+  lines: readonly (BillLineValues & { taxCodeId?: string | null })[],
+): Promise<Record<string, unknown>> {
+  const vendor = await getVendor(tx, organizationId, document.vendorId);
+  const party = vendor ? await getPartyDetail(tx, organizationId, vendor.partyId) : undefined;
+  const organization = await getOrganizationProfile(tx, organizationId);
+  const profile = organization?.profile;
+  const sellerAddress =
+    organization?.addresses.find((a) => a.kind === 'business') ??
+    organization?.addresses.find((a) => a.kind === 'registered') ??
+    null;
+  const billing =
+    party?.addresses.find((a) => a.kind === 'billing' && a.isDefault) ??
+    party?.addresses.find((a) => a.kind === 'billing') ??
+    null;
+  const address = (
+    a: {
+      line1: string;
+      line2: string | null;
+      city: string | null;
+      region: string | null;
+      postalCode: string | null;
+      countryCode: string;
+    } | null,
+  ) =>
+    a
+      ? {
+          line1: a.line1,
+          line2: a.line2,
+          city: a.city,
+          region: a.region,
+          postalCode: a.postalCode,
+          countryCode: a.countryCode,
+        }
+      : null;
+  const taxCodes = new Map<string, string>();
+  for (const l of lines) {
+    if (l.taxCodeId && !taxCodes.has(l.taxCodeId)) {
+      taxCodes.set(l.taxCodeId, (await getTaxCode(tx, organizationId, l.taxCodeId))?.code ?? '');
+    }
+  }
+  return {
+    version: 1,
+    documentType: document.documentType,
+    number: document.number,
+    creditDate: document.creditDate,
+    billNumber: document.billNumber,
+    counterpartyLabel: 'To',
+    currencyCode: document.currencyCode,
+    taxTreatment: document.taxTreatment,
+    reference: null,
+    memo: document.memo,
+    seller: profile
+      ? {
+          legalName: profile.legalName,
+          tradingName: profile.tradingName,
+          tin: profile.tin,
+          gstRegistrationNumber: profile.gstRegistrationNumber,
+          email: profile.email,
+          phone: profile.phone,
+          logoFileId: profile.logoFileId ?? null,
+          address: address(sellerAddress),
+        }
+      : null,
+    customer: party
+      ? {
+          displayName: party.party.displayName,
+          companyName: party.party.companyName,
+          tin: party.party.tin,
+          email: party.party.email,
+          billingAddress: address(billing),
+        }
+      : null,
+    lines: lines.map((l) => ({
+      description: l.description,
+      quantity: decimal(l.quantity).toFixed(),
+      unitPrice: decimal(l.unitPrice).toFixed(),
+      amount: l.amount,
+      discount: decimal(l.lineDiscount ?? '0')
+        .plus(decimal(l.documentDiscount ?? '0'))
+        .toFixed(4),
+      taxCode: l.taxCodeId ? taxCodes.get(l.taxCodeId) : null,
+      taxRate: l.taxRate ?? null,
+      taxAmount: l.taxAmount ?? '0',
+      total: l.total,
+    })),
+    totals: {
+      subtotal: document.subtotal,
+      discountTotal: document.discountTotal,
+      taxTotal: document.taxTotal,
+      total: document.total,
+    },
+  };
 }

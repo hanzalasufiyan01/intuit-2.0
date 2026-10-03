@@ -21,6 +21,8 @@ export const fileLinkTypes = [
   'receipt',
   // Phase 4A-5: bill evidence (ADR 0004 P4-22).
   'bill',
+  // Phase 4B-1: vendor-credit evidence and debit-note PDFs (P4-23, P4-46).
+  'vendor_credit',
 ] as const;
 export type FileLinkType = (typeof fileLinkTypes)[number];
 

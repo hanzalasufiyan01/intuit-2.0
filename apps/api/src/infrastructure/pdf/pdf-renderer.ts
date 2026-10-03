@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import PDFDocument from 'pdfkit';
 
 /**
- * Provider abstraction for rendering Sales document PDFs (Decision 43: the library sits behind
+ * Provider abstraction for rendering Sales (and Purchases debit-note) document PDFs (Decision 43: the library sits behind
  * this interface). A renderer receives only the document's frozen render snapshot (Decision 21)
  * plus the resources the snapshot references (the logo), and is deterministic: the same input
  * yields the same bytes.
@@ -48,7 +48,7 @@ export class PdfkitRenderer implements PdfRenderer {
         autoFirstPage: true,
         bufferPages: true,
         info: {
-          Title: `${s.documentType === 'invoice' ? 'Invoice' : 'Credit note'} ${s.number}`,
+          Title: `${TITLES[s.documentType].info} ${s.number}`,
           Producer: 'Intuit 2.0',
           Creator: 'Intuit 2.0',
           CreationDate: FIXED_DATE,
@@ -86,13 +86,23 @@ interface Address {
   countryCode: string;
 }
 
+/** Document titles; debit notes are Purchases documents (ADR 0004 P4-23, P4-46). */
+const TITLES = {
+  invoice: { heading: 'TAX INVOICE', info: 'Invoice' },
+  credit_note: { heading: 'CREDIT NOTE', info: 'Credit note' },
+  debit_note: { heading: 'DEBIT NOTE', info: 'Debit note' },
+} as const;
+
 interface Snapshot {
-  documentType: 'invoice' | 'credit_note';
+  documentType: 'invoice' | 'credit_note' | 'debit_note';
   number: string;
   invoiceDate?: string;
   dueDate?: string;
   creditDate?: string;
   creditedInvoiceNumber?: string | null;
+  /** Debit notes: the bill they relate to, and the heading of the party block. */
+  billNumber?: string | null;
+  counterpartyLabel?: string;
   currencyCode: string;
   taxTreatment: string;
   reference: string | null;
@@ -259,7 +269,7 @@ function draw(doc: PDFDocument, s: Snapshot, resources: PdfResources) {
       bold: true,
     });
   }
-  line(doc, s.documentType === 'invoice' ? 'TAX INVOICE' : 'CREDIT NOTE', right, y, {
+  line(doc, TITLES[s.documentType].heading, right, y, {
     size: 16,
     bold: true,
     align: 'right',
@@ -280,6 +290,7 @@ function draw(doc: PDFDocument, s: Snapshot, resources: PdfResources) {
     ...(s.dueDate ? [['Due', s.dueDate] as [string, string]] : []),
     ...(s.creditDate ? [['Date', s.creditDate] as [string, string]] : []),
     ...(s.creditedInvoiceNumber ? [['Invoice', s.creditedInvoiceNumber] as [string, string]] : []),
+    ...(s.billNumber ? [['Bill', s.billNumber] as [string, string]] : []),
     ...(s.reference ? [['Reference', s.reference] as [string, string]] : []),
     ['Currency', s.currencyCode],
   ];
@@ -292,7 +303,7 @@ function draw(doc: PDFDocument, s: Snapshot, resources: PdfResources) {
     y += 13;
   }
   y += 10;
-  line(doc, 'Bill to', MARGIN, y, { bold: true });
+  line(doc, s.counterpartyLabel ?? 'Bill to', MARGIN, y, { bold: true });
   y += 13;
   for (const text of [
     s.customer?.displayName,

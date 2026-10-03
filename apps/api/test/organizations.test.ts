@@ -59,8 +59,8 @@ describe('organizations and ownership', () => {
     // Owner holds the whole catalog (Phase 1: 8; Phase 2 adds 18; Phase 3A S2 adds 2, S3 adds 1).
     // + 4 parties.* keys (S4); Phase 3B adds 4 customers.*, 17 Sales keys and tax.codes.manage.
     // Phase 4 adds 4 vendors.* keys (ADR 0004 P4-39); 4A-4 adds catalog.items.manage and
-    // purchases.settings.manage (P4-06, P4-39); 4A-5 adds the 7 bills.* keys.
-    expect(ownerRole.permissionKeys).toHaveLength(68);
+    // purchases.settings.manage (P4-06, P4-39); 4A-5 adds the 7 bills.* keys; 4B-1 the 5 vendor_credits.* keys.
+    expect(ownerRole.permissionKeys).toHaveLength(73);
     const member = roles.body.data.find((r: { name: string }) => r.name === 'Member');
     expect(member.permissionKeys).toEqual([
       'accounting.accounts.view',
@@ -78,6 +78,7 @@ describe('organizations and ownership', () => {
       'parties.view', // Phase 3A S4 (Decision 65)
       'receipts.view',
       'sales.reports.view',
+      'vendor_credits.view', // Phase 4B-1 (P4-40)
       'vendors.view', // Phase 4 (ADR 0004 P4-40)
     ]);
 
@@ -159,6 +160,7 @@ describe('invitations', () => {
       'parties.view', // Phase 3A S4 (Decision 65)
       'receipts.view',
       'sales.reports.view',
+      'vendor_credits.view', // Phase 4B-1 (P4-40)
       'vendors.view', // Phase 4 (ADR 0004 P4-40)
     ]);
     expect((await invitee.get('/organizations/current')).body.data.name).toBe('Invite Org');
@@ -569,6 +571,7 @@ describe('cross-organization isolation', () => {
       'parties.view', // Phase 3A S4 (Decision 65)
       'receipts.view',
       'sales.reports.view',
+      'vendor_credits.view', // Phase 4B-1 (P4-40)
       'vendors.view', // Phase 4 (ADR 0004 P4-40)
     ]);
   });

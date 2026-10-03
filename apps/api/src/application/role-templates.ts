@@ -14,6 +14,8 @@ import {
   BillPermissions,
   billViewPermissions,
   PurchasesPermissions,
+  VendorCreditPermissions,
+  vendorCreditViewPermissions,
 } from '../modules/purchases/index.js';
 import { SalesPermissions, salesViewPermissions } from '../modules/sales/index.js';
 import { TaxPermissions } from '../modules/tax/index.js';
@@ -60,6 +62,8 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       ...Object.values(PurchasesPermissions),
       // Phase 4A-5 (P4-39): all bill permissions.
       ...Object.values(BillPermissions),
+      // Phase 4B-1 (P4-39): all vendor-credit permissions.
+      ...Object.values(VendorCreditPermissions),
     ],
   },
   {
@@ -82,6 +86,8 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       VendorPermissions.View,
       // Phase 4A-5 (P4-40): bill view.
       ...billViewPermissions,
+      // Phase 4B-1 (P4-40): vendor-credit view.
+      ...vendorCreditViewPermissions,
     ],
   },
 ];

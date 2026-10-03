@@ -353,6 +353,7 @@ describe('Decision 90 — additive dimension permission backfill (migration 0008
       '0032_input_tax', // input-tax stage (P4-11, P4-12, P4-13)
       '0033_bills', // 4A-5 bills (P4-15 to P4-22)
       '0034_opening_balance_ap_guard', // P4-36
+      '0035_vendor_credits', // 4B-1 vendor credits and debit notes (P4-23, P4-24)
     ]);
     const { rows } = await owner.query(
       `SELECT version FROM schema_migrations WHERE version = '0008_dimension_permission_backfill'`,

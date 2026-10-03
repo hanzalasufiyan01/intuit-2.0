@@ -176,3 +176,56 @@ export interface BillDetail extends BillSummary {
   };
   warnings: { code: string; message: string }[];
 }
+
+// ---------------------------------------------------------------------------
+// Vendor credits and debit notes (Phase 4B-1; P4-23, P4-24)
+// ---------------------------------------------------------------------------
+
+export type VendorCreditOrigin = 'supplier_credit_note' | 'debit_note';
+export type VendorCreditStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'POSTED' | 'VOID';
+
+export interface VendorCreditSummary {
+  id: string;
+  origin: VendorCreditOrigin;
+  status: VendorCreditStatus;
+  number: string | null;
+  vendorId: string;
+  vendorName: string | null;
+  billId: string | null;
+  vendorReference: string | null;
+  creditDate: string;
+  currencyCode: string;
+  subtotal: string;
+  discountTotal: string;
+  taxTotal: string;
+  recoverableTaxTotal: string;
+  total: string;
+  amountUnapplied: string | null;
+  baseTotal: string | null;
+  baseUnapplied: string | null;
+  version: number;
+  postedAt: string | null;
+  voidedAt: string | null;
+}
+
+export interface VendorCreditDetail extends VendorCreditSummary {
+  billNumber: string | null;
+  exchangeRate: string | null;
+  exchangeRateSource: 'base' | 'table' | 'manual' | 'bill' | null;
+  tableRate: string | null;
+  rateOverride: string | null;
+  rateOverrideReason: string | null;
+  taxTreatment: 'exclusive' | 'inclusive' | 'no_tax';
+  discount: { type: 'percent' | 'amount'; value: string } | null;
+  memo: string;
+  dimensionValueIds: string[];
+  journalId: string | null;
+  pdfFileId: string | null;
+  voidReason: string | null;
+  voidJournalId: string | null;
+  createdByUserId: string;
+  baseCurrency: string;
+  lines: BillLine[];
+  approval: BillDetail['approval'];
+  warnings: { code: string; message: string }[];
+}

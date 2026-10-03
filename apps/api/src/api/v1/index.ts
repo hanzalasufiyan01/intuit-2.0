@@ -26,6 +26,8 @@ import type { PurchasesSettingsService } from '../../application/purchases-setti
 import type { ItemService } from '../../application/item-service.js';
 import type { InvoiceService } from '../../application/invoice-service.js';
 import type { BillService } from '../../application/bill-service.js';
+import type { VendorCreditService } from '../../application/vendor-credit-service.js';
+import type { PurchasesOutputService } from '../../application/purchases-output-service.js';
 import type { ReceiptService } from '../../application/receipt-service.js';
 import type { CreditNoteService } from '../../application/credit-note-service.js';
 import type { SalesOutputService } from '../../application/sales-output-service.js';
@@ -50,6 +52,7 @@ import { registerPurchasesRoutes } from './purchases.routes.js';
 import { registerSalesRoutes } from './sales.routes.js';
 import { registerInvoiceRoutes } from './invoices.routes.js';
 import { registerBillRoutes } from './bills.routes.js';
+import { registerVendorCreditRoutes } from './vendor-credits.routes.js';
 import { registerReceiptRoutes } from './receipts.routes.js';
 import { registerCreditNoteRoutes } from './credit-notes.routes.js';
 import { registerSalesOutputRoutes } from './sales-output.routes.js';
@@ -82,6 +85,8 @@ export interface ApiV1Services {
   items: ItemService;
   invoices: InvoiceService;
   bills: BillService;
+  vendorCredits: VendorCreditService;
+  purchasesOutput: PurchasesOutputService;
   receipts: ReceiptService;
   creditNotes: CreditNoteService;
   salesOutput: SalesOutputService;
@@ -121,6 +126,7 @@ export function apiV1(deps: AppDependencies, services: ApiV1Services) {
     registerVendorRoutes(app, services);
     registerPurchasesRoutes(app, services);
     registerBillRoutes(app, services);
+    registerVendorCreditRoutes(app, services);
     registerInvoiceRoutes(app, services);
     registerReceiptRoutes(app, services);
     registerCreditNoteRoutes(app, services);

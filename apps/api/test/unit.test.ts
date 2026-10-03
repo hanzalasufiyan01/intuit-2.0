@@ -138,6 +138,11 @@ describe('permission catalog', () => {
       'sales.reports.view',
       'sales.settings.manage',
       'tax.codes.manage', // Phase 3B (Decision 60)
+      'vendor_credits.approve', // Phase 4B-1 (ADR 0004 P4-39)
+      'vendor_credits.create',
+      'vendor_credits.post',
+      'vendor_credits.view',
+      'vendor_credits.void',
       'vendors.archive', // Phase 4 (ADR 0004 P4-39)
       'vendors.create',
       'vendors.update',
@@ -164,6 +169,7 @@ describe('permission catalog', () => {
       'parties.view', // Phase 3A S4 (Decision 65)
       'receipts.view',
       'sales.reports.view',
+      'vendor_credits.view', // Phase 4B-1 (P4-40)
       'vendors.view', // Phase 4 (ADR 0004 P4-40)
     ]);
   });

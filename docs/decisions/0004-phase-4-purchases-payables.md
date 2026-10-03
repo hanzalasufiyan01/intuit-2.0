@@ -593,3 +593,90 @@
   - `outbox_events` and `security_events` have no RLS by Phase 1 design (`0001`).
   - The Sales tax-code form's liability picker also lists control accounts; the server refuses them.
   - Full-suite run time has grown to about 200–230 s with the never-truncated test database (about 43k organizations). The serial files take 37 s, and no single file dominates.
+
+Phase 4A was committed as `4dee4cd` and is frozen.
+
+### 4B-1 — vendor credits and debit notes (P4-11, P4-12, P4-23, P4-24, P4-37, P4-39, P4-40, P4-42, P4-46, P4-50, P4-51), 2026-10-03
+
+- **Impact audit.** One conflict was resolved before coding (decided 2026-10-03):
+  - The stage instructions said a debit note "increases the vendor liability". The frozen brief and P4-23 define both origins as a vendor credit that "reduces what we owe" with the "same accounting" ("Vendor credit: the reverse of a bill"; `amount_unapplied`).
+  - **Decision: debit notes reduce AP**, as frozen.
+
+  Three open points were decided at the same time:
+  - **Bill link:** a vendor credit may reference a posted bill of the same vendor, in the bill's currency, but posting does not apply it. Application comes with the later settlement stage; no allocation structure is built now.
+  - **Rate:** a linked foreign-currency credit uses the bill's posted rate (source `bill`, Sales credit-note parity). An unlinked one uses the table rate on the credit date, or a manual override with a reason (`vendor_credits.post`, P4-16 parity). A linked credit cannot override.
+  - **Reference:** supplier credit notes need the supplier's credit-note number to post (optional on drafts). Duplicates are a warning only; no blocking rule is invented. Debit notes have no supplier reference; they carry our `DN-` number.
+
+- **Reuse:**
+  - Resolution and posting reuse `purchase-documents.ts`: the shared calculation engine, the frozen P4-12 recoverability chain, P4-19 eligibility, P4-11 input-tax checks and `buildPurchaseJournal` with direction `vendor_credit`. `purchaseDocumentPosting` gained an optional fixed rate for the bill link; Bills are unchanged except a type-only narrowing.
+  - Shared helpers from Sales: `assertOpenPeriod`, `assertRequiredDimensions`, `documentApprovalState`, `journalLine`. Plus the approval engine, Phase 3B idempotency, `takeNextPurchaseNumber`, the `reverseSubledgerJournalInTransaction('purchases', …)` reversal, the file and job services, and the PDFKit renderer.
+  - The renderer change is additive: a `DEBIT NOTE` title, an optional bill number and counterparty label. Sales snapshots are unaffected.
+- **Migration `0035_vendor_credits`:**
+  - `purchases_vendor_credits` and `purchases_vendor_credit_lines`, with composite tenant FKs (vendor, bill, accounts, tax codes and rates, approval, journals, event, PDF file) and status-consistency CHECKs:
+    - posting requires the number, journal, rate, base and unapplied amounts; supplier notes also require the reference, and debit notes the render snapshot;
+    - a `manual` rate source requires its reason, and a `bill` source requires the bill link;
+    - the PDF only on posted debit notes;
+    - void only with zero unapplied.
+  - Guard triggers: the lifecycle; posted documents immutable except the unapplied balance, the PDF (set once) and the void; void refused once applied or refunded; lines immutable once posted; draft-only delete.
+  - `purchases_document_emails`, mirroring `sales_document_emails`.
+  - File link type `vendor_credit`.
+  - RLS, no truncate, no PUBLIC grants.
+- **Permissions:**
+  - `vendor_credits.view`, `create`, `post`, `void`, `approve` (P4-39); the catalog now has 73 keys.
+  - Administrator: all five. Member: `vendor_credits.view` (P4-40). Existing organizations get them through the final 4B backfill.
+  - Drafts are edited, deleted, submitted and withdrawn under `vendor_credits.create`, because the catalog has no separate draft keys (Sales credit-note parity).
+  - Vendor-credit users can read tax codes.
+- **MFA and re-authentication:** posting and voiding a vendor credit need a recent password (P4-42). MFA is unchanged.
+- **Approval:** action `purchases.vendor_credit.post`, transaction types `supplier_credit_note` and `debit_note`, approver `vendor_credits.approve`. The amount is the AP line's base. No self-approval; a rejection needs a reason; steps are snapshotted; Post re-checks approval and approval never posts.
+- **Accounting:** Post runs through the `purchases.vendor_credit_posted` event (key `vendor_credit:<id>:posted`).
+  - Journal: Dr AP (total) / Cr each line's account (net plus non-recoverable tax) / Cr each code's input-tax account (recoverable tax).
+  - Source `purchases`/`vendor_credit`/id. `base_total` and `base_unapplied` come from the AP line's base debit.
+  - The first Purchases posting fixes the AP account. The AP invariant is now: AP control = Σ posted bills `base_due` − Σ posted vendor credits `base_unapplied` (verified).
+- **Numbering:** `VC-` for supplier credit notes and `DN-` for debit notes, at post, not gapless.
+- **Debit-note output (P4-46):**
+  - `PurchasesOutputService` (jobs `purchases.document_pdf` and `purchases.document_email`) renders from the frozen snapshot, stores the PDF under legal hold and links it once.
+  - Email goes to the vendor (default: the party's email) through the email provider, with the PDF attached; sending needs `vendor_credits.post`. The production email vendor stays deferred (U18).
+  - Supplier credit notes get no generated PDF; their evidence is an attachment.
+- **API:**
+  - `GET/POST /purchases/vendor-credits`; `GET/PUT/DELETE /purchases/vendor-credits/:id`; `POST …/submit`, `…/withdraw`, `…/post`, `…/void`; `GET …/pdf`, `GET …/emails`, `POST …/email`.
+  - Strict schemas; `Idempotency-Key` on create and post (scopes `purchases.vendor_credit.create` and `.post`).
+- **Web:** `/purchases/vendor-credits`:
+  - list with type and status filters and the approval queue;
+  - editor with type, vendor, related bill, supplier reference (supplier notes only), date, currency, manual rate, dimensions, lines and recoverability;
+  - detail with submit, withdraw, Post (re-authenticated), void, delete, the debit-note PDF and email panel, and evidence;
+  - Purchases navigation link.
+
+  The editor deliberately duplicates the Bills editor instead of refactoring the frozen 4A screen.
+
+- **Tests:**
+  - `test/vendor-credits.test.ts` (14):
+    - both origins and validation (debit-note reference, bill link, strict schema);
+    - draft edit, version and delete;
+    - the journal shape, VC-/DN- numbering and AP reconciliation;
+    - re-authentication on post, idempotency and a single event;
+    - bill, table and manual rates with audit;
+    - dimensions;
+    - approval with conditions, self-approval, reject reason, withdrawal and posting;
+    - void with re-authentication, reversal, closed period, and the applied-credit guard;
+    - permissions, tenant isolation and RLS, templates.
+  - `test/debit-note-output.test.ts` (3, serial): PDF under legal hold, email with attachment, no PDF for supplier credit notes.
+  - `apps/web/test/vendor-credits.test.tsx` (6, including PDF polling added after the E2E).
+  - Pin updates: 73 keys in `organizations` and `database`, the catalog and Member template in `unit`, `0035` in `s2-fixes`.
+- **Regression:**
+
+  | Check                                       | Result                           |
+  | ------------------------------------------- | -------------------------------- |
+  | API, two full runs                          | 54 files / 702 tests, both runs  |
+  | Web                                         | 13 files / 128 tests (after E2E) |
+  | Typecheck, lint, Prettier, production build | clean                            |
+  | Migrations 0001–0035                        | 35/35 checksums, LF              |
+
+  Integrity audit:
+  - 54 posted or void credits match their journals; no output-tax use; no orphans.
+  - AP reconciles except 3 organizations where the void test simulated an application by raw SQL.
+  - The dev organization reconciles (AR 3,863.63; AP 0).
+
+- **Owner browser E2E (2026-10-03, dev org):** both origins created, linked to posted bills and posted (VC-00001 at the bill rate 15.5 against table 15.6; DN-00001 in MVR). The supplier reference was refused at post when missing. Bills were left unapplied. AP reconciled at every step (final GL 2,705.00 = bills 3,600.00 − credits 895.00), and AR was unchanged. The DN PDF was generated under legal hold and emailed through the mock. VC-00002 was voided via a Purchases reversal. Re-authentication was prompted after the 15-minute window. Bills, Sales and Accounting pages were clean.
+  - Fix from the E2E: the debit-note PDF panel now re-checks while the PDF is pending (Sales parity).
+  - Noted, unchanged: post-validation details show only the generic headline (shared `ErrorAlert`, same as Bills); the email list shows "queued" until reload (same as Sales).
+- **Not implemented (later stages):** credit application to bills, vendor payments, prepayments, refunds (P4-24's "unrefunded" condition is enforced through `amount_unapplied`), batch Pay Bills, AP aging, statements and reconciliation UI, AP revaluation, direct expenses, Purchases imports and exports, the drill-down UI, the final permission backfill.

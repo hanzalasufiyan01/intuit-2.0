@@ -7,7 +7,12 @@ import type { DetectedType, FileLinkType } from '../modules/files/index.js';
 import { OrganizationPermissions } from '../modules/organizations/index.js';
 import { getParty, PartyPermissions } from '../modules/parties/index.js';
 import { getCreditNote, getInvoice, getReceipt, SalesPermissions } from '../modules/sales/index.js';
-import { BillPermissions, getBill } from '../modules/purchases/index.js';
+import {
+  BillPermissions,
+  getBill,
+  getVendorCredit,
+  VendorCreditPermissions,
+} from '../modules/purchases/index.js';
 
 /**
  * Attachment-target registry (S5-01, S5-04, S5-05). Every file is linked to exactly one record,
@@ -158,6 +163,29 @@ export const attachmentTargets: ReadonlyMap<FileLinkType, AttachmentTarget> = ne
               removable: false,
               removableReason:
                 'Bill evidence cannot be removed once the bill is submitted or posted.',
+            };
+      },
+    },
+  ],
+  // Phase 4B-1: vendor-credit evidence, removable only while the credit is a draft; a debit
+  // note's generated PDF is stored here under legal hold (P4-23, P4-46).
+  [
+    'vendor_credit',
+    {
+      linkType: 'vendor_credit',
+      allowedTypes: ALL_TYPES,
+      viewPermission: VendorCreditPermissions.View,
+      changePermission: VendorCreditPermissions.Create,
+      resolve: async (tx, organizationId, linkId) => {
+        if (!linkId) return null;
+        const credit = await getVendorCredit(tx, organizationId, linkId);
+        if (!credit) return null;
+        return credit.status === 'DRAFT'
+          ? { removable: true }
+          : {
+              removable: false,
+              removableReason:
+                'Vendor credit evidence cannot be removed once the credit is submitted or posted.',
             };
       },
     },

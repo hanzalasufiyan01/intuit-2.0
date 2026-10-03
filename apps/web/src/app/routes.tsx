@@ -12,6 +12,12 @@ import {
   EditBillPage,
   NewBillPage,
 } from '../features/purchases/BillPages';
+import {
+  EditVendorCreditPage,
+  NewVendorCreditPage,
+  VendorCreditDetailPage,
+  VendorCreditsPage,
+} from '../features/purchases/VendorCreditPages';
 import { NewVendorPage, VendorDetailPage, VendorsPage } from '../features/purchases/VendorPages';
 import { AccountingDashboardPage } from '../features/accounting/AccountingDashboardPage';
 import { AccountsPage } from '../features/accounting/AccountsPage';
@@ -460,6 +466,27 @@ export const routes: RouteObject[] = [
                   ['bills/new', Permission.BillsCreate, <NewBillPage key="new-bill" />],
                   ['bills/:id', Permission.BillsView, <BillDetailPage key="bill" />],
                   ['bills/:id/edit', Permission.BillsEditDraft, <EditBillPage key="edit-bill" />],
+                  // Phase 4B-1: vendor credits and debit notes (P4-23).
+                  [
+                    'vendor-credits',
+                    Permission.VendorCreditsView,
+                    <VendorCreditsPage key="credits" />,
+                  ],
+                  [
+                    'vendor-credits/new',
+                    Permission.VendorCreditsCreate,
+                    <NewVendorCreditPage key="new-credit" />,
+                  ],
+                  [
+                    'vendor-credits/:id',
+                    Permission.VendorCreditsView,
+                    <VendorCreditDetailPage key="credit" />,
+                  ],
+                  [
+                    'vendor-credits/:id/edit',
+                    Permission.VendorCreditsCreate,
+                    <EditVendorCreditPage key="edit-credit" />,
+                  ],
                 ] as const
               ).map(([path, permission, page]) => ({
                 path,

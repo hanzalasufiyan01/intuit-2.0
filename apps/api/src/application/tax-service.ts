@@ -8,7 +8,11 @@ import type { Transaction } from '../database/client.js';
 import { getAccount } from '../modules/accounting/index.js';
 import { recordAuditEvent, type EventOrigin } from '../modules/audit/index.js';
 import { CatalogPermissions } from '../modules/catalog/index.js';
-import { BillPermissions, PurchasesPermissions } from '../modules/purchases/index.js';
+import {
+  BillPermissions,
+  PurchasesPermissions,
+  VendorCreditPermissions,
+} from '../modules/purchases/index.js';
 import { SalesPermissions } from '../modules/sales/index.js';
 import {
   deleteTaxCodeRate,
@@ -39,6 +43,9 @@ const TAX_VIEW_PERMISSIONS = [
   // Phase 4A-5: choosing and reviewing tax on bills.
   BillPermissions.View,
   BillPermissions.Create,
+  // Phase 4B-1: tax on vendor credits.
+  VendorCreditPermissions.View,
+  VendorCreditPermissions.Create,
   SalesPermissions.InvoicesView,
   SalesPermissions.InvoicesCreate,
   SalesPermissions.CreditNotesView,

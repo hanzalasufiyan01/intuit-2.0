@@ -13,7 +13,8 @@ export type FileLinkType =
   | 'invoice'
   | 'credit_note'
   | 'receipt'
-  | 'bill';
+  | 'bill'
+  | 'vendor_credit';
 
 export interface StoredFile {
   id: string;

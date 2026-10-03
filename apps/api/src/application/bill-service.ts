@@ -1082,7 +1082,8 @@ export class BillService {
         status: 'POSTED',
         number,
         exchangeRate: posting.rate.toFixed(10),
-        exchangeRateSource: posting.rateSource,
+        // Bills never pass a fixed rate, so the source is base, table or manual.
+        exchangeRateSource: posting.rateSource as 'base' | 'table' | 'manual',
         tableRate: posting.tableRate ? posting.tableRate.toFixed(10) : null,
         baseTotal: baseTotal.toFixed(4),
         amountDue: snapshot.total,
