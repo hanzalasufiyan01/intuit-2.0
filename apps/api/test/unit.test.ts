@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { permissionCatalog } from '../src/application/permission-catalog.js';
 import { roleTemplateDefinitions } from '../src/application/role-templates.js';
+import {
+  createSourceDocumentRegistry,
+  SourceDocumentRegistry,
+} from '../src/application/source-documents.js';
+import { settleApCredit, settlePayment } from '../src/modules/documents/index.js';
+import { decimal } from '../src/domain/money.js';
 import { ConfigError, loadConfig } from '../src/infrastructure/config/config.js';
 import {
   PermissionCatalogError,
@@ -143,6 +149,10 @@ describe('permission catalog', () => {
       'vendor_credits.post',
       'vendor_credits.view',
       'vendor_credits.void',
+      'vendor_payments.approve', // Phase 4B-2 (ADR 0004 P4-39)
+      'vendor_payments.create',
+      'vendor_payments.view',
+      'vendor_payments.void',
       'vendors.archive', // Phase 4 (ADR 0004 P4-39)
       'vendors.create',
       'vendors.update',
@@ -170,6 +180,7 @@ describe('permission catalog', () => {
       'receipts.view',
       'sales.reports.view',
       'vendor_credits.view', // Phase 4B-1 (P4-40)
+      'vendor_payments.view', // Phase 4B-2 (P4-40)
       'vendors.view', // Phase 4 (ADR 0004 P4-40)
     ]);
   });
@@ -246,5 +257,60 @@ describe('invitation status', () => {
     expect(
       effectiveInvitationStatus({ ...invitation, status: 'accepted' }, new Date('2027-01-01')),
     ).toBe('accepted');
+  });
+});
+
+describe('source-document registry (P4-10, 4B-2 A5)', () => {
+  it('resolves only registered references and refuses duplicate resolvers', async () => {
+    const registry = new SourceDocumentRegistry();
+    const tx = {} as never;
+    expect(await registry.resolve(tx, 'org', null)).toBeNull();
+    expect(
+      await registry.resolve(tx, 'org', { module: 'payroll', type: 'run', id: 'x' }),
+    ).toBeNull();
+    registry.register('purchases', 'bill', async () => null);
+    expect(() => registry.register('purchases', 'bill', async () => null)).toThrow(/already/);
+    // The built-in registry covers the subledger documents that post journals.
+    expect(() => createSourceDocumentRegistry()).not.toThrow();
+  });
+});
+
+describe('AP settlement (4B-2, the AP FX sign)', () => {
+  const open = (amountDue: string, baseDue: string) => ({
+    amountDue: decimal(amountDue),
+    baseDue: decimal(baseDue),
+  });
+  it('values parts at the payment rate and relieves historical base (positive fx = gain)', () => {
+    const settled = settlePayment({
+      amount: decimal('250'),
+      rate: decimal('15.5'),
+      baseCurrency: 'MVR',
+      allocations: [
+        { billId: 'a', amount: decimal('100'), open: open('100', '1542') },
+        { billId: 'b', amount: decimal('100'), open: open('100', '1560') },
+      ],
+    });
+    expect(settled.parts.map((p) => [p.billId, p.sourceBase.toFixed(2), p.fx.toFixed(2)])).toEqual([
+      ['a', '1550.00', '-8.00'],
+      ['b', '1550.00', '10.00'],
+    ]);
+    expect(settled.unallocated.toFixed(2)).toBe('50.00');
+    expect(settled.baseAmount.toFixed(2)).toBe('3875.00');
+  });
+  it('releases credit at its historical base and relieves the final balance in full', () => {
+    const parts = settleApCredit({
+      source: open('50', '775'),
+      baseCurrency: 'MVR',
+      allocations: [
+        { billId: 'a', amount: decimal('30'), open: open('30', '462.6') },
+        { billId: 'b', amount: decimal('20'), open: open('100', '1542') },
+      ],
+    });
+    expect(
+      parts.map((p) => [p.sourceBase.toFixed(2), p.baseRelieved.toFixed(2), p.fx.toFixed(2)]),
+    ).toEqual([
+      ['465.00', '462.60', '-2.40'],
+      ['310.00', '308.40', '-1.60'],
+    ]);
   });
 });

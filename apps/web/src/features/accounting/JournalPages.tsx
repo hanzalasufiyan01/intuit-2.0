@@ -41,6 +41,32 @@ function useJournal(id: string) {
   });
 }
 
+/** Subledger modules whose journals are reversed only by voiding their documents (E2, P4-09). */
+const SUBLEDGER_LABELS: Record<string, string> = { sales: 'Sales', purchases: 'Purchases' };
+/** FX and revaluation system journals are never reversed generically (Decision 80). */
+const FX_SYSTEM_TYPES = ['realized_fx', 'revaluation', 'revaluation_reversal'];
+
+/**
+ * Why the generic reversal does not apply to a journal (the server refuses these with 409
+ * SYSTEM_JOURNAL; this only avoids offering an action that cannot succeed), or null.
+ */
+export function genericReversalBlock(journal: JournalDetail): string | null {
+  const owner =
+    (journal.sourceModule ? SUBLEDGER_LABELS[journal.sourceModule] : undefined) ??
+    (journal.sourceDocument ? SUBLEDGER_LABELS[journal.sourceDocument.module] : undefined);
+  if (owner) {
+    return `This journal belongs to ${owner}; it is reversed by voiding its document there, not here.`;
+  }
+  if (
+    journal.source === 'system' &&
+    journal.sourceType &&
+    FX_SYSTEM_TYPES.includes(journal.sourceType)
+  ) {
+    return 'This FX system journal is corrected through its FX process, not reversed here.';
+  }
+  return null;
+}
+
 /** Workflow actions offered only when both the state and the user's permissions allow them. */
 function JournalActions({ journal }: { journal: JournalDetail }) {
   const queryClient = useQueryClient();
@@ -142,7 +168,7 @@ function JournalActions({ journal }: { journal: JournalDetail }) {
             </Button>
           )
         ) : null}
-        {journal.status === 'POSTED' && can.reverse ? (
+        {journal.status === 'POSTED' && can.reverse && genericReversalBlock(journal) === null ? (
           <Button
             variant="secondary"
             onClick={() => setReverseForm({ ...reverseForm, open: true })}
@@ -151,6 +177,9 @@ function JournalActions({ journal }: { journal: JournalDetail }) {
           </Button>
         ) : null}
       </div>
+      {journal.status === 'POSTED' && can.reverse && genericReversalBlock(journal) !== null ? (
+        <p className="muted">{genericReversalBlock(journal)}</p>
+      ) : null}
       {needsApproval && can.approve ? (
         isOwnWork ? (
           <p className="muted">You prepared or submitted this journal, so you cannot approve it.</p>
@@ -233,7 +262,14 @@ export function JournalDetailPage() {
             {j.reference ? ` · ref ${j.reference}` : ''} · source: {j.source}
             {j.sourceModule ? ` (${j.sourceModule} ${j.sourceType ?? ''} ${j.sourceId ?? ''})` : ''}
           </p>
-          {j.sourceType === 'opening_balance' && j.sourceId ? (
+          {j.sourceDocument ? (
+            <p className="muted">
+              {j.sourceDocument.relation === 'reversal'
+                ? 'Reverses the posting of '
+                : 'Posted from '}
+              <Link to={j.sourceDocument.path}>{j.sourceDocument.label}</Link>.
+            </p>
+          ) : j.sourceType === 'opening_balance' && j.sourceId ? (
             <p className="muted">
               Posted from{' '}
               <Link to={`/accounting/opening-balances/${j.sourceId}`}>

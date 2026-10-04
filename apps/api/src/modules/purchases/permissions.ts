@@ -31,9 +31,22 @@ export const VendorCreditPermissions = {
   Approve: 'vendor_credits.approve',
 } as const;
 
-/** The Member template's bill and vendor-credit access (P4-40: the view keys). */
+/**
+ * Vendor payments, prepayments and credit application (P4-25 to P4-29, P4-33, P4-37, P4-39). Drafts,
+ * recording, rate and account overrides (P4-27, P4-28) and applying vendor credits or prepayments
+ * to bills (4B-2 decision A2) use `vendor_payments.create`; void needs re-authentication (P4-42).
+ */
+export const VendorPaymentPermissions = {
+  View: 'vendor_payments.view',
+  Create: 'vendor_payments.create',
+  Void: 'vendor_payments.void',
+  Approve: 'vendor_payments.approve',
+} as const;
+
+/** The Member template's bill, vendor-credit and payment access (P4-40: the view keys). */
 export const billViewPermissions = [BillPermissions.View] as const;
 export const vendorCreditViewPermissions = [VendorCreditPermissions.View] as const;
+export const vendorPaymentViewPermissions = [VendorPaymentPermissions.View] as const;
 
 export const purchasesPermissionDefinitions: readonly PermissionDefinition[] = [
   {
@@ -85,5 +98,22 @@ export const purchasesPermissionDefinitions: readonly PermissionDefinition[] = [
     key: VendorCreditPermissions.Approve,
     module: 'purchases',
     description: 'Approve vendor credits and debit notes before they are posted',
+  },
+  { key: VendorPaymentPermissions.View, module: 'purchases', description: 'View vendor payments' },
+  {
+    key: VendorPaymentPermissions.Create,
+    module: 'purchases',
+    description:
+      'Create and record vendor payments, override their rate or account, and apply vendor credits and prepayments to bills',
+  },
+  {
+    key: VendorPaymentPermissions.Void,
+    module: 'purchases',
+    description: 'Void recorded vendor payments',
+  },
+  {
+    key: VendorPaymentPermissions.Approve,
+    module: 'purchases',
+    description: 'Approve vendor payments before they are recorded',
   },
 ];

@@ -18,6 +18,7 @@ import { AttachmentsCard } from '../files/AttachmentsCard';
 import { ApprovalPanel, TotalsTable } from '../sales/DocumentParts';
 import { orNull, StatusBadge, useOrgKey, useTaxCodes } from '../sales/shared';
 import type { Item, Page } from '../sales/types';
+import { ApplyCreditPanel, SettlementHistory } from './PaymentPages';
 import { PurchasesNav } from './PurchasesSection';
 import {
   PURCHASE_ACCOUNT_SUBTYPES,
@@ -944,6 +945,9 @@ export function VendorCreditDetailPage() {
     edit: usePermission(Permission.VendorCreditsCreate),
     post: usePermission(Permission.VendorCreditsPost),
     void: usePermission(Permission.VendorCreditsVoid),
+    // Phase 4B-2 (A2): applying a credit to bills uses vendor_payments.create.
+    apply: usePermission(Permission.VendorPaymentsCreate),
+    journals: usePermission(Permission.JournalsView),
   };
   const [voidReason, setVoidReason] = useState('');
   const refresh = (data?: VendorCreditDetail) => {
@@ -1061,6 +1065,16 @@ export function VendorCreditDetailPage() {
               <dd>{c.voidReason}</dd>
             </>
           ) : null}
+          {c.journalId && can.journals ? (
+            <>
+              <dt>{t('purchases.payments.journalLabel')}</dt>
+              <dd>
+                <Link to={`/accounting/journals/${c.journalId}`}>
+                  {t('purchases.payments.journal')}
+                </Link>
+              </dd>
+            </>
+          ) : null}
         </dl>
         <TotalsTable
           currency={cur}
@@ -1125,7 +1139,7 @@ export function VendorCreditDetailPage() {
         </div>
       </Card>
 
-      <ApprovalPanel approval={c.approval} />
+      <ApprovalPanel approval={c.approval} readyMessage="purchases.approval.readyPost" />
 
       <Card title={t('purchases.bills.lines')}>
         <table className="table">
@@ -1165,6 +1179,21 @@ export function VendorCreditDetailPage() {
         </table>
         {c.memo ? <p className="memo">{c.memo}</p> : null}
       </Card>
+
+      {c.status === 'POSTED' || c.status === 'VOID' ? (
+        <SettlementHistory path={`/purchases/vendor-credits/${id}/allocations`} show="bill" />
+      ) : null}
+      {c.status === 'POSTED' && can.apply && Number(c.amountUnapplied ?? 0) > 0 ? (
+        <ApplyCreditPanel
+          sourceType="vendor_credit"
+          sourceId={id}
+          vendorId={c.vendorId}
+          currencyCode={cur}
+          available={c.amountUnapplied!}
+          minDate={c.creditDate}
+          onApplied={() => void doc.refetch()}
+        />
+      ) : null}
 
       {c.origin === 'debit_note' && (c.status === 'POSTED' || c.status === 'VOID') ? (
         <DebitNoteOutput id={id} canSend={c.status === 'POSTED' && can.post} />

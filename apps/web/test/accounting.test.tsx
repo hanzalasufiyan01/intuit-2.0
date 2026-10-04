@@ -213,6 +213,106 @@ describe('accounting UI permissions', () => {
   });
 });
 
+describe('journal source documents (ADR 0004 P4-10)', () => {
+  it('links a subledger journal to the document that posted it', async () => {
+    stubApi({
+      'GET /auth/session': ok(makeSession({ permissions: ALL_ACCOUNTING })),
+      'GET /accounting/setup': ok(setupState),
+      'GET /accounting/accounts': ok(accounts),
+      'GET /accounting/journals/j1': ok(
+        draftJournal({
+          status: 'POSTED',
+          number: 7,
+          source: 'event',
+          sourceModule: 'purchases',
+          sourceType: 'payment',
+          sourceId: 'p1',
+          sourceDocument: {
+            module: 'purchases',
+            documentType: 'payment',
+            id: 'p1',
+            number: 'PAY-00001',
+            label: 'Payment PAY-00001',
+            path: '/purchases/payments/p1',
+            relation: 'source',
+          },
+        }),
+      ),
+    });
+    renderAt('/accounting/journals/j1');
+    const link = await screen.findByRole('link', { name: 'Payment PAY-00001' });
+    expect(link.getAttribute('href')).toBe('/purchases/payments/p1');
+    expect(screen.getByText(/Posted from/)).toBeTruthy();
+    // Purchases journals are reversed by voiding their document, not generically (P4-09).
+    expect(screen.queryByRole('button', { name: 'Reverse…' })).toBeNull();
+    expect(
+      screen.getByText(/belongs to Purchases; it is reversed by voiding its document/),
+    ).toBeTruthy();
+  });
+
+  it('does not offer the generic reversal for realized-FX system journals or subledger reversals', async () => {
+    const posted = (overrides: Record<string, unknown>) =>
+      ok(draftJournal({ status: 'POSTED', number: 9, ...overrides }));
+    stubApi({
+      'GET /auth/session': ok(makeSession({ permissions: ALL_ACCOUNTING })),
+      'GET /accounting/setup': ok(setupState),
+      'GET /accounting/accounts': ok(accounts),
+      // A revaluation-style FX system journal outside the subledgers (Decision 80).
+      'GET /accounting/journals/j1': posted({
+        source: 'system',
+        sourceModule: 'accounting',
+        sourceType: 'revaluation',
+        sourceId: 'run-1',
+      }),
+    });
+    renderAt('/accounting/journals/j1');
+    expect(
+      await screen.findByText(/FX system journal is corrected through its FX process/),
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Reverse…' })).toBeNull();
+  });
+
+  it('hides the generic reversal for a reversal of a Purchases journal', async () => {
+    stubApi({
+      'GET /auth/session': ok(makeSession({ permissions: ALL_ACCOUNTING })),
+      'GET /accounting/setup': ok(setupState),
+      'GET /accounting/accounts': ok(accounts),
+      'GET /accounting/journals/j1': ok(
+        draftJournal({
+          status: 'POSTED',
+          number: 10,
+          source: 'reversal',
+          reversesJournalId: 'j0',
+          sourceDocument: {
+            module: 'purchases',
+            documentType: 'payment',
+            id: 'p1',
+            number: 'PAY-00001',
+            label: 'Payment PAY-00001',
+            path: '/purchases/payments/p1',
+            relation: 'reversal',
+          },
+        }),
+      ),
+    });
+    renderAt('/accounting/journals/j1');
+    expect(await screen.findByText(/Reverses the posting of/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Reverse…' })).toBeNull();
+  });
+
+  it('keeps the generic reversal for ordinary posted journals', async () => {
+    stubApi({
+      'GET /auth/session': ok(makeSession({ permissions: ALL_ACCOUNTING })),
+      'GET /accounting/setup': ok(setupState),
+      'GET /accounting/accounts': ok(accounts),
+      'GET /accounting/journals/j1': ok(draftJournal({ status: 'POSTED', number: 11 })),
+    });
+    renderAt('/accounting/journals/j1');
+    expect(await screen.findByRole('button', { name: 'Reverse…' })).toBeTruthy();
+    expect(screen.queryByText(/is reversed by voiding its document/)).toBeNull();
+  });
+});
+
 describe('sensitive actions', () => {
   it('asks for the password when re-authentication is required, then retries', async () => {
     const user = userEvent.setup();

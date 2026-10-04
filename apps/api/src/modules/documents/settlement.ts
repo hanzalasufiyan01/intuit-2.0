@@ -83,3 +83,68 @@ export function settleCredit(input: {
     };
   });
 }
+
+/**
+ * Purchases (ADR 0004, Phase 4B-2). The arithmetic is the receipt's and the credit's above; only
+ * the realized-FX sign differs: for AP, `fx = base_relieved − source_base` (positive = gain:
+ * the liability relieved was carried at more base than the source gave up).
+ */
+export interface ApSettlementPart {
+  billId: string;
+  amount: Decimal;
+  /** Value of this part at the source's rate (payment) or historical base (credit). */
+  sourceBase: Decimal;
+  baseRelieved: Decimal;
+  /** AP sign: baseRelieved − sourceBase. */
+  fx: Decimal;
+}
+
+const apPart = (p: ReceiptPart): ApSettlementPart => ({
+  billId: p.invoiceId,
+  amount: p.amount,
+  sourceBase: p.sourceBase,
+  baseRelieved: p.baseRelieved,
+  fx: p.baseRelieved.minus(p.sourceBase),
+});
+
+/** A vendor payment: parts at the payment rate, each bill relieved at its historical base. */
+export function settlePayment(input: {
+  amount: Decimal;
+  rate: Decimal;
+  baseCurrency: string;
+  allocations: readonly { billId: string; amount: Decimal; open: OpenBalance }[];
+}): {
+  parts: ApSettlementPart[];
+  unallocated: Decimal;
+  baseUnallocated: Decimal;
+  baseAmount: Decimal;
+} {
+  const settled = settleReceipt({
+    amount: input.amount,
+    rate: input.rate,
+    baseCurrency: input.baseCurrency,
+    allocations: input.allocations.map((a) => ({
+      invoiceId: a.billId,
+      amount: a.amount,
+      open: a.open,
+    })),
+  });
+  return { ...settled, parts: settled.parts.map(apPart) };
+}
+
+/** Applying a vendor credit or a prepayment to bills of the same currency. */
+export function settleApCredit(input: {
+  source: OpenBalance;
+  baseCurrency: string;
+  allocations: readonly { billId: string; amount: Decimal; open: OpenBalance }[];
+}): ApSettlementPart[] {
+  return settleCredit({
+    source: input.source,
+    baseCurrency: input.baseCurrency,
+    allocations: input.allocations.map((a) => ({
+      invoiceId: a.billId,
+      amount: a.amount,
+      open: a.open,
+    })),
+  }).map(apPart);
+}

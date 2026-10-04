@@ -232,6 +232,19 @@ export interface JournalDetail extends Journal {
   approvalSteps: AppliedStep[];
   reversedByJournalId: string | null;
   reversesJournalId: string | null;
+  /**
+   * ADR 0004 P4-10: the Sales or Purchases document behind the journal (its own posting, or a
+   * reversal of it); absent for other journals.
+   */
+  sourceDocument?: {
+    module: string;
+    documentType: string;
+    id: string;
+    number: string | null;
+    label: string;
+    path: string;
+    relation: 'source' | 'reversal';
+  } | null;
   reversalReason: string | null;
 }
 

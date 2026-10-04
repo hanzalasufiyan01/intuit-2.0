@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { useApiMutation } from '../../auth/auth-context';
-import { useT } from '../../i18n/i18n';
+import { useT, type MessageKey } from '../../i18n/i18n';
 import { api } from '../../services/api-client';
 import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
@@ -104,8 +104,17 @@ export function TotalsTable({
   );
 }
 
-/** D1: approval authorizes; issuing is a separate action. */
-export function ApprovalPanel({ approval }: { approval: ApprovalState }) {
+/**
+ * D1: approval authorizes; the document's own action (issue, post, record) is separate. The
+ * ready message names that action; Sales documents keep the default ("can be issued").
+ */
+export function ApprovalPanel({
+  approval,
+  readyMessage = 'sales.approval.ready',
+}: {
+  approval: ApprovalState;
+  readyMessage?: MessageKey;
+}) {
   const t = useT();
   if (!approval.required) return null;
   return (
@@ -138,7 +147,7 @@ export function ApprovalPanel({ approval }: { approval: ApprovalState }) {
       ) : null}
       {approval.approvalOutdated ? <Alert>{t('sales.approval.outdated')}</Alert> : null}
       {approval.readyToIssue && approval.requestStatus === 'approved' ? (
-        <Alert tone="success">{t('sales.approval.ready')}</Alert>
+        <Alert tone="success">{t(readyMessage)}</Alert>
       ) : null}
     </Card>
   );

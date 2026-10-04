@@ -68,6 +68,7 @@ import {
 import type { AppDependencies } from './dependencies.js';
 import { inTransaction, setDbContext } from './unit-of-work.js';
 import { withOrganization } from './organization-service.js';
+import { SourceDocumentRegistry } from './source-documents.js';
 
 export const JOURNAL_POST_ACTION = 'accounting.journal.post';
 
@@ -315,6 +316,8 @@ export class JournalService {
   constructor(
     private readonly deps: AppDependencies,
     private readonly approvals: ApprovalService,
+    /** P4-10 (4B-2 A5): resolves a journal's source reference to its document. */
+    private readonly sources: SourceDocumentRegistry = new SourceDocumentRegistry(),
   ) {
     approvals.register({
       actionKey: JOURNAL_POST_ACTION,
@@ -706,6 +709,12 @@ export class JournalService {
         await requireAccountingSettings(tx, ctx.organizationId);
         const view = await this.load(tx, ctx, journalId);
         const links = await getReversalLinks(tx, ctx.organizationId, journalId);
+        const sourceDocument = await this.sourceDocumentOf(
+          tx,
+          ctx.organizationId,
+          view,
+          links.reverses?.originalJournalId ?? null,
+        );
         let approval = null;
         if (view.approvalRequestId) {
           const request = await getApprovalRequest(tx, ctx.organizationId, view.approvalRequestId);
@@ -756,12 +765,40 @@ export class JournalService {
             requiredApprovals: step.requiredApprovals,
             conditions: step.conditions ?? null,
           })),
+          sourceDocument,
           reversedByJournalId: links.reversedBy?.reversalJournalId ?? null,
           reversesJournalId: links.reverses?.originalJournalId ?? null,
           reversalReason: links.reversedBy?.reason ?? links.reverses?.reason ?? null,
         };
       },
     );
+  }
+
+  /**
+   * P4-10 (4B-2 A5): the document behind a journal, through its immutable source reference. A
+   * reversal without its own reference (an event journal reversed by the generic engine) points
+   * at its original's document. `relation` says whether the journal is the document's own posting
+   * or a reversal of it.
+   */
+  private async sourceDocumentOf(
+    tx: Transaction,
+    organizationId: string,
+    journal: { sourceModule: string | null; sourceType: string | null; sourceId: string | null },
+    reversesJournalId: string | null,
+  ) {
+    const refOf = (j: typeof journal) =>
+      j.sourceModule && j.sourceType && j.sourceId
+        ? { module: j.sourceModule, type: j.sourceType, id: j.sourceId }
+        : null;
+    let ref = refOf(journal);
+    if (!ref && reversesJournalId) {
+      const original = await getJournal(tx, organizationId, reversesJournalId);
+      ref = original ? refOf(original) : null;
+    }
+    const document = await this.sources.resolve(tx, organizationId, ref);
+    return document
+      ? { ...document, relation: reversesJournalId ? ('reversal' as const) : ('source' as const) }
+      : null;
   }
 
   /** Journal with lines; dimension details only for viewers with dimensions.view (Decision 91). */

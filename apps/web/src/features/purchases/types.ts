@@ -229,3 +229,85 @@ export interface VendorCreditDetail extends VendorCreditSummary {
   approval: BillDetail['approval'];
   warnings: { code: string; message: string }[];
 }
+
+/** Phase 4B-2: vendor payments, prepayments and settlement history (P4-25 to P4-33). */
+export type PaymentStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'RECORDED' | 'VOID';
+
+export interface PaymentSummary {
+  id: string;
+  status: PaymentStatus;
+  number: string | null;
+  vendorId: string;
+  vendorName: string | null;
+  paymentDate: string;
+  currencyCode: string;
+  amount: string;
+  amountUnallocated: string | null;
+  baseAmount: string | null;
+  baseUnallocated: string | null;
+  reference: string | null;
+  version: number;
+  recordedAt: string | null;
+  voidedAt: string | null;
+}
+
+/** One settlement row: a payment or an applied credit against a bill (reversals negative). */
+export interface AllocationView {
+  id: string;
+  billId: string;
+  billNumber: string | null;
+  sourceType: 'payment' | 'vendor_credit';
+  sourceId: string;
+  sourceNumber: string | null;
+  mode: 'payment' | 'credit';
+  applicationId: string | null;
+  allocationDate: string;
+  currencyCode: string;
+  amount: string;
+  baseRelieved: string;
+  sourceBase: string;
+  /** AP sign: base relieved − source base (positive = gain). */
+  fxDifference: string;
+  reversesAllocationId: string | null;
+  journalId: string;
+}
+
+export interface PaymentDetail extends PaymentSummary {
+  paymentAccountId: string | null;
+  defaultPaymentAccountId: string | null;
+  paymentAccountOverridden: boolean | null;
+  rateOverride: string | null;
+  rateOverrideReason: string | null;
+  exchangeRate: string | null;
+  exchangeRateSource: 'base' | 'table' | 'manual' | null;
+  tableRate: string | null;
+  memo: string;
+  journalId: string | null;
+  voidReason: string | null;
+  voidJournalId: string | null;
+  createdByUserId: string;
+  baseCurrency: string;
+  plannedAllocations: {
+    billId: string;
+    billNumber: string | null;
+    billDate: string | null;
+    billStatus: string | null;
+    billAmountDue: string | null;
+    amount: string;
+  }[];
+  allocations: AllocationView[];
+  approval: BillDetail['approval'];
+  warnings: { code: string; message: string }[];
+}
+
+/** A posted bill with an amount due: a payment or credit target. */
+export interface OpenBill {
+  id: string;
+  number: string;
+  vendorReference: string | null;
+  billDate: string;
+  dueDate: string | null;
+  currencyCode: string;
+  total: string;
+  amountDue: string;
+}

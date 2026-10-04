@@ -18,6 +18,7 @@ import { AttachmentsCard } from '../files/AttachmentsCard';
 import { ApprovalPanel, TotalsTable } from '../sales/DocumentParts';
 import { orNull, StatusBadge, useOrgKey, useTaxCodes } from '../sales/shared';
 import type { Item, Page } from '../sales/types';
+import { SettlementHistory } from './PaymentPages';
 import { PurchasesNav } from './PurchasesSection';
 import {
   PURCHASE_ACCOUNT_SUBTYPES,
@@ -793,6 +794,8 @@ export function BillDetailPage() {
     post: usePermission(Permission.BillsPost),
     void: usePermission(Permission.BillsVoid),
     attach: usePermission(Permission.BillsCreate),
+    // Phase 4B-2 (P4-10): the bill's journal.
+    journals: usePermission(Permission.JournalsView),
   };
   const [voidReason, setVoidReason] = useState('');
   const [duplicateReason, setDuplicateReason] = useState('');
@@ -907,6 +910,16 @@ export function BillDetailPage() {
               <dd>{b.voidReason}</dd>
             </>
           ) : null}
+          {b.journalId && can.journals ? (
+            <>
+              <dt>{t('purchases.payments.journalLabel')}</dt>
+              <dd>
+                <Link to={`/accounting/journals/${b.journalId}`}>
+                  {t('purchases.payments.journal')}
+                </Link>
+              </dd>
+            </>
+          ) : null}
         </dl>
         <TotalsTable
           currency={c}
@@ -1005,7 +1018,7 @@ export function BillDetailPage() {
         </Card>
       ) : null}
 
-      <ApprovalPanel approval={b.approval} />
+      <ApprovalPanel approval={b.approval} readyMessage="purchases.approval.readyPost" />
 
       <Card title={t('purchases.bills.lines')}>
         <table className="table">
@@ -1045,6 +1058,11 @@ export function BillDetailPage() {
         </table>
         {b.memo ? <p className="memo">{b.memo}</p> : null}
       </Card>
+
+      {/* Phase 4B-2: payments and credits applied to the bill (P4-25 to P4-33). */}
+      {b.status === 'POSTED' || b.status === 'VOID' ? (
+        <SettlementHistory path={`/purchases/bills/${id}/allocations`} show="source" />
+      ) : null}
 
       {b.status === 'POSTED' && can.void ? (
         <Card title={t('purchases.bills.voidTitle')}>

@@ -680,3 +680,125 @@ Phase 4A was committed as `4dee4cd` and is frozen.
   - Fix from the E2E: the debit-note PDF panel now re-checks while the PDF is pending (Sales parity).
   - Noted, unchanged: post-validation details show only the generic headline (shared `ErrorAlert`, same as Bills); the email list shows "queued" until reload (same as Sales).
 - **Not implemented (later stages):** credit application to bills, vendor payments, prepayments, refunds (P4-24's "unrefunded" condition is enforced through `amount_unapplied`), batch Pay Bills, AP aging, statements and reconciliation UI, AP revaluation, direct expenses, Purchases imports and exports, the drill-down UI, the final permission backfill.
+
+Phase 4B-1 was committed as `a185451` and is frozen.
+
+### 4B-2 — payments, allocations, prepayments and realized FX (P4-10, P4-25 to P4-29, P4-33, P4-34, P4-37, P4-39, P4-40, P4-42, P4-50, P4-51), 2026-10-04
+
+- **Decisions (approved 2026-10-04 after the impact audit):**
+  - **C1:** one **net** realized-FX base-only line per payment or application journal; every allocation keeps its own `fx_difference`. The 497-bill limit fits the 500-line journal cap: 497 AP lines, the prepayment line, the payment-account line and the FX line.
+  - **C2:** payment allocations target **posted bills only**; a payment is never allocated to a vendor credit. Vendor credits and prepayments are sources applied to bills later.
+  - **C3:** P4-42 unchanged: re-authentication on payment void only. Rate (P4-27) and account (P4-28) overrides need `vendor_payments.create` only.
+  - **A1:** drafts, with the idempotency scope `purchases.payment.create`; recording uses `purchases.payment.record`.
+  - **A2:** credit application uses `vendor_payments.create`.
+  - **A3:** vendor-credit → bill and prepayment → bill application are in 4B-2.
+  - **A4:** the approval transaction type is `prepayment` without planned bills, otherwise `payment`.
+  - **A5 (amended):** the minimal P4-10 source-document registry is in 4B-2 (below).
+  - **A6:** remittance-advice PDF and email stay deferred.
+- **Migration `0036_vendor_payments`:**
+  - `purchases_payments`: `DRAFT → PENDING_APPROVAL → RECORDED → VOID`.
+    - A draft holds the optional account and rate overrides.
+    - Record fixes the number, account, rate (with the table rate kept), base amount and the prepayment balance (`amount_unallocated`, `base_unallocated`: the I-1 term).
+    - CHECKs: the override reason, the recorded facts, the open balance and the void.
+    - Guard trigger: drafts change and may be deleted; recorded payments are immutable except the prepayment balance and the void.
+  - `purchases_payment_planned_allocations`: a draft's bills (at most 497, each once). A trigger allows changes only while the payment is a draft; the rows are kept afterwards as the plan.
+  - `purchases_allocations`: append-only settlement rows.
+    - `source_type` is `payment` or `vendor_credit`.
+    - `mode` is `payment` (at record) or `credit` (an application, grouped by `application_id`).
+    - CHECK **`fx_difference = base_relieved − source_base`** (the AP sign).
+    - Reversal rows negate the original and point at it; a row is reversed at most once.
+  - Foreign keys scoped to the organization; tenant RLS, no truncate, no PUBLIC grants. `intuit_app` gets SELECT and INSERT only on allocations.
+  - No existing migration or table changed: the 0033 and 0035 guards already let open balances change and refuse voiding paid bills or applied credits.
+- **Shared engine:** `settlePayment` and `settleApCredit` in `modules/documents/settlement.ts` wrap the receipt and credit arithmetic and return the AP-sign FX. The Sales functions are unchanged and the golden test passes.
+- **Accounting:**
+  - Events `purchases.payment_recorded` (key `payment:<id>:recorded`) and `purchases.credit_applied` (key `credit:<type>:<id>:<application>`).
+  - **Payment:**
+    - Dr AP per bill at the bill's historical base relieved.
+    - Dr AP for the excess (prepayment) at the payment rate.
+    - Cr the payment account at the payment rate.
+    - One net base-only FX line on the `REALIZED_FX_GAIN_LOSS` designation (positive = gain = base credit).
+    - With no FX in any part it is an ordinary event journal (source `purchases/payment/<id>`); otherwise a `realized_fx` system journal with explicit bases (E1).
+  - **Application:** Dr AP per bill relieved / Cr AP for the credit released at its historical base / the net FX. Without FX it is a base-currency journal (Sales clarification parity).
+  - A credit linked to a bill (4B-1, bill rate) applied to that bill realizes nothing.
+  - **Rate:** the table rate on the payment date, or a manual override with a reason; base-currency payments use 1. The designation is required only when net FX is posted.
+  - **Lock order:** payment (or source), Purchases settings (AP lock), bills by ascending id. The first Purchases posting may be a prepayment (`lockApAccount`).
+- **Void (P4-33):**
+  - Needs `vendor_payments.void` and re-authentication.
+  - Reverses the payment journal, and every application funded by its prepayment, through `reverseSubledgerJournalInTransaction('purchases', …)` on the original dates; a closed period gives `PERIOD_CLOSED`.
+  - Realized-FX journals are mirrored by that path, never reversed generically.
+  - Writes reversing allocation rows and restores the bills' balances.
+  - Vendor-credit applications are not reversible (Sales parity), so an applied credit cannot be voided.
+- **Account eligibility (P4-26, Decision 42):** active, leaf, not a control account, subtype BANK, CASH or CREDIT_CARD, in the payment currency or the base currency. Never inferred from names.
+- **Permissions:** `vendor_payments.{view,create,void,approve}`; the catalog now has 77 keys. Administrator gets all four and Member gets view (templates); existing organizations get them through the final Phase 4 backfill. The MFA set is unchanged.
+- **Approval:** action `purchases.payment.record`, types `payment` and `prepayment`, approver `vendor_payments.approve`. No self-approval; a rejection needs a reason; withdrawal is supported; record re-checks the facts and refuses an outdated approval.
+- **Source-document registry (P4-10, A5):** `application/source-documents.ts`.
+  - No table: journals already carry an immutable `source_module`, `source_type` and `source_id`. Resolvers read the owning modules through their contracts inside the organization-scoped transaction (RLS), so a reference never crosses tenants.
+  - Registered:
+    - Purchases: bill, vendor credit, payment, credit application, and realized FX (payment or application).
+    - Sales: invoice (and AR opening invoice), credit note, receipt (and a receipt's realized FX).
+
+    Sales credit applications are not stored as documents and do not resolve.
+
+  - The journal detail returns `sourceDocument` with `relation` `source` or `reversal`; a generically reversed event journal resolves through its original.
+  - The web journal page links to the document, and the payment, bill and vendor-credit pages link to their journals. Ledger rows link to journals as before, so the path is report → account → journal → document.
+- **API:**
+  - `GET/POST /purchases/payments`, `GET /purchases/payments/open-bills`, `GET/PUT/DELETE /purchases/payments/:id`;
+  - `POST …/submit`, `…/withdraw`, `…/record`, `…/void`;
+  - `POST /purchases/credit-applications`;
+  - `GET /purchases/bills/:id/allocations`, `GET /purchases/vendor-credits/:id/allocations`.
+
+  Strict schemas; at most 497 allocations.
+
+- **Web:**
+  - `/purchases/payments`: list, approval queue, editor with open bills, and a detail page with the settlement, the apply-prepayment panel and void.
+  - Vendor-credit detail gains the settlement history and "Apply to bills"; bill detail gains the settlement history and a journal link. Both are additive to the 4A and 4B-1 screens.
+  - Purchases navigation link and i18n keys.
+- **Tests:**
+  - API: `test/vendor-payments.test.ts` (23) and `test/vendor-payment-limit.test.ts` (497 bills, 500 journal lines, one FX line).
+  - Unit tests for the registry and the AP settlement.
+  - Pin updates: 77 keys, Member templates, `0036`.
+  - Web: `vendor-payments.test.tsx` (6) and the journal source-document test.
+- **Regression:**
+
+  | Check                            | Result                          |
+  | -------------------------------- | ------------------------------- |
+  | API, two full runs               | 56 files / 729 tests, both runs |
+  | Web                              | 14 files / 135 tests            |
+  | Typecheck, lint, Prettier, build | clean                           |
+  | Migrations 0001–0036             | 36/36 checksums, LF             |
+
+  Integrity audit:
+  - All journals balance; every recorded payment's account line equals its base amount; at most one FX line per journal.
+  - Per-allocation FX sums equal each journal's FX line, and reversal rows pair up.
+  - AP I-1 reconciles in every organization with payments.
+  - The remaining mismatches belong to earlier test fixtures that changed balances by raw SQL (4A bills, 4B-1 credits; none have allocations).
+  - 51 orphan `realized_fx` journals come from the 4A-2 reversal test's synthetic sources.
+
+- **Owner and second-user browser E2E (2026-10-04, dev organization):**
+
+  | Step                                                           | Result                                                                                                                                     |
+  | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+  | MVR partial payment                                            | PAY-00001                                                                                                                                  |
+  | USD payment at 15.60 against a 15.5 bill                       | approved by a second user, then recorded (PAY-00004); one FX line, loss 10.00                                                              |
+  | Excess payment                                                 | PAY-00002, with a prepayment                                                                                                               |
+  | Applications                                                   | a prepayment application and a vendor-credit application                                                                                   |
+  | Credit-card payment with a manual rate and an account override | PAY-00003, loss 1.50                                                                                                                       |
+  | Void of PAY-00002 (after the 15-minute window)                 | password prompt shown; payment and prepayment-application journals reversed; BILL-00002 back to 200.00; AP 390.00 = 510.00 − 120.00 − 0.00 |
+  | Generic reversal of a realized-FX journal                      | refused (409)                                                                                                                              |
+  | Source-document drill-down                                     | working                                                                                                                                    |
+  | AP I-1                                                         | reconciled: 140.00 = 360.00 − 120.00 − 100.00                                                                                              |
+  | AR                                                             | unchanged                                                                                                                                  |
+  | Bills, Vendor credits, Sales and Accounting pages              | clean                                                                                                                                      |
+
+  Dev setup made for it:
+  - account 4950 Realized FX Gain/Loss, designated;
+  - account 2140 Company Credit Card;
+  - a "Payment approver" role for member@;
+  - a `purchases.payment.record` policy (≥ 1,000 MVR, type payment).
+
+- **Noted, unchanged:**
+  - Allocation rows written in one statement share a timestamp and list in id order.
+- **Pre-commit UI fixes (2026-10-04, after the architecture review):**
+  - The journal page no longer offers the generic "Reverse…" action for journals the server always refuses: Sales- and Purchases-owned journals and their reversals (E2, P4-09), and FX system journals (Decision 80). It shows why instead. Ordinary journals keep the action, and the server-side 409 protection is unchanged.
+  - The shared approval panel takes a context-aware ready message: Sales keeps "The document can be issued"; bills and vendor credits say "can be posted"; payments say "The payment can be recorded".
+- **Not implemented (later stages):** vendor refunds (P4-30), batch Pay Bills (P4-32), remittance advice (A6), AP aging, statements and the reconciliation UI, AP revaluation, direct expenses, Purchases imports and exports, opening bills and credits, the final permission backfill.

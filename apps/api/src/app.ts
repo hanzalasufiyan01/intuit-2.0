@@ -17,6 +17,8 @@ import { ItemService } from './application/item-service.js';
 import { InvoiceService } from './application/invoice-service.js';
 import { BillService } from './application/bill-service.js';
 import { VendorCreditService } from './application/vendor-credit-service.js';
+import { VendorPaymentService } from './application/vendor-payment-service.js';
+import { createSourceDocumentRegistry } from './application/source-documents.js';
 import {
   PURCHASES_EMAIL_JOB,
   PURCHASES_PDF_JOB,
@@ -145,7 +147,8 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   const auth = new AuthService(deps, verifier);
   const approvals = new ApprovalService(deps);
   const accounting = new AccountingService(deps, approvals);
-  const journals = new JournalService(deps, approvals);
+  // P4-10 (4B-2 A5): journals link to the Sales and Purchases documents that posted them.
+  const journals = new JournalService(deps, approvals, createSourceDocumentRegistry());
   const dimensions = new DimensionService(deps);
   const reports = new ReportService(deps);
   const parties = new PartyService(deps);
@@ -181,6 +184,8 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     idempotency,
     purchasesOutput,
   );
+  // Phase 4B-2: vendor payments, prepayments, AP credit application and realized FX (P4-25 to P4-33).
+  const vendorPayments = new VendorPaymentService(deps, approvals, journals, idempotency);
   const arReports = new ArReportService(deps);
   const domainServices = {
     accounting,
@@ -233,6 +238,7 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     purchasesSettings: new PurchasesSettingsService(deps, accounting),
     bills,
     vendorCredits,
+    vendorPayments,
     purchasesOutput,
     items,
     // Phase 3B steps 6-7: invoice drafts, conditional approval and atomic issue (D1).

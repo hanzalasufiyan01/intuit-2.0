@@ -276,3 +276,79 @@ export const purchasesDocumentEmails = pgTable('purchases_document_emails', {
   requestedAt: timestamptz('requested_at').notNull(),
   sentAt: timestamptz('sent_at'),
 });
+
+/** Phase 4B-2: vendor payments, planned and settled allocations (migration 0036; ADR 0004). */
+export const paymentStatuses = ['DRAFT', 'PENDING_APPROVAL', 'RECORDED', 'VOID'] as const;
+export type PaymentStatus = (typeof paymentStatuses)[number];
+
+export const purchasesPayments = pgTable('purchases_payments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: uuid('organization_id').notNull(),
+  status: text('status', { enum: paymentStatuses }).notNull().default('DRAFT'),
+  number: text('number'),
+  vendorId: uuid('vendor_id').notNull(),
+  paymentDate: date('payment_date', { mode: 'string' }).notNull(),
+  currencyCode: char('currency_code', { length: 3 }).notNull(),
+  amount: money('amount').notNull(),
+  /** NULL on a draft: the Purchases default payment account at record (P4-28). */
+  paymentAccountId: uuid('payment_account_id'),
+  paymentAccountOverridden: boolean('payment_account_overridden'),
+  rateOverride: numeric('rate_override', { precision: 28, scale: 10 }),
+  rateOverrideReason: text('rate_override_reason'),
+  exchangeRate: numeric('exchange_rate', { precision: 28, scale: 10 }),
+  exchangeRateSource: text('exchange_rate_source', { enum: ['base', 'table', 'manual'] }),
+  tableRate: numeric('table_rate', { precision: 28, scale: 10 }),
+  baseAmount: money('base_amount'),
+  /** The prepayment still to apply and the base it carries on AP (I-1). */
+  amountUnallocated: money('amount_unallocated'),
+  baseUnallocated: money('base_unallocated'),
+  reference: text('reference'),
+  memo: text('memo').notNull().default(''),
+  approvalRequestId: uuid('approval_request_id'),
+  submittedByUserId: uuid('submitted_by_user_id'),
+  submittedAt: timestamptz('submitted_at'),
+  recordedByUserId: uuid('recorded_by_user_id'),
+  recordedAt: timestamptz('recorded_at'),
+  journalId: uuid('journal_id'),
+  accountingEventId: uuid('accounting_event_id'),
+  voidedByUserId: uuid('voided_by_user_id'),
+  voidedAt: timestamptz('voided_at'),
+  voidReason: text('void_reason'),
+  voidJournalId: uuid('void_journal_id'),
+  version: integer('version').notNull().default(1),
+  createdByUserId: uuid('created_by_user_id').notNull(),
+  createdAt: timestamptz('created_at').notNull(),
+  updatedByUserId: uuid('updated_by_user_id'),
+  updatedAt: timestamptz('updated_at').notNull(),
+});
+
+export const purchasesPaymentPlannedAllocations = pgTable('purchases_payment_planned_allocations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: uuid('organization_id').notNull(),
+  paymentId: uuid('payment_id').notNull(),
+  lineNo: integer('line_no').notNull(),
+  billId: uuid('bill_id').notNull(),
+  amount: money('amount').notNull(),
+});
+
+export const purchasesAllocations = pgTable('purchases_allocations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: uuid('organization_id').notNull(),
+  sourceType: text('source_type', { enum: ['payment', 'vendor_credit'] }).notNull(),
+  paymentId: uuid('payment_id'),
+  vendorCreditId: uuid('vendor_credit_id'),
+  billId: uuid('bill_id').notNull(),
+  mode: text('mode', { enum: ['payment', 'credit'] }).notNull(),
+  applicationId: uuid('application_id'),
+  allocationDate: date('allocation_date', { mode: 'string' }).notNull(),
+  currencyCode: char('currency_code', { length: 3 }).notNull(),
+  amount: money('amount').notNull(),
+  baseRelieved: money('base_relieved').notNull(),
+  sourceBase: money('source_base').notNull(),
+  /** AP sign: base relieved minus source base (positive = gain). */
+  fxDifference: money('fx_difference').notNull(),
+  reversesAllocationId: uuid('reverses_allocation_id'),
+  journalId: uuid('journal_id').notNull(),
+  createdByUserId: uuid('created_by_user_id').notNull(),
+  createdAt: timestamptz('created_at').notNull(),
+});

@@ -10,6 +10,8 @@ export const PURCHASES_VIEW_PERMISSIONS = [
   Permission.BillsView,
   // Phase 4B-1: vendor credits and debit notes.
   Permission.VendorCreditsView,
+  // Phase 4B-2: vendor payments.
+  Permission.VendorPaymentsView,
   // Phase 4A-4: Purchases settings (P4-39) and the shared catalog (P4-06).
   Permission.PurchasesSettingsManage,
   ...CATALOG_MANAGE_PERMISSIONS,
@@ -29,10 +31,12 @@ export function PurchasesHome() {
   const canBills = usePermission(Permission.BillsView);
   const canVendors = usePermission(Permission.VendorsView);
   const canCredits = usePermission(Permission.VendorCreditsView);
+  const canPayments = usePermission(Permission.VendorPaymentsView);
   const canSettings = usePermission(Permission.PurchasesSettingsManage);
   const canCatalog = useAnyPermission(CATALOG_MANAGE_PERMISSIONS);
   if (canBills) return <Navigate to="bills" replace />;
   if (canCredits) return <Navigate to="vendor-credits" replace />;
+  if (canPayments) return <Navigate to="payments" replace />;
   if (canVendors) return <Navigate to="vendors" replace />;
   if (canSettings) return <Navigate to="settings" replace />;
   if (canCatalog) return <Navigate to="/sales/items" replace />;
@@ -50,6 +54,9 @@ export function PurchasesNav() {
       </Can>
       <Can permission={Permission.VendorCreditsView}>
         <NavLink to="/purchases/vendor-credits">{t('purchases.nav.vendorCredits')}</NavLink>
+      </Can>
+      <Can permission={Permission.VendorPaymentsView}>
+        <NavLink to="/purchases/payments">{t('purchases.nav.payments')}</NavLink>
       </Can>
       <Can permission={Permission.VendorsView}>
         <NavLink to="/purchases/vendors">{t('purchases.nav.vendors')}</NavLink>

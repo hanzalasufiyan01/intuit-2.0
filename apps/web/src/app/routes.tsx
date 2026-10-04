@@ -18,6 +18,12 @@ import {
   VendorCreditDetailPage,
   VendorCreditsPage,
 } from '../features/purchases/VendorCreditPages';
+import {
+  EditPaymentPage,
+  NewPaymentPage,
+  PaymentDetailPage,
+  PaymentsPage,
+} from '../features/purchases/PaymentPages';
 import { NewVendorPage, VendorDetailPage, VendorsPage } from '../features/purchases/VendorPages';
 import { AccountingDashboardPage } from '../features/accounting/AccountingDashboardPage';
 import { AccountsPage } from '../features/accounting/AccountsPage';
@@ -486,6 +492,23 @@ export const routes: RouteObject[] = [
                     'vendor-credits/:id/edit',
                     Permission.VendorCreditsCreate,
                     <EditVendorCreditPage key="edit-credit" />,
+                  ],
+                  // Phase 4B-2: vendor payments and prepayments (P4-25 to P4-33).
+                  ['payments', Permission.VendorPaymentsView, <PaymentsPage key="payments" />],
+                  [
+                    'payments/new',
+                    Permission.VendorPaymentsCreate,
+                    <NewPaymentPage key="new-payment" />,
+                  ],
+                  [
+                    'payments/:id',
+                    Permission.VendorPaymentsView,
+                    <PaymentDetailPage key="payment" />,
+                  ],
+                  [
+                    'payments/:id/edit',
+                    Permission.VendorPaymentsCreate,
+                    <EditPaymentPage key="edit-payment" />,
                   ],
                 ] as const
               ).map(([path, permission, page]) => ({

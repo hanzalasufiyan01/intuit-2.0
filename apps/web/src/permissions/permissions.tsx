@@ -81,6 +81,11 @@ export const Permission = {
   VendorCreditsPost: 'vendor_credits.post',
   VendorCreditsVoid: 'vendor_credits.void',
   VendorCreditsApprove: 'vendor_credits.approve',
+  // Phase 4B-2: vendor payments, prepayments and credit application (P4-39).
+  VendorPaymentsView: 'vendor_payments.view',
+  VendorPaymentsCreate: 'vendor_payments.create',
+  VendorPaymentsVoid: 'vendor_payments.void',
+  VendorPaymentsApprove: 'vendor_payments.approve',
 } as const;
 export type PermissionKey = (typeof Permission)[keyof typeof Permission];
 
