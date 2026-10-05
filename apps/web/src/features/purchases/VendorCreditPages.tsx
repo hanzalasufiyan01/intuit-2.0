@@ -20,6 +20,7 @@ import { orNull, StatusBadge, useOrgKey, useTaxCodes } from '../sales/shared';
 import type { Item, Page } from '../sales/types';
 import { ApplyCreditPanel, SettlementHistory } from './PaymentPages';
 import { PurchasesNav } from './PurchasesSection';
+import { RefundHistory } from './RefundPages';
 import {
   PURCHASE_ACCOUNT_SUBTYPES,
   type BillSummary,
@@ -947,6 +948,8 @@ export function VendorCreditDetailPage() {
     void: usePermission(Permission.VendorCreditsVoid),
     // Phase 4B-2 (A2): applying a credit to bills uses vendor_payments.create.
     apply: usePermission(Permission.VendorPaymentsCreate),
+    // Phase 4B-3: refunds are listed with vendor_payments.view (and this credit's view key).
+    refunds: usePermission(Permission.VendorPaymentsView),
     journals: usePermission(Permission.JournalsView),
   };
   const [voidReason, setVoidReason] = useState('');
@@ -1182,6 +1185,13 @@ export function VendorCreditDetailPage() {
 
       {c.status === 'POSTED' || c.status === 'VOID' ? (
         <SettlementHistory path={`/purchases/vendor-credits/${id}/allocations`} show="bill" />
+      ) : null}
+      {(c.status === 'POSTED' || c.status === 'VOID') && can.refunds ? (
+        <RefundHistory
+          sourceType="vendor_credit"
+          sourceId={id}
+          canRefund={c.status === 'POSTED' && can.apply && Number(c.amountUnapplied ?? 0) > 0}
+        />
       ) : null}
       {c.status === 'POSTED' && can.apply && Number(c.amountUnapplied ?? 0) > 0 ? (
         <ApplyCreditPanel

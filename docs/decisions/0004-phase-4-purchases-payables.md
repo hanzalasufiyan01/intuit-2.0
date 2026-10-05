@@ -802,3 +802,100 @@ Phase 4B-1 was committed as `a185451` and is frozen.
   - The journal page no longer offers the generic "Reverse…" action for journals the server always refuses: Sales- and Purchases-owned journals and their reversals (E2, P4-09), and FX system journals (Decision 80). It shows why instead. Ordinary journals keep the action, and the server-side 409 protection is unchanged.
   - The shared approval panel takes a context-aware ready message: Sales keeps "The document can be issued"; bills and vendor credits say "can be posted"; payments say "The payment can be recorded".
 - **Not implemented (later stages):** vendor refunds (P4-30), batch Pay Bills (P4-32), remittance advice (A6), AP aging, statements and the reconciliation UI, AP revaluation, direct expenses, Purchases imports and exports, opening bills and credits, the final permission backfill.
+
+Phase 4B-2 was committed as `ee040e4` and is frozen.
+
+### 4B-3 — vendor refunds and the payment void/refund rule (P4-24, P4-30, P4-33, P4-34, P4-42, P4-51), 2026-10-05
+
+- **Decisions (approved 2026-10-05 after the impact audit):**
+  - **Model:** a refund is a separate accounting transaction, not a reversal of a payment or an allocation.
+  - **Sources:** a recorded payment's unallocated (prepayment) balance, or a posted vendor credit's unapplied balance. Refunds never touch bills or bill allocations.
+  - **Journal:** Dr the refund account / Cr AP for the source's historical base released / one net base-only realized-FX line. **`fx_difference = base_received − base_released`**, positive = gain.
+  - **Currency:** the source's currency.
+  - **Amounts:** partial and multiple refunds are allowed up to the open balance; no over-refunds.
+  - **Refund accounts (amendment):** **BANK and CASH only**; credit-card refunds are not designed in 4B-3. Payments keep bank, cash and credit card (P4-26). The eligibility is an explicit context, never inherited.
+  - **Rate:** the table rate by default, or a manual override with a mandatory reason, under `vendor_payments.create`; the table rate is kept and audited.
+  - **Permissions:** reuse `vendor_payments.view`, `.create` and `.void`, plus `vendor_credits.view` for vendor-credit sources. No `vendor_refunds.*` keys.
+  - **Re-authentication:** on void only; recording a refund is not a sensitive action.
+  - **Lifecycle:** `RECORDED → VOID`, with no draft and no approval.
+  - **Payment void (P4-33):** refused while any active refund exists; there is no cascade.
+- **Migration `0037_vendor_refunds`:**
+  - `purchases_refunds`:
+    - `VR-` number, unique per organization; vendor; `source_type` with exactly one of `payment_id` and `vendor_credit_id`;
+    - date, currency, amount; refund account and whether it was overridden;
+    - rate, rate source, table rate, override reason (CHECK: manual ⇔ reason);
+    - `base_amount` (received), `base_released`, `fx_difference` (CHECK `= base_amount − base_released`);
+    - journal and event links, void fields (CHECK: VOID ⇔ void fields), version.
+  - Foreign keys scoped to the organization; indexes by payment, credit, vendor and date.
+  - Guard trigger: no delete; VOID is final; a recorded refund is immutable except the void.
+  - Tenant RLS, no truncate, no PUBLIC grants; `intuit_app` gets SELECT, INSERT and UPDATE (no DELETE).
+  - **P4-33 backstop:** trigger `purchases_payments_refund_backstop` refuses a RECORDED → VOID change of a payment while a RECORDED refund references it.
+  - Migrations 0035 and 0036 are untouched: the existing 0035 vendor-credit guard already refuses voiding a refunded credit, and the 0036 payment guard already allows the prepayment balance to change.
+- **Code:**
+  - `application/vendor-refund-service.ts` and `modules/purchases/refunds.ts`.
+  - `settleRefund` (pure) in `modules/documents/settlement.ts`.
+  - In the 4B-2 payment service: `settlementAccountProblem(…, 'payment' | 'refund')` (the explicit eligibility context; `paymentAccountProblem` keeps its messages) and `resolveSettlementRate` (shared rate resolution), with the payment code delegating to both.
+  - The payment void now refuses active refunds ("This payment has active refunds. Void the refunds taken from this payment first.").
+  - The source-document registry resolves `purchases/refund/<id>`, and refund realized-FX journals, to "Refund VR-…".
+- **Accounting:**
+  - Event `purchases.refund_recorded`, key `refund:<id>:recorded`, idempotency scope `purchases.refund.record`.
+  - Without FX it is an ordinary event journal (source `purchases/refund/<id>`); with FX it is a Purchases `realized_fx` system journal with explicit bases.
+  - **Lock order:** the source (payment or vendor credit) and then the refund, both on record and on void.
+  - **Void:** `vendor_payments.void` plus re-authentication; the source must still be open and the original period open. It reverses the journal through `reverseSubledgerJournalInTransaction('purchases', …)`, which mirrors FX journals and refuses generic reversal; restores the source's exact amount and base; and audits `vendor_refund.voided`.
+  - AP I-1 holds unchanged, because refunds reduce the payment's `base_unallocated` or the credit's `base_unapplied` by exactly the base credited to AP.
+- **API:** `GET/POST /purchases/refunds`, `GET /purchases/refunds/:id`, `POST /purchases/refunds/:id/void`. Strict schemas.
+- **Web:**
+  - `/purchases/refunds`: list, record (with a source picker, pre-selected from a payment or vendor credit), and detail with void (re-authenticated).
+  - Refund history on payment and vendor-credit detail, with "Refund prepayment" and "Refund credit" links.
+  - The payment void card is replaced by the blocked message while refunds are active.
+  - The refund account list offers bank and cash only.
+  - Purchases navigation link and i18n keys.
+- **Tests:**
+  - API: `test/vendor-refunds.test.ts` (14).
+  - Unit: `settleRefund`.
+  - Pin: `0037` in `s2-fixes`.
+  - Web: `vendor-refunds.test.tsx` (5).
+- **Regression:**
+
+  | Check                            | Result                          |
+  | -------------------------------- | ------------------------------- |
+  | API, two full runs               | 57 files / 744 tests, both runs |
+  | Web                              | 15 files / 145 tests            |
+  | Typecheck, lint, Prettier, build | clean                           |
+  | Migrations 0001–0037             | 37/37 checksums, LF             |
+
+  Integrity audit:
+  - All journals balance.
+  - Every refund: FX identity holds; the account line equals the base received and the AP line the base released; at most one FX line, equal to `fx_difference`.
+  - Every void refund's journal is REVERSED; no void payment has an active refund; no refund account outside BANK and CASH.
+  - Payment and credit open balances equal amount − applications − active refunds.
+  - AP I-1 reconciles in every organization with refunds.
+
+- **Owner and member browser E2E (2026-10-05, dev organization):**
+
+  | Step                                                                 | Result                                                                                                                                |
+  | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+  | MVR prepayment PAY-00005                                             | partly refunded (VR-00001: Dr 1120 / Cr 2110 150.00)                                                                                  |
+  | USD prepayment PAY-00006 at 15.60                                    | VR-00002 refunded at 15.70: received 785.00, released 780.00, one FX line, gain 5.00                                                  |
+  | Payment PAY-00007 (100.00 to BILL-00002, 150.00 prepayment)          | remaining prepayment refunded (VR-00003)                                                                                              |
+  | Void PAY-00007 with an active refund                                 | refused in the UI (no void form; message shown) and by the API (409)                                                                  |
+  | Credit-card refund account; over-refund                              | refused (400)                                                                                                                         |
+  | Vendor-credit refund VR-00004 from DN-00001                          | credit void blocked                                                                                                                   |
+  | Member (view only)                                                   | sees payment-source refunds only; recording and voiding refused (403); credit-source refund detail refused (no `vendor_credits.view`) |
+  | Void VR-00003 after the 15-minute window                             | password prompt; journal reversed; reversal links to the refund; prepayment restored to exactly 150.00 / 150.0000                     |
+  | Void PAY-00007                                                       | now succeeds; BILL-00002 back to 200.00                                                                                               |
+  | Void VR-00004                                                        | DN-00001 back to 120.00 unapplied and voidable again (left posted)                                                                    |
+  | Drill-down                                                           | journal ↔ refund ↔ source; the refund journal offers no generic "Reverse…"                                                            |
+  | AP I-1 after each step                                               | final −640.00 = 510.00 − 120.00 − 1,030.00                                                                                            |
+  | AR                                                                   | unchanged                                                                                                                             |
+  | Bills, Vendor credits, Payments, Refunds, Sales and Accounting pages | clean; no server errors                                                                                                               |
+
+  Dev setup made for it:
+  - a USD rate for 2026-10-05 (15.70);
+  - prepayments PAY-00005 and PAY-00006;
+  - payment PAY-00007 (now void).
+
+- **Noted, unchanged:**
+  - Refunds dated the same day list in id order within that day.
+  - Without `vendor_credits.view` the refund list hides credit-source refunds, and their detail is refused.
+- **Not implemented (later stages):** credit-card refunds (amendment), customer refunds (P4-31), batch Pay Bills (P4-32), remittance advice, AP aging, statements and the reconciliation UI, AP revaluation, direct expenses, Purchases imports and exports, opening bills and credits, the final permission backfill.

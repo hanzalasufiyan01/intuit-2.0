@@ -5,7 +5,7 @@ import {
   createSourceDocumentRegistry,
   SourceDocumentRegistry,
 } from '../src/application/source-documents.js';
-import { settleApCredit, settlePayment } from '../src/modules/documents/index.js';
+import { settleApCredit, settlePayment, settleRefund } from '../src/modules/documents/index.js';
 import { decimal } from '../src/domain/money.js';
 import { ConfigError, loadConfig } from '../src/infrastructure/config/config.js';
 import {
@@ -312,5 +312,37 @@ describe('AP settlement (4B-2, the AP FX sign)', () => {
       ['465.00', '462.60', '-2.40'],
       ['310.00', '308.40', '-1.60'],
     ]);
+  });
+});
+
+describe('vendor refund settlement (4B-3, fx = received − released)', () => {
+  it('releases the historical base proportionally and realizes the difference (positive = gain)', () => {
+    const source = { amountDue: decimal('100'), baseDue: decimal('1542') };
+    const gain = settleRefund({
+      amount: decimal('50'),
+      rate: decimal('15.5'),
+      baseCurrency: 'MVR',
+      source,
+    });
+    expect([gain.baseReceived, gain.baseReleased, gain.fx].map((d) => d.toFixed(2))).toEqual([
+      '775.00',
+      '771.00',
+      '4.00',
+    ]);
+    const loss = settleRefund({
+      amount: decimal('100'),
+      rate: decimal('15.3'),
+      baseCurrency: 'MVR',
+      source,
+    });
+    // The final refund releases the whole remaining base.
+    expect([loss.baseReleased, loss.fx].map((d) => d.toFixed(2))).toEqual(['1542.00', '-12.00']);
+    const flat = settleRefund({
+      amount: decimal('40'),
+      rate: decimal('1'),
+      baseCurrency: 'MVR',
+      source: { amountDue: decimal('40'), baseDue: decimal('40') },
+    });
+    expect(flat.fx.isZero()).toBe(true);
   });
 });

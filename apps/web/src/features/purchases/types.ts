@@ -311,3 +311,41 @@ export interface OpenBill {
   total: string;
   amountDue: string;
 }
+
+/** Phase 4B-3: vendor refunds from prepayments and unapplied vendor credits (P4-30). */
+export type RefundStatus = 'RECORDED' | 'VOID';
+
+export interface RefundSummary {
+  id: string;
+  status: RefundStatus;
+  number: string;
+  vendorId: string;
+  vendorName: string | null;
+  sourceType: 'payment' | 'vendor_credit';
+  sourceId: string;
+  refundDate: string;
+  currencyCode: string;
+  amount: string;
+  baseAmount: string;
+  reference: string | null;
+  version: number;
+  voidedAt: string | null;
+}
+
+export interface RefundDetail extends RefundSummary {
+  sourceNumber: string | null;
+  refundAccountId: string;
+  refundAccountOverridden: boolean;
+  exchangeRate: string;
+  exchangeRateSource: 'base' | 'table' | 'manual';
+  tableRate: string | null;
+  rateOverrideReason: string | null;
+  baseReleased: string;
+  /** Base received − base released (positive = gain). */
+  fxDifference: string;
+  memo: string;
+  journalId: string;
+  voidReason: string | null;
+  voidJournalId: string | null;
+  baseCurrency: string;
+}

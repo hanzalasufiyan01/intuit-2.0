@@ -148,3 +148,20 @@ export function settleApCredit(input: {
     })),
   }).map(apPart);
 }
+
+/**
+ * A vendor refund (Phase 4B-3): money returned from an open vendor debit balance (a prepayment or
+ * an unapplied vendor credit). The base received is the amount at the refund rate; the base
+ * released is the source's historical base, proportionally (the final refund releases what is
+ * left). Realized FX is received minus released: positive is a gain.
+ */
+export function settleRefund(input: {
+  amount: Decimal;
+  rate: Decimal;
+  baseCurrency: string;
+  source: OpenBalance;
+}): { baseReceived: Decimal; baseReleased: Decimal; fx: Decimal } {
+  const baseReceived = convertToBase(input.amount, input.rate, input.baseCurrency);
+  const baseReleased = relievedBase(input.amount, input.source, input.baseCurrency);
+  return { baseReceived, baseReleased, fx: baseReceived.minus(baseReleased) };
+}

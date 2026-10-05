@@ -2,6 +2,7 @@ import type { Transaction } from '../database/client.js';
 import {
   getBill,
   getPayment,
+  getRefund,
   getVendorCredit,
   listPurchasesAllocations,
 } from '../modules/purchases/index.js';
@@ -85,6 +86,14 @@ async function purchasesPayment(tx: Transaction, organizationId: string, id: str
     : null;
 }
 
+/** Phase 4B-3: a vendor refund (VR-). */
+async function purchasesRefund(tx: Transaction, organizationId: string, id: string) {
+  const refund = await getRefund(tx, organizationId, id);
+  return refund
+    ? doc('purchases', 'refund', id, refund.number, 'Refund', `/purchases/refunds/${id}`)
+    : null;
+}
+
 /** A credit application resolves to the document whose credit was applied. */
 async function purchasesApplication(tx: Transaction, organizationId: string, id: string) {
   const [row] = await listPurchasesAllocations(tx, organizationId, { applicationId: id });
@@ -126,13 +135,15 @@ export function createSourceDocumentRegistry(): SourceDocumentRegistry {
   registry.register('purchases', 'vendor_credit', purchasesVendorCredit);
   registry.register('purchases', 'payment', purchasesPayment);
   registry.register('purchases', 'credit_application', purchasesApplication);
+  registry.register('purchases', 'refund', purchasesRefund);
   // A realized-FX journal is the payment's or the application's own journal (E1, C1).
   registry.register(
     'purchases',
     'realized_fx',
     async (tx, organizationId, id) =>
       (await purchasesPayment(tx, organizationId, id)) ??
-      (await purchasesApplication(tx, organizationId, id)),
+      (await purchasesApplication(tx, organizationId, id)) ??
+      (await purchasesRefund(tx, organizationId, id)),
   );
   registry.register('sales', 'invoice', async (tx, organizationId, id) => {
     const invoice = await getInvoice(tx, organizationId, id);

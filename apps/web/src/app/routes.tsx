@@ -24,6 +24,7 @@ import {
   PaymentDetailPage,
   PaymentsPage,
 } from '../features/purchases/PaymentPages';
+import { RecordRefundPage, RefundDetailPage, RefundsPage } from '../features/purchases/RefundPages';
 import { NewVendorPage, VendorDetailPage, VendorsPage } from '../features/purchases/VendorPages';
 import { AccountingDashboardPage } from '../features/accounting/AccountingDashboardPage';
 import { AccountsPage } from '../features/accounting/AccountsPage';
@@ -510,6 +511,14 @@ export const routes: RouteObject[] = [
                     Permission.VendorPaymentsCreate,
                     <EditPaymentPage key="edit-payment" />,
                   ],
+                  // Phase 4B-3: vendor refunds (P4-30).
+                  ['refunds', Permission.VendorPaymentsView, <RefundsPage key="refunds" />],
+                  [
+                    'refunds/new',
+                    Permission.VendorPaymentsCreate,
+                    <RecordRefundPage key="new-refund" />,
+                  ],
+                  ['refunds/:id', Permission.VendorPaymentsView, <RefundDetailPage key="refund" />],
                 ] as const
               ).map(([path, permission, page]) => ({
                 path,

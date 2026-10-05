@@ -38,6 +38,7 @@ import {
   adjustBillBalance,
   adjustVendorCreditBalance,
   BillPermissions,
+  countActiveRefunds,
   deletePayment,
   getBill,
   getPayment,
@@ -127,7 +128,7 @@ export interface ApplyApCreditInput {
   allocations: { billId: string; amount: string }[];
 }
 
-interface Rate {
+export interface Rate {
   rate: Decimal;
   source: 'base' | 'table' | 'manual';
   tableRate: Decimal | null;
@@ -179,19 +180,88 @@ export function paymentAccountProblem(
   currencyCode: string,
   baseCurrency: string,
 ): string | null {
+  return settlementAccountProblem(account, currencyCode, baseCurrency, 'payment');
+}
+
+/**
+ * Where money settling AP moves (explicit per context; never inferred): vendor payments may come
+ * from bank, cash or credit-card accounts (P4-26); vendor refunds go to bank or cash accounts only
+ * (4B-3 amendment: no credit-card refunds).
+ */
+export type SettlementAccountContext = 'payment' | 'refund';
+
+const SETTLEMENT_ACCOUNTS: Record<
+  SettlementAccountContext,
+  { eligible: (subtype: AccountWithFacts['subtype']) => boolean; refusal: string; noun: string }
+> = {
+  payment: {
+    eligible: (subtype) => isBankOrCash(subtype) || subtype === 'CREDIT_CARD',
+    refusal: 'Choose a bank, cash or credit card account (Decision 42, P4-26).',
+    noun: 'payment account',
+  },
+  refund: {
+    eligible: (subtype) => isBankOrCash(subtype),
+    refusal: 'Choose a bank or cash account; vendor refunds cannot go to a credit card account.',
+    noun: 'refund account',
+  },
+};
+
+/**
+ * Decision 42: an active posting (leaf) account that is not a control account, of a subtype the
+ * context allows, in the transaction currency or the base currency.
+ */
+export function settlementAccountProblem(
+  account: AccountWithFacts | undefined,
+  currencyCode: string,
+  baseCurrency: string,
+  context: SettlementAccountContext,
+): string | null {
+  const rule = SETTLEMENT_ACCOUNTS[context];
   if (!account) return 'Account not found.';
   if (account.status !== 'ACTIVE') return 'Choose an active account.';
   if (!account.isLeaf) return 'Choose a posting (leaf) account.';
   if (account.isControlAccount) return 'A control account cannot be used here.';
-  if (!isBankOrCash(account.subtype) && account.subtype !== 'CREDIT_CARD') {
-    return 'Choose a bank, cash or credit card account (Decision 42, P4-26).';
-  }
+  if (!rule.eligible(account.subtype)) return rule.refusal;
   if (account.currencyCode !== currencyCode && account.currencyCode !== baseCurrency) {
     return currencyCode === baseCurrency
-      ? `The payment account must be in ${currencyCode}.`
-      : `The payment account must be in ${currencyCode} or ${baseCurrency}.`;
+      ? `The ${rule.noun} must be in ${currencyCode}.`
+      : `The ${rule.noun} must be in ${currencyCode} or ${baseCurrency}.`;
   }
   return null;
+}
+
+/**
+ * A settlement rate (P4-27; Decision 37 parity): 1 in the base currency, otherwise the manual
+ * override or the table rate on the date. The table rate is kept. `strict` refuses a missing
+ * table rate; otherwise it returns null.
+ */
+export async function resolveSettlementRate(
+  tx: Transaction,
+  organizationId: string,
+  accounting: AccountingSettings,
+  input: { currencyCode: string; date: string; rateOverride: string | null },
+  strict: boolean,
+): Promise<Rate | null> {
+  if (input.currencyCode === accounting.baseCurrency) {
+    return { rate: decimal(1), source: 'base', tableRate: null };
+  }
+  const table = await findApplicableRate(tx, {
+    organizationId,
+    fromCurrency: input.currencyCode,
+    toCurrency: accounting.baseCurrency,
+    onDate: input.date,
+  });
+  const tableRate = table ? decimal(table.rate) : null;
+  if (input.rateOverride) {
+    return { rate: decimal(input.rateOverride), source: 'manual', tableRate };
+  }
+  if (tableRate) return { rate: tableRate, source: 'table', tableRate };
+  if (!strict) return null;
+  throw new AppError(
+    'EXCHANGE_RATE_REQUIRED',
+    409,
+    `An exchange rate from ${input.currencyCode} to ${accounting.baseCurrency} is required for ${input.date}.`,
+  );
 }
 
 async function vendorName(tx: Transaction, organizationId: string, vendorId: string) {
@@ -390,25 +460,16 @@ export class VendorPaymentService {
     payment: Pick<Payment, 'currencyCode' | 'paymentDate' | 'rateOverride'>,
     strict: boolean,
   ): Promise<Rate | null> {
-    if (payment.currencyCode === accounting.baseCurrency) {
-      return { rate: decimal(1), source: 'base', tableRate: null };
-    }
-    const table = await findApplicableRate(tx, {
+    return resolveSettlementRate(
+      tx,
       organizationId,
-      fromCurrency: payment.currencyCode,
-      toCurrency: accounting.baseCurrency,
-      onDate: payment.paymentDate,
-    });
-    const tableRate = table ? decimal(table.rate) : null;
-    if (payment.rateOverride) {
-      return { rate: decimal(payment.rateOverride), source: 'manual', tableRate };
-    }
-    if (tableRate) return { rate: tableRate, source: 'table', tableRate };
-    if (!strict) return null;
-    throw new AppError(
-      'EXCHANGE_RATE_REQUIRED',
-      409,
-      `An exchange rate from ${payment.currencyCode} to ${accounting.baseCurrency} is required for ${payment.paymentDate}.`,
+      accounting,
+      {
+        currencyCode: payment.currencyCode,
+        date: payment.paymentDate,
+        rateOverride: payment.rateOverride,
+      },
+      strict,
     );
   }
 
@@ -1760,6 +1821,13 @@ export class VendorPaymentService {
             payment.status === 'VOID'
               ? 'The payment is already void.'
               : 'Only recorded payments can be voided; delete a draft instead.',
+          );
+        }
+        // P4-33: refunds taken from the payment are voided first; there is no cascade (4B-3).
+        // Refunds lock the payment row before they are recorded, so none can appear meanwhile.
+        if ((await countActiveRefunds(tx, ctx.organizationId, { paymentId: id })) > 0) {
+          throw invalidState(
+            'This payment has active refunds. Void the refunds taken from this payment first.',
           );
         }
         const reason = input.reason.trim();

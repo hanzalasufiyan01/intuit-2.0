@@ -352,3 +352,46 @@ export const purchasesAllocations = pgTable('purchases_allocations', {
   createdByUserId: uuid('created_by_user_id').notNull(),
   createdAt: timestamptz('created_at').notNull(),
 });
+
+/** Phase 4B-3: vendor refunds (migration 0037; ADR 0004 P4-30, P4-33). */
+export const refundStatuses = ['RECORDED', 'VOID'] as const;
+export type RefundStatus = (typeof refundStatuses)[number];
+
+export const purchasesRefunds = pgTable('purchases_refunds', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: uuid('organization_id').notNull(),
+  status: text('status', { enum: refundStatuses }).notNull().default('RECORDED'),
+  number: text('number').notNull(),
+  vendorId: uuid('vendor_id').notNull(),
+  sourceType: text('source_type', { enum: ['payment', 'vendor_credit'] }).notNull(),
+  paymentId: uuid('payment_id'),
+  vendorCreditId: uuid('vendor_credit_id'),
+  refundDate: date('refund_date', { mode: 'string' }).notNull(),
+  currencyCode: char('currency_code', { length: 3 }).notNull(),
+  amount: money('amount').notNull(),
+  refundAccountId: uuid('refund_account_id').notNull(),
+  refundAccountOverridden: boolean('refund_account_overridden').notNull(),
+  exchangeRate: numeric('exchange_rate', { precision: 28, scale: 10 }).notNull(),
+  exchangeRateSource: text('exchange_rate_source', { enum: ['base', 'table', 'manual'] }).notNull(),
+  tableRate: numeric('table_rate', { precision: 28, scale: 10 }),
+  rateOverrideReason: text('rate_override_reason'),
+  /** Base received at the refund rate. */
+  baseAmount: money('base_amount').notNull(),
+  /** The source's historical base released from AP. */
+  baseReleased: money('base_released').notNull(),
+  /** base_amount minus base_released (positive = gain). */
+  fxDifference: money('fx_difference').notNull(),
+  reference: text('reference'),
+  memo: text('memo').notNull().default(''),
+  journalId: uuid('journal_id').notNull(),
+  accountingEventId: uuid('accounting_event_id').notNull(),
+  voidedByUserId: uuid('voided_by_user_id'),
+  voidedAt: timestamptz('voided_at'),
+  voidReason: text('void_reason'),
+  voidJournalId: uuid('void_journal_id'),
+  version: integer('version').notNull().default(1),
+  createdByUserId: uuid('created_by_user_id').notNull(),
+  createdAt: timestamptz('created_at').notNull(),
+  updatedByUserId: uuid('updated_by_user_id'),
+  updatedAt: timestamptz('updated_at').notNull(),
+});
