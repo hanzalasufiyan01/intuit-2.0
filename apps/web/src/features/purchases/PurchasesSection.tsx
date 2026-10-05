@@ -58,6 +58,9 @@ export function PurchasesNav() {
       <Can permission={Permission.VendorPaymentsView}>
         <NavLink to="/purchases/payments">{t('purchases.nav.payments')}</NavLink>
       </Can>
+      <Can permission={Permission.VendorPaymentsCreate}>
+        <NavLink to="/purchases/pay-bills">{t('purchases.nav.payBills')}</NavLink>
+      </Can>
       <Can permission={Permission.VendorPaymentsView}>
         <NavLink to="/purchases/refunds">{t('purchases.nav.refunds')}</NavLink>
       </Can>

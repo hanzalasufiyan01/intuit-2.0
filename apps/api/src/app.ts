@@ -19,6 +19,7 @@ import { BillService } from './application/bill-service.js';
 import { VendorCreditService } from './application/vendor-credit-service.js';
 import { VendorPaymentService } from './application/vendor-payment-service.js';
 import { VendorRefundService } from './application/vendor-refund-service.js';
+import { PaymentBatchService } from './application/payment-batch-service.js';
 import { createSourceDocumentRegistry } from './application/source-documents.js';
 import {
   PURCHASES_EMAIL_JOB,
@@ -189,6 +190,8 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   const vendorPayments = new VendorPaymentService(deps, approvals, journals, idempotency);
   // Phase 4B-3: vendor refunds from prepayments and unapplied vendor credits (P4-30).
   const vendorRefunds = new VendorRefundService(deps, journals, idempotency);
+  // Phase 4B-4: batch Pay bills over the payment pipeline (P4-32, P4-50).
+  const paymentBatches = new PaymentBatchService(deps, vendorPayments, idempotency);
   const arReports = new ArReportService(deps);
   const domainServices = {
     accounting,
@@ -243,6 +246,7 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     vendorCredits,
     vendorPayments,
     vendorRefunds,
+    paymentBatches,
     purchasesOutput,
     items,
     // Phase 3B steps 6-7: invoice drafts, conditional approval and atomic issue (D1).

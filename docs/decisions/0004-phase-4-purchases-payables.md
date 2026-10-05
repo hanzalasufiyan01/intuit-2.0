@@ -899,3 +899,107 @@ Phase 4B-2 was committed as `ee040e4` and is frozen.
   - Refunds dated the same day list in id order within that day.
   - Without `vendor_credits.view` the refund list hides credit-source refunds, and their detail is refused.
 - **Not implemented (later stages):** credit-card refunds (amendment), customer refunds (P4-31), batch Pay Bills (P4-32), remittance advice, AP aging, statements and the reconciliation UI, AP revaluation, direct expenses, Purchases imports and exports, opening bills and credits, the final permission backfill.
+
+Phase 4B-3 was committed as `29202c6` and is frozen.
+
+### 4B-4 — batch Pay Bills (P4-32, P4-50), 2026-10-05
+
+- **Decisions (approved 2026-10-05 after the impact audit, D1–D9):**
+  - **D1 scope:** batch Pay Bills only. Not in scope: remittance advice, AP aging and reports, imports and exports, revaluation, direct expenses, opening bills and credits.
+  - **D2 batch record:** a `purchases_payment_batches` table and a nullable, organization-scoped `payment_batch_id` on `purchases_payments`. The link is set once at creation and is immutable; existing payments keep NULL.
+  - **D3 approval:** stays per payment (`purchases.payment.record`, `vendor_payments.approve`). If any vendor and currency group needs approval, the whole batch is refused (409 `APPROVAL_REQUIRED`) and the issues name those groups. Nothing is recorded and no drafts are left behind.
+  - **D4 grouping:** bills are grouped by vendor and currency, and each group becomes exactly one payment.
+    - The payment account is chosen per currency. It defaults from Purchases settings and the existing 4B-2 eligibility applies.
+    - The table rate is the default. A manual rate per currency needs a reason and is kept and audited exactly as in 4B-2.
+  - **D5 limits:** at most 2,000 bills per batch, 100 vendors per batch and 497 bills per payment. All are checked before anything is created.
+  - **D6:** partial payments are allowed (> 0 and ≤ the amount due).
+  - **D7:** no excess and no prepayment from a batch.
+  - **D8:** no credit or prepayment application inside a batch.
+  - **D9:** no batch number. Payments take ordinary `PAY-` numbers.
+- **Migration `0038_payment_batches`:**
+  - `purchases_payment_batches`:
+    - `payment_date`, `payment_count`, `bill_count` (CHECKs 1..2000 and `payment_count ≤ bill_count`);
+    - `totals` jsonb (per currency: amount and payment count), `reference`, `memo`, created by and at;
+    - `UNIQUE (id, organization_id)` and a list index.
+  - The batch record is immutable (`app_reject_history_modification` on UPDATE and DELETE), cannot be truncated, has tenant RLS and no PUBLIC grants; `intuit_app` gets SELECT and INSERT only.
+  - `purchases_payments.payment_batch_id`: an FK on `(payment_batch_id, organization_id)` and a partial index.
+  - **Separate set-once guard** `purchases_guard_payment_batch_link`: a BEFORE UPDATE OF `payment_batch_id` trigger that refuses any change once the link is set, or while the payment is not DRAFT.
+  - Untouched: the 0036 payment guard, the 0037 refund backstop, and migrations 0001–0037.
+- **Code:**
+  - `application/payment-batch-service.ts` and `modules/purchases/payment-batches.ts`.
+  - Behaviour-preserving refactor of the 4B-2 `VendorPaymentService`:
+    - `createDraftInTransaction` (with an optional `paymentBatchId`), `recordInTransaction` and `checkTargets` are now public;
+    - `approvalRequirement` exposes the existing approval check;
+    - the payment summary carries `paymentBatchId`.
+    - Single-payment create and record behave as before.
+- **Accounting:**
+  - The batch posts no journal of its own. Each payment goes through the unchanged 4B-2 path: one event and one journal, with the C1 single net base-only FX line. The orchestration layer makes no direct accounting writes.
+  - **One transaction:** any failure (validation, approval, designation, closed period, race) rolls back the batch and every payment.
+  - **Idempotency:** one key per batch, scope `purchases.payment_batch.record`. A replay returns the same batch and payments; there are no per-payment idempotency wrappers.
+  - **Lock order:** Purchases settings FOR UPDATE, then every selected bill in ascending id order, then revalidation, then the groups in order of first appearance.
+  - **Validation:**
+    - issue paths are `bills.<index>`, `groups.<n>`, `accounts.<CUR>` and `rateOverrides.<CUR>`;
+    - duplicate bills and duplicate per-currency entries are refused;
+    - an account or rate for a currency with no selected bill is refused.
+  - **Void:** stays per payment (`vendor_payments.void` plus re-authentication). The batch detail shows each payment's current status, and voiding one payment leaves the others untouched.
+  - AP I-1 holds unchanged: every batch payment is fully allocated to bills.
+- **API:**
+  - `POST /purchases/payment-batches` (`vendor_payments.create`, Idempotency-Key, no re-authentication).
+  - `GET /purchases/payment-batches` (keyset) and `GET /purchases/payment-batches/:id` (`vendor_payments.view`).
+  - `GET /purchases/pay-bills/open-bills` (`vendor_payments.create`; `vendorId`, `currencyCode`, `dueBefore`, `limit` 1–2000, default 500), ordered by due date, bill date and id.
+  - No new permission keys. Strict zod schemas.
+  - **Approved deviation (architecture review, 2026-10-05):** the POST route has a route-level `bodyLimit` of 512 KB instead of the normal 64 KB route limit, because a valid 2,000-bill body exceeds the app-wide 64 KB limit. Every other route keeps 64 KB.
+- **Web:**
+  - `/purchases/pay-bills`:
+    - open bills with vendor, currency and due-date filters; selection and partial amounts;
+    - a per-currency account and a manual rate with its reason;
+    - a review grouped by vendor and currency with totals; "Record N payment(s)";
+    - the result links each `PAY-` and the batch; refusals list their issues, including the approval groups.
+  - Batch history at `/purchases/payment-batches` and the batch detail at `/purchases/payment-batches/:id` (payments, statuses, journal links).
+  - The payment detail shows "Batch / View batch".
+  - The "Pay bills" navigation entry is shown only with `vendor_payments.create`.
+- **Tests:**
+  - API: `test/payment-batches.test.ts` (11) and `test/payment-batch-limit.test.ts` (3: 101 vendors, 498 bills per payment, a 2,000-bill body not refused with 413).
+  - Pin: `0038` in `s2-fixes`.
+  - Web: `pay-bills.test.tsx` (5).
+- **Verification (2026-10-05):**
+
+  | Check                            | Result                          |
+  | -------------------------------- | ------------------------------- |
+  | API, two full runs               | 59 files / 758 tests, both runs |
+  | Web                              | 16 files / 150 tests            |
+  | Typecheck, lint, Prettier, build | clean                           |
+  | Migrations 0001–0038             | 38/38 checksums, LF             |
+
+  Integrity audit:
+  - All journals balance.
+  - Every batch's payment count, bill count and per-currency totals match its payments.
+  - No batch payment has an unallocated balance, and none is unrecorded.
+  - AP I-1 reconciles in every organization with batches.
+  - RLS, no-truncate, immutability, the link guard, the 0036 guard and the 0037 backstop are all present.
+
+- **Owner and member browser E2E (2026-10-05, dev organization):**
+
+  | Step                                                                                    | Result                                                                                                                 |
+  | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+  | Open bills, filters, navigation                                                         | 6 open bills, earliest due first; the USD filter shows 4                                                               |
+  | Batch: 2 MVR bills (one partial 150 of 200) and 2 USD bills at manual 15.75 with reason | review: 2 payments, Total MVR 450.00, Total USD 50.00                                                                  |
+  | Record                                                                                  | PAY-00008 (MVR 450.00) and PAY-00009 (USD 50.00); BILL-00002 due 50.00, the other three settled                        |
+  | PAY-00009 journal                                                                       | AP 471.00 + 312.00 relieved, bank 787.50, one base-only FX debit 4.50 (4950)                                           |
+  | Idempotency replay (API)                                                                | same batch and PAY-00010 returned twice; one payment created                                                           |
+  | All-or-nothing (API): valid bill + over-amount bill                                     | 400 at `bills.1.amount`; no batch or payment created; balances unchanged                                               |
+  | Approval refusal (UI): 100.00 USD ≈ 1,570 MVR ≥ the 1,000 MVR policy                    | whole batch refused; the group issue is shown; nothing recorded                                                        |
+  | Void PAY-00008                                                                          | voided within the user's 15-minute re-authentication window; journal reversed; BILL-00002 and BILL-00006 reopened      |
+  | Other batch payment                                                                     | PAY-00009 still recorded; the batch detail shows PAY-00008 Void and PAY-00009 Recorded                                 |
+  | Drill-down                                                                              | batch → payment → journal; payment → batch                                                                             |
+  | AP I-1                                                                                  | 780.00 after recording; 1,152.50 = 2,302.50 − 120.00 − 1,030.00 after the void                                         |
+  | AR                                                                                      | unchanged (3,863.63)                                                                                                   |
+  | Member (view only)                                                                      | no "Pay bills" link; `/purchases/pay-bills` denied; POST and open bills 403; the batch history and detail are readable |
+  | Bills, Vendor credits, Payments, Refunds, Sales and Accounting pages                    | clean; no server errors                                                                                                |
+
+  Dev setup made for it:
+  - vendor "E2E Lagoon Imports" (USD);
+  - bills BILL-00004 to BILL-00007;
+  - batches with PAY-00008 (now void), PAY-00009 and PAY-00010.
+
+- **Not implemented (later stages):** remittance advice, AP aging, statements and the reconciliation UI, AP revaluation, direct expenses, Purchases imports and exports, opening bills and credits, credit-card refunds, customer refunds (P4-31), the final permission backfill.

@@ -372,7 +372,7 @@ export class VendorPaymentService {
    * before `date`, each once, for at most its open balance. `bills` holds the bills found (locked
    * when the caller is about to settle them).
    */
-  private checkTargets(
+  checkTargets(
     bills: ReadonlyMap<string, Bill>,
     input: {
       vendorId: string;
@@ -471,6 +471,44 @@ export class VendorPaymentService {
       },
       strict,
     );
+  }
+
+  /**
+   * Whether a payment with these facts would need approval (P4-37; A4: `payment` when it settles
+   * bills). Pay bills refuses the whole batch when any of its payments would (4B-4 D3).
+   */
+  async approvalRequirement(
+    tx: Transaction,
+    organizationId: string,
+    accounting: AccountingSettings,
+    input: {
+      currencyCode: string;
+      date: string;
+      amount: string;
+      rateOverride: string | null;
+      settlesBills: boolean;
+    },
+  ) {
+    const rate = (await resolveSettlementRate(
+      tx,
+      organizationId,
+      accounting,
+      { currencyCode: input.currencyCode, date: input.date, rateOverride: input.rateOverride },
+      true,
+    ))!;
+    const facts = this.facts(
+      { amount: input.amount },
+      input.settlesBills ? [true] : [],
+      rate,
+      accounting,
+    );
+    const requirement = await this.approvals.requirementFor(
+      tx,
+      organizationId,
+      PAYMENT_RECORD_ACTION,
+      facts,
+    );
+    return { required: requirement.required, facts };
   }
 
   /** P4-37 / A4: the approval facts of a payment at its rate. */
@@ -613,6 +651,7 @@ export class VendorPaymentService {
       version: payment.version,
       recordedAt: payment.recordedAt?.toISOString() ?? null,
       voidedAt: payment.voidedAt?.toISOString() ?? null,
+      paymentBatchId: payment.paymentBatchId,
     };
   }
 
@@ -856,41 +895,54 @@ export class VendorPaymentService {
           ctx,
           { key: options.idempotencyKey, scope: 'purchases.payment.create', request: input },
           async () => {
-            const accounting = await requireAccountingSettings(tx, ctx.organizationId);
-            const { header, planned } = await this.resolveDraft(
-              tx,
-              ctx.organizationId,
-              accounting,
-              input,
-            );
-            const now = this.now;
-            const payment = await insertPayment(tx, {
-              ...header,
-              organizationId: ctx.organizationId,
-              createdByUserId: ctx.userId,
-              createdAt: now,
-              updatedByUserId: ctx.userId,
-              updatedAt: now,
-            });
-            await replacePlannedAllocations(tx, ctx.organizationId, payment.id, planned);
-            await this.audit(tx, ctx, 'vendor_payment.created', payment.id, now, origin, {
-              vendorId: payment.vendorId,
-              paymentDate: payment.paymentDate,
-              currencyCode: payment.currencyCode,
-              amount: payment.amount,
-              paymentAccountId: payment.paymentAccountId,
-              plannedAllocations: planned.length,
-              ...(payment.rateOverride
-                ? {
-                    rateOverride: payment.rateOverride,
-                    rateOverrideReason: payment.rateOverrideReason,
-                  }
-                : {}),
-            });
+            const payment = await this.createDraftInTransaction(tx, ctx, input, origin);
             return this.detail(tx, ctx, payment.id);
           },
         ),
     );
+  }
+
+  /**
+   * Validates and inserts a draft with its planned allocations, in the caller's transaction. The
+   * caller has authorized the action and owns the idempotency (single create, or Pay bills, which
+   * passes the batch the payment belongs to; 4B-4).
+   */
+  async createDraftInTransaction(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    input: PaymentDraftInput,
+    origin: EventOrigin,
+    options: { paymentBatchId?: string } = {},
+  ): Promise<Payment> {
+    const accounting = await requireAccountingSettings(tx, ctx.organizationId);
+    const { header, planned } = await this.resolveDraft(tx, ctx.organizationId, accounting, input);
+    const now = this.now;
+    const payment = await insertPayment(tx, {
+      ...header,
+      organizationId: ctx.organizationId,
+      paymentBatchId: options.paymentBatchId ?? null,
+      createdByUserId: ctx.userId,
+      createdAt: now,
+      updatedByUserId: ctx.userId,
+      updatedAt: now,
+    });
+    await replacePlannedAllocations(tx, ctx.organizationId, payment.id, planned);
+    await this.audit(tx, ctx, 'vendor_payment.created', payment.id, now, origin, {
+      vendorId: payment.vendorId,
+      paymentDate: payment.paymentDate,
+      currencyCode: payment.currencyCode,
+      amount: payment.amount,
+      paymentAccountId: payment.paymentAccountId,
+      plannedAllocations: planned.length,
+      ...(payment.paymentBatchId ? { paymentBatchId: payment.paymentBatchId } : {}),
+      ...(payment.rateOverride
+        ? {
+            rateOverride: payment.rateOverride,
+            rateOverrideReason: payment.rateOverrideReason,
+          }
+        : {}),
+    });
+    return payment;
   }
 
   update(
@@ -1117,7 +1169,12 @@ export class VendorPaymentService {
     );
   }
 
-  private async recordInTransaction(
+  /**
+   * Records a draft in the caller's transaction (no request-level idempotency of its own): the
+   * single Record action wraps it in `purchases.payment.record`; Pay bills (4B-4) calls it for
+   * each batch payment under the batch's key.
+   */
+  async recordInTransaction(
     tx: Transaction,
     ctx: AuthorizationContext,
     id: string,

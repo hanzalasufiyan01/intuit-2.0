@@ -25,6 +25,11 @@ import {
   PaymentsPage,
 } from '../features/purchases/PaymentPages';
 import { RecordRefundPage, RefundDetailPage, RefundsPage } from '../features/purchases/RefundPages';
+import {
+  PayBillsPage,
+  PaymentBatchDetailPage,
+  PaymentBatchesPage,
+} from '../features/purchases/PayBillsPages';
 import { NewVendorPage, VendorDetailPage, VendorsPage } from '../features/purchases/VendorPages';
 import { AccountingDashboardPage } from '../features/accounting/AccountingDashboardPage';
 import { AccountsPage } from '../features/accounting/AccountsPage';
@@ -519,6 +524,18 @@ export const routes: RouteObject[] = [
                     <RecordRefundPage key="new-refund" />,
                   ],
                   ['refunds/:id', Permission.VendorPaymentsView, <RefundDetailPage key="refund" />],
+                  // Phase 4B-4: batch Pay bills (P4-32).
+                  ['pay-bills', Permission.VendorPaymentsCreate, <PayBillsPage key="pay-bills" />],
+                  [
+                    'payment-batches',
+                    Permission.VendorPaymentsView,
+                    <PaymentBatchesPage key="batches" />,
+                  ],
+                  [
+                    'payment-batches/:id',
+                    Permission.VendorPaymentsView,
+                    <PaymentBatchDetailPage key="batch" />,
+                  ],
                 ] as const
               ).map(([path, permission, page]) => ({
                 path,

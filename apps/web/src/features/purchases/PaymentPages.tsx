@@ -1007,6 +1007,16 @@ export function PaymentDetailPage() {
               <dd>{p.reference}</dd>
             </>
           ) : null}
+          {p.paymentBatchId ? (
+            <>
+              <dt>{t('purchases.payBills.batch')}</dt>
+              <dd>
+                <Link to={`/purchases/payment-batches/${p.paymentBatchId}`}>
+                  {t('purchases.payBills.viewBatch')}
+                </Link>
+              </dd>
+            </>
+          ) : null}
           {p.voidReason ? (
             <>
               <dt>{t('purchases.bills.voidReason')}</dt>

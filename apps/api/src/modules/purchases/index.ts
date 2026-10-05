@@ -3,6 +3,7 @@
  * vendor payments, allocations and refunds.
  */
 export * from './bills.js';
+export * from './payment-batches.js';
 export * from './payments.js';
 export * from './permissions.js';
 export * from './refunds.js';
@@ -20,6 +21,7 @@ export {
 export type {
   BillKind,
   BillStatus,
+  PaymentBatchTotal,
   PaymentStatus,
   RefundStatus,
   PurchaseDocumentType,

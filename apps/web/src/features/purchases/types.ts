@@ -249,6 +249,8 @@ export interface PaymentSummary {
   version: number;
   recordedAt: string | null;
   voidedAt: string | null;
+  /** Phase 4B-4: the Pay-bills batch that recorded the payment. */
+  paymentBatchId: string | null;
 }
 
 /** One settlement row: a payment or an applied credit against a bill (reversals negative). */
@@ -348,4 +350,48 @@ export interface RefundDetail extends RefundSummary {
   voidReason: string | null;
   voidJournalId: string | null;
   baseCurrency: string;
+}
+
+/** Phase 4B-4: batch Pay bills (P4-32). */
+export interface PayableBill {
+  id: string;
+  number: string;
+  vendorId: string;
+  vendorName: string | null;
+  vendorReference: string | null;
+  billDate: string;
+  dueDate: string | null;
+  currencyCode: string;
+  total: string;
+  amountDue: string;
+}
+
+export interface PaymentBatchSummary {
+  id: string;
+  paymentDate: string;
+  paymentCount: number;
+  billCount: number;
+  totals: { currencyCode: string; amount: string; payments: number }[];
+  reference: string | null;
+  createdAt: string;
+  createdByUserId: string;
+}
+
+export interface PaymentBatchDetail extends PaymentBatchSummary {
+  memo: string;
+  payments: {
+    id: string;
+    number: string | null;
+    status: PaymentStatus;
+    vendorId: string;
+    vendorName: string | null;
+    currencyCode: string;
+    amount: string;
+    baseAmount: string | null;
+    exchangeRate: string | null;
+    exchangeRateSource: string | null;
+    paymentAccountId: string | null;
+    journalId: string | null;
+    voidedAt: string | null;
+  }[];
 }

@@ -320,6 +320,8 @@ export const purchasesPayments = pgTable('purchases_payments', {
   createdAt: timestamptz('created_at').notNull(),
   updatedByUserId: uuid('updated_by_user_id'),
   updatedAt: timestamptz('updated_at').notNull(),
+  /** Phase 4B-4: the Pay-bills batch that recorded the payment; set once (migration 0038). */
+  paymentBatchId: uuid('payment_batch_id'),
 });
 
 export const purchasesPaymentPlannedAllocations = pgTable('purchases_payment_planned_allocations', {
@@ -394,4 +396,24 @@ export const purchasesRefunds = pgTable('purchases_refunds', {
   createdAt: timestamptz('created_at').notNull(),
   updatedByUserId: uuid('updated_by_user_id'),
   updatedAt: timestamptz('updated_at').notNull(),
+});
+
+/** Phase 4B-4: Pay-bills batches (migration 0038; ADR 0004 P4-32, P4-50). Immutable. */
+export interface PaymentBatchTotal {
+  currencyCode: string;
+  amount: string;
+  payments: number;
+}
+
+export const purchasesPaymentBatches = pgTable('purchases_payment_batches', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: uuid('organization_id').notNull(),
+  paymentDate: date('payment_date', { mode: 'string' }).notNull(),
+  paymentCount: integer('payment_count').notNull(),
+  billCount: integer('bill_count').notNull(),
+  totals: jsonb('totals').$type<PaymentBatchTotal[]>().notNull(),
+  reference: text('reference'),
+  memo: text('memo').notNull().default(''),
+  createdByUserId: uuid('created_by_user_id').notNull(),
+  createdAt: timestamptz('created_at').notNull(),
 });
