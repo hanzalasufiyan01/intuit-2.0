@@ -7,6 +7,7 @@ export * from './bills.js';
 export * from './payment-batches.js';
 export * from './payments.js';
 export * from './permissions.js';
+export * from './purchase-reports.js';
 export * from './refunds.js';
 export * from './settings.js';
 export * from './vendor-credits.js';

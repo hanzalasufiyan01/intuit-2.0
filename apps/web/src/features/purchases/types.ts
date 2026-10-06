@@ -481,3 +481,169 @@ export interface ApReconciliation {
   difference: string;
   reconciled: boolean;
 }
+
+/** Phase 4B-6: unpaid bills, purchase analysis, input tax and the payment register (P4-49). */
+export type UnpaidBucketKey =
+  'overdue' | 'days0to7' | 'days8to14' | 'days15to21' | 'days22to28' | 'later';
+
+export interface CurrencyAmount {
+  currencyCode: string;
+  amount: string;
+}
+
+export interface UnpaidBillsReport {
+  asOf: string;
+  baseCurrency: string;
+  buckets: {
+    key: UnpaidBucketKey;
+    from: string | null;
+    to: string | null;
+    currencies: CurrencyAmount[];
+    base: string;
+    bills: {
+      id: string;
+      number: string;
+      vendorId: string;
+      vendorName: string | null;
+      vendorReference: string | null;
+      billDate: string;
+      dueDate: string;
+      daysUntilDue: number;
+      currencyCode: string;
+      openAmount: string;
+      openBase: string;
+    }[];
+  }[];
+  totals: { currencies: CurrencyAmount[]; base: string };
+}
+
+/** PD2 columns, in base currency. */
+export interface PurchaseSums {
+  net: string;
+  recoverableTax: string;
+  nonRecoverableTax: string;
+  cost: string;
+  tax: string;
+  total: string;
+}
+
+export interface PurchasesByVendorReport {
+  from: string;
+  to: string;
+  baseCurrency: string;
+  vendors: (PurchaseSums & {
+    vendorId: string;
+    vendorName: string | null;
+    bills: number;
+    credits: number;
+  })[];
+  totals: PurchaseSums;
+}
+
+export interface PurchasesByItemReport {
+  from: string;
+  to: string;
+  baseCurrency: string;
+  items: (PurchaseSums & {
+    itemId: string | null;
+    name: string | null;
+    sku: string | null;
+    quantity: string;
+    lines: number;
+  })[];
+  totals: PurchaseSums;
+}
+
+export interface PurchasesByAccountReport {
+  from: string;
+  to: string;
+  baseCurrency: string;
+  accounts: {
+    accountId: string | null;
+    code: string | null;
+    name: string | null;
+    net: string;
+    nonRecoverableTax: string;
+    cost: string;
+  }[];
+  totals: { net: string; nonRecoverableTax: string; cost: string; recoverableTax: string };
+}
+
+export interface InputTaxSummaryReport {
+  from: string;
+  to: string;
+  baseCurrency: string;
+  reviewOnly: true;
+  codes: {
+    taxCodeId: string | null;
+    code: string | null;
+    rate: string | null;
+    taxable: string;
+    recoverableTax: string;
+    nonRecoverableTax: string;
+    tax: string;
+  }[];
+  totals: { taxable: string; recoverableTax: string; nonRecoverableTax: string; tax: string };
+}
+
+export interface RegisterSummary {
+  subtotals: {
+    accountId: string;
+    account: { code: string; name: string } | null;
+    currencyCode: string;
+    count: number;
+    amount: string;
+    baseAmount: string;
+    realizedFx: string;
+  }[];
+  totals: { count: number; voided: number; baseAmount: string };
+}
+
+export interface PaymentRegisterReport {
+  from: string;
+  to: string;
+  baseCurrency: string;
+  limit: number;
+  truncated: boolean;
+  payments: {
+    id: string;
+    number: string;
+    status: 'RECORDED' | 'VOID';
+    paymentDate: string;
+    vendorId: string;
+    vendorName: string | null;
+    paymentAccountId: string;
+    account: { code: string; name: string } | null;
+    paymentBatchId: string | null;
+    currencyCode: string;
+    amount: string;
+    exchangeRate: string;
+    exchangeRateSource: string;
+    baseAmount: string;
+    appliedToBills: string;
+    prepayment: string;
+    realizedFx: string;
+    voidedAt: string | null;
+  }[];
+  paymentSummary: RegisterSummary;
+  refunds: {
+    id: string;
+    number: string;
+    status: 'RECORDED' | 'VOID';
+    refundDate: string;
+    vendorId: string;
+    vendorName: string | null;
+    refundAccountId: string;
+    account: { code: string; name: string } | null;
+    sourceType: 'payment' | 'vendor_credit';
+    sourceId: string;
+    sourceNumber: string | null;
+    currencyCode: string;
+    amount: string;
+    exchangeRate: string;
+    baseAmount: string;
+    realizedFx: string;
+    voidedAt: string | null;
+  }[];
+  refundSummary: RegisterSummary;
+}

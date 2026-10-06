@@ -4,6 +4,7 @@
  * settlement (relieved base, source base, realized FX); the document journal builder and the
  * dimension merge. No tables and no database access.
  */
+export * from './attribution.js';
 export * from './calculation.js';
 export * from './numbering.js';
 export * from './posting.js';

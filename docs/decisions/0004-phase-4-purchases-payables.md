@@ -1079,3 +1079,76 @@ Phase 4B-4 was committed as `14ab886` and is frozen.
 
 - **Deviations:** none. The dev CLI has no preview mode, so the E2E "preview" read the posted run's recorded exposure lines (the same plan a preview computes); no preview route or CLI option was added.
 - **Not implemented (later stages):** unpaid bills, purchase reports, the input-tax summary and payment register (4B-6); remittance and debit-note output (4B-7); the AP aging export and other exports, search (4B-8); direct expenses (4B-9); the revaluation user workflow (4B-10); the permission backfill (4B-12); opening bills and credits; credit-card and customer refunds.
+
+Phase 4B-5 was committed as `125cda5` and is frozen.
+
+### 4B-6 — unpaid bills, purchases by vendor, item and account, input-tax summary and payment register (P4-49, brief §24, §26), 2026-10-06
+
+- **Scope source:** the frozen brief's sequence, "4B-6: purchase reports, input tax summary, payment register". All six reports are read-only.
+- **Decisions (approved 2026-10-06 after the impact audit, PD1–PD12):**
+  - **PD1 unpaid-bills windows:** relative to the as-of date, not calendar weeks: Overdue, due in 0–7, 8–14, 15–21 and 22–28 days, then Later.
+  - **PD2 tax presentation:** by vendor and by item show net, recoverable tax, non-recoverable tax, cost (net + non-recoverable) and total. By account shows the cost posted to each account (non-recoverable tax is capitalized there, P4-12); recoverable input tax stays separate.
+  - **PD3:** unpaid bills do not net unapplied vendor credits or prepayments; applied allocations already reduce each bill.
+  - **PD4 base conversion:** no report-specific rounding rule. Base values come from the canonical purchase journal, rebuilt from the stored snapshots and rate with `buildPurchaseJournal`.
+  - **PD4 clarification — Canonical Group Base Attribution (approved 2026-10-06):**
+    - The canonical journal's group bases (per account and dimension set, per tax code, and the AP total) are authoritative.
+    - For presentation only, a group's base is attributed to its member lines: provisional bases with `convertToBase`, the group's residue on the largest member, equal sizes broken by line order.
+    - Cost decomposition: `costBase` = attributed line base; `nonRecoverableTaxBase` = `convertToBase(nonRecoverableTax)`; `netBase` = `costBase − nonRecoverableTaxBase`.
+    - It is a deterministic presentation allocation of an already-authoritative amount, not an accounting rounding rule. It never feeds posting, journals, the GL or stored data.
+    - Posting: document lines → canonical journal groups → GL. Reporting: canonical journal groups → presentation attribution → report rows.
+  - **PD5:** the document date (bill date, credit or debit-note date); no MIRA tax-point rules.
+  - **PD6:** voided payments stay in the register on their original date, marked VOID, excluded from totals.
+  - **PD7:** refunds are a separate section.
+  - **PD8:** at most 2,000 register rows, **payments and refunds combined**; `truncated: true` when more combined rows match. Full export is 4B-8.
+    - **Register order (deterministic, applied before the cap):** date ascending, then payments before refunds on the same date, then document number, then id (`compareRegisterRows`). Filters apply before the cap. Each query fetches at most limit + 1 rows in that order and `limitRegister` merges them, keeps the first 2,000 and splits them back into `payments[]` and `refunds[]` (the response shape is unchanged).
+    - When truncated, the subtotals and totals cover the returned rows only; the page says so.
+    - _Corrected after the architecture review of 2026-10-06:_ the first implementation capped payment rows only and left refunds uncapped.
+  - **PD9:** one Purchases reports page with nine tabs.
+  - **PD10:** item-less (account-based) lines form one "No item" row; history is not filtered by the catalog's purchased facet.
+  - **PD11:** `purchases.reports.view` alone shows the payment register; it grants no payment write.
+  - **PD12:** purchase-analysis reports use `kind = standard` (future opening bills stay excluded); unpaid bills include every bill kind.
+- **No migration and no new permission:** 0001–0038 are untouched; the catalog stays at 78 keys; templates and existing organizations are unchanged (the 4B-12 backfill is still pending).
+- **Code:**
+  - `modules/documents/attribution.ts` (pure, reporting only): `attributeGroupBase` and `attributePurchaseDocument`, which runs the posting's `buildPurchaseJournal` and replays its grouping to attribute group bases.
+  - `modules/purchases/purchase-reports.ts`: `purchaseLines` (posted standard bills and posted vendor credits in a period, signed, with attributed bases; dimension types read-only), `registerPayments` (the payment's own allocations and realized FX; later prepayment applications excluded), `registerRefunds`, and the combined PD8 cap (`compareRegisterRows`, `limitRegister`). `paymentRegister` takes an optional limit for tests only; the route always uses 2,000.
+  - `ApReportService`: `unpaidBills` (reuses `openBillsAsOf`), `purchasesByVendor`, `purchasesByItem`, `purchasesByAccount`, `inputTaxSummary` (grouped by tax code and snapshotted rate, `reviewOnly: true`) and `paymentRegister`. Every method runs in a read-only snapshot under `purchases.reports.view`.
+- **API (strict zod; unknown parameters 400; another organization's vendor, item, account or payment account 404; `from > to` 400):**
+  - `GET /purchases/reports/unpaid-bills?asOf&vendorId?`
+  - `GET /purchases/reports/purchases-by-vendor?from&to&vendorId?`
+  - `GET /purchases/reports/purchases-by-item?from&to&itemId?`
+  - `GET /purchases/reports/purchases-by-account?from&to&accountId?`
+  - `GET /purchases/reports/input-tax-summary?from&to`
+  - `GET /purchases/reports/payment-register?from&to&vendorId?&paymentAccountId?&currencyCode?`
+- **Web:** six more tabs on `/purchases/reports` (filters, totals, empty states, drill links to bills, payments, refunds, batches and the vendor statement; the review-only notice on input tax; the truncation notice on the register); i18n keys. No export, search or PDF.
+- **Tests:** API `test/purchase-reports.test.ts` (8: the attribution rules including the 0.03 + 0.03 at 15.50 case; unpaid bills with the aging equality; purchase analysis and input tax with exact GL ties; the payment register with its GL tie; the combined PD8 cap — exactly 2,000 rows untruncated, 2,001 truncated, refunds in the same cap, deterministic order regardless of input order — and the cap applied after filters with totals over the returned rows; security); web `test/purchase-reports.test.tsx` (9).
+- **Verification (2026-10-06):**
+
+  | Check                            | Result                                                        |
+  | -------------------------------- | ------------------------------------------------------------- |
+  | API, two full runs               | 61 files / 771 tests, both runs all green (after the PD8 fix) |
+  | Web                              | 18 files / 164 tests                                          |
+  | Typecheck, lint, Prettier, build | clean                                                         |
+  | Migrations 0001–0038             | 38/38 checksums, LF; no new migration                         |
+
+  Integrity audit: no unbalanced journals; every recorded or void payment's base equals its payment-account journal line; AP I-1 holds in every organization with refunds or batches; the remaining I-1 and position mismatches are the known legacy fixtures that change balances by raw SQL (no allocations, payments, refunds or batches).
+
+- **Owner and member browser E2E (2026-10-06, dev organization):**
+
+  | Step                       | Result                                                                                                                                                                     |
+  | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | Nine tabs                  | all render, with drill links, notes and empty states                                                                                                                       |
+  | Unpaid bills (2026-10-06)  | BILL-00002/3 due in 27 days (22–28 days), BILL-00004 to 00007 due in 29 days (Later); base 3,085.50 = the AP aging's bills; vendor filter 2,353.00 for E2E Lagoon Imports  |
+  | Purchases by vendor        | E2E Island Supplies 3,005.00 (bills 3,900.00 less DN-00001 120.00 and VC-00001 775.00 at the bill rate); E2E Lagoon Imports 2,353.00; voided BILL-00001 and VC-00002 out   |
+  | Purchases by account       | 5400 cost 5,358.00 = the GL movement on 5400 in October                                                                                                                    |
+  | By item, input tax         | the dev data has no items or taxed lines: one "No item" row and one untaxed row; input tax shows the review-only notice                                                    |
+  | Payment register (October) | 10 payments (4 void, listed and excluded), 4 refunds (2 void); per account the register's payments less refunds equal the GL: 1120 −1,325.00, 1125 −1,638.50, 2140 −466.50 |
+  | Register filters and links | USD filter: 5 payments, 3,665.00 recorded base and the 785.00 refund; PAY-00009 opens as Void; batch and refund-source links                                               |
+  | Validation, logs           | `from > to` 400; no server errors; regression pages clean                                                                                                                  |
+  | Member (existing org)      | no key (no early backfill); no Reports link; the page is denied; all six endpoints 403                                                                                     |
+
+- **Deviations:** none remaining. The PD8 refund-cap gap found in the architecture review was corrected (see PD8 above).
+- **Known limitations:**
+  - The dev organization has no item or taxed bill lines, so those paths are proven by the API tests rather than the E2E.
+  - The 2,000-row cap is proven with 2,000 and 2,001 synthetic rows through the pure merge, and end to end with a small test-only limit; no test records 2,001 real documents.
+  - When the register is truncated, its subtotals cover only the returned rows (the full set belongs to the 4B-8 export).
+- **Not implemented (later stages):** remittance and debit-note output (4B-7); exports, including purchases by vendor and the AP aging, and search (4B-8); direct expenses (4B-9); the revaluation workflow (4B-10); the permission backfill (4B-12); dimension filters; opening bills and credits; MIRA returns, MIRA FX conversion, reverse charge, customs GST and withholding (OPEN).
