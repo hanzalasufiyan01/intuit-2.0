@@ -14,6 +14,7 @@ import {
   BillPermissions,
   billViewPermissions,
   PurchasesPermissions,
+  purchasesReportViewPermissions,
   VendorCreditPermissions,
   vendorCreditViewPermissions,
   VendorPaymentPermissions,
@@ -61,6 +62,7 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       ...Object.values(VendorPermissions),
       // Phase 4A-4 (P4-06, P4-39): the shared catalog and Purchases settings.
       ...Object.values(CatalogPermissions),
+      // Includes the AP report key (Phase 4B-5, PD3).
       ...Object.values(PurchasesPermissions),
       // Phase 4A-5 (P4-39): all bill permissions.
       ...Object.values(BillPermissions),
@@ -94,6 +96,8 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       ...vendorCreditViewPermissions,
       // Phase 4B-2 (P4-40): vendor-payment view.
       ...vendorPaymentViewPermissions,
+      // Phase 4B-5 (P4-40, PD3): AP reports.
+      ...purchasesReportViewPermissions,
     ],
   },
 ];

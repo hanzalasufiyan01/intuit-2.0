@@ -66,6 +66,8 @@ export const Permission = {
   VendorsArchive: 'vendors.archive',
   // Phase 4A-4: Purchases settings (P4-39) and the shared catalog (P4-06).
   PurchasesSettingsManage: 'purchases.settings.manage',
+  // Phase 4B-5: AP aging, vendor statements and the AP reconciliation (P4-39, PD3).
+  PurchasesReportsView: 'purchases.reports.view',
   CatalogItemsManage: 'catalog.items.manage',
   // Phase 4A-5: bills (P4-39).
   BillsView: 'bills.view',

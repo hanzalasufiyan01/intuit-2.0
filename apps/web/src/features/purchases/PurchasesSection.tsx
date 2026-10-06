@@ -12,6 +12,8 @@ export const PURCHASES_VIEW_PERMISSIONS = [
   Permission.VendorCreditsView,
   // Phase 4B-2: vendor payments.
   Permission.VendorPaymentsView,
+  // Phase 4B-5: AP reports.
+  Permission.PurchasesReportsView,
   // Phase 4A-4: Purchases settings (P4-39) and the shared catalog (P4-06).
   Permission.PurchasesSettingsManage,
   ...CATALOG_MANAGE_PERMISSIONS,
@@ -32,12 +34,14 @@ export function PurchasesHome() {
   const canVendors = usePermission(Permission.VendorsView);
   const canCredits = usePermission(Permission.VendorCreditsView);
   const canPayments = usePermission(Permission.VendorPaymentsView);
+  const canReports = usePermission(Permission.PurchasesReportsView);
   const canSettings = usePermission(Permission.PurchasesSettingsManage);
   const canCatalog = useAnyPermission(CATALOG_MANAGE_PERMISSIONS);
   if (canBills) return <Navigate to="bills" replace />;
   if (canCredits) return <Navigate to="vendor-credits" replace />;
   if (canPayments) return <Navigate to="payments" replace />;
   if (canVendors) return <Navigate to="vendors" replace />;
+  if (canReports) return <Navigate to="reports" replace />;
   if (canSettings) return <Navigate to="settings" replace />;
   if (canCatalog) return <Navigate to="/sales/items" replace />;
   return <Navigate to="vendors" replace />;
@@ -66,6 +70,9 @@ export function PurchasesNav() {
       </Can>
       <Can permission={Permission.VendorsView}>
         <NavLink to="/purchases/vendors">{t('purchases.nav.vendors')}</NavLink>
+      </Can>
+      <Can permission={Permission.PurchasesReportsView}>
+        <NavLink to="/purchases/reports">{t('purchases.nav.reports')}</NavLink>
       </Can>
       {/* The items catalog is shared with Sales (P4-05); one page serves both. */}
       {canCatalog ? <NavLink to="/sales/items">{t('purchases.nav.items')}</NavLink> : null}

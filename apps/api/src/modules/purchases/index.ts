@@ -2,6 +2,7 @@
  * Public contract of the purchases module (Phase 4): settings, numbering, bills, vendor credits,
  * vendor payments, allocations and refunds.
  */
+export * from './ap-positions.js';
 export * from './bills.js';
 export * from './payment-batches.js';
 export * from './payments.js';

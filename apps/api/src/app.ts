@@ -29,6 +29,7 @@ import {
 import { ReceiptService } from './application/receipt-service.js';
 import { CreditNoteService } from './application/credit-note-service.js';
 import { ArReportService } from './application/ar-report-service.js';
+import { ApReportService } from './application/ap-report-service.js';
 import { SalesSearchService } from './application/sales-search-service.js';
 import {
   DOCUMENT_EMAIL_JOB,
@@ -120,6 +121,7 @@ export interface BuiltApp {
     creditNotes: CreditNoteService;
     salesOutput: SalesOutputService;
     arReports: ArReportService;
+    apReports: ApReportService;
     salesSearch: SalesSearchService;
   };
   /** Every registered route (method + URL), e.g. for the MFA default-deny test (S7-44). */
@@ -193,6 +195,8 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   // Phase 4B-4: batch Pay bills over the payment pipeline (P4-32, P4-50).
   const paymentBatches = new PaymentBatchService(deps, vendorPayments, idempotency);
   const arReports = new ArReportService(deps);
+  // Phase 4B-5: AP aging, vendor statements and the AP reconciliation (P4-49).
+  const apReports = new ApReportService(deps);
   const domainServices = {
     accounting,
     journals,
@@ -210,6 +214,8 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   // Phase 3B E5: open foreign-currency AR is reported to S9 through a read-only provider.
   const exposures = new RevaluationExposureRegistry();
   exposures.register(arReports);
+  // Phase 4B-5 (PD6): open foreign-currency AP through the read-only `purchases.payables` provider.
+  exposures.register(apReports);
   const revaluations = new RevaluationService(deps, journals, exposures);
   const services = {
     auth,
@@ -247,6 +253,8 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     vendorPayments,
     vendorRefunds,
     paymentBatches,
+    // Phase 4B-5: AP aging, statements and reconciliation.
+    apReports,
     purchasesOutput,
     items,
     // Phase 3B steps 6-7: invoice drafts, conditional approval and atomic issue (D1).

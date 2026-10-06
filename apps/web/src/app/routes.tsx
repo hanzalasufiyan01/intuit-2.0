@@ -30,6 +30,7 @@ import {
   PaymentBatchDetailPage,
   PaymentBatchesPage,
 } from '../features/purchases/PayBillsPages';
+import { PurchasesReportsPage } from '../features/purchases/ReportsPage';
 import { NewVendorPage, VendorDetailPage, VendorsPage } from '../features/purchases/VendorPages';
 import { AccountingDashboardPage } from '../features/accounting/AccountingDashboardPage';
 import { AccountsPage } from '../features/accounting/AccountsPage';
@@ -526,6 +527,12 @@ export const routes: RouteObject[] = [
                   ['refunds/:id', Permission.VendorPaymentsView, <RefundDetailPage key="refund" />],
                   // Phase 4B-4: batch Pay bills (P4-32).
                   ['pay-bills', Permission.VendorPaymentsCreate, <PayBillsPage key="pay-bills" />],
+                  // Phase 4B-5: AP aging, vendor statements and the AP reconciliation (P4-49).
+                  [
+                    'reports',
+                    Permission.PurchasesReportsView,
+                    <PurchasesReportsPage key="ap-reports" />,
+                  ],
                   [
                     'payment-batches',
                     Permission.VendorPaymentsView,

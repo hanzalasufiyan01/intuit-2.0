@@ -2,12 +2,14 @@ import type { PermissionDefinition } from '../access-control/index.js';
 
 /**
  * Permissions contributed by the purchases module (ADR 0004 P4-39). Keys join with the stages
- * that use them: Purchases settings (4A-4), bills (4A-5) and vendor credits (4B-1); payments,
- * expenses and reports come later.
+ * that use them: Purchases settings (4A-4), bills (4A-5), vendor credits (4B-1), payments (4B-2)
+ * and the AP reports (4B-5); expenses come later.
  */
 export const PurchasesPermissions = {
   /** AP control account, Purchases defaults and numbering (P4-41: MFA set; P4-42: re-auth). */
   SettingsManage: 'purchases.settings.manage',
+  /** AP aging, vendor statements and the AP reconciliation (P4-39; Phase 4B-5, PD3). */
+  ReportsView: 'purchases.reports.view',
 } as const;
 
 /** Bills (P4-15, P4-21, P4-37, P4-39). */
@@ -47,12 +49,19 @@ export const VendorPaymentPermissions = {
 export const billViewPermissions = [BillPermissions.View] as const;
 export const vendorCreditViewPermissions = [VendorCreditPermissions.View] as const;
 export const vendorPaymentViewPermissions = [VendorPaymentPermissions.View] as const;
+/** The Member template's AP report access (P4-40; Phase 4B-5, PD3). */
+export const purchasesReportViewPermissions = [PurchasesPermissions.ReportsView] as const;
 
 export const purchasesPermissionDefinitions: readonly PermissionDefinition[] = [
   {
     key: PurchasesPermissions.SettingsManage,
     module: 'purchases',
     description: 'Manage Purchases settings, numbering and the AP control account',
+  },
+  {
+    key: PurchasesPermissions.ReportsView,
+    module: 'purchases',
+    description: 'View AP aging, vendor statements and the AP reconciliation',
   },
   { key: BillPermissions.View, module: 'purchases', description: 'View bills' },
   {

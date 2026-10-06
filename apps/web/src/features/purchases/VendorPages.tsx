@@ -558,6 +558,15 @@ export function VendorDetailPage() {
           <Link className="btn btn--secondary" to={`/parties/${detail.partyId}`}>
             {t('purchases.vendors.contactRecord')}
           </Link>
+          {/* Phase 4B-5: the vendor statement (P4-49). */}
+          <Can permission={Permission.PurchasesReportsView}>
+            <Link
+              className="btn btn--secondary"
+              to={`/purchases/reports?view=statement&vendorId=${detail.id}`}
+            >
+              {t('purchases.reports.statementLink')}
+            </Link>
+          </Can>
           {canArchive ? (
             <Button
               variant="ghost"

@@ -1003,3 +1003,79 @@ Phase 4B-3 was committed as `29202c6` and is frozen.
   - batches with PAY-00008 (now void), PAY-00009 and PAY-00010.
 
 - **Not implemented (later stages):** remittance advice, AP aging, statements and the reconciliation UI, AP revaluation, direct expenses, Purchases imports and exports, opening bills and credits, credit-card refunds, customer refunds (P4-31), the final permission backfill.
+
+Phase 4B-4 was committed as `14ab886` and is frozen.
+
+### 4B-5 — AP aging, vendor statement, AP reconciliation and the AP revaluation provider (P4-39, P4-40, P4-49, P4-52 provider, brief §12, §14, §26, §29, §33), 2026-10-06
+
+- **Scope source:** the frozen brief's implementation sequence lists "4B-5: AP aging, statement and reconciliation; AP revaluation provider".
+- **Decisions (approved 2026-10-06 after the impact audit, PD1–PD7):**
+  - **PD1 scope:** AP aging, the vendor statement, the AP reconciliation and the `purchases.payables` provider only. Not in scope: unpaid bills, purchase reports, the input-tax summary, the payment register, every export (including the AP aging export), search, remittance, statement PDFs and email, direct expenses, opening bills and credits, the revaluation user workflow, customer and credit-card refunds, and the permission backfill.
+  - **PD2:** no CSV export here. The AP aging export belongs to the 4B-8 data-exchange pipeline (`ap_aging` snapshot).
+  - **PD3 permission:** `purchases.reports.view` is introduced (approved in P4-39).
+    - The Administrator and Member templates gain it (P4-40); Owners get it through catalog sync.
+    - Existing organizations' roles are **not** backfilled; that is the 4B-12 permission backfill.
+    - Custom roles never receive it silently.
+    - The role-key count pins move from 77 to 78.
+  - **PD4 statement:** the balance is what we owe the vendor.
+    - Bills are positive; vendor credits and debit notes, and payments, are negative; refunds are positive.
+    - Applications are not lines. Voided documents are omitted.
+    - Per currency: brought-forward balance, running balance, open bills at the end date.
+    - The closing balance equals the vendor's open position at the end date.
+  - **PD5 as-of:** the Phase 3B AR model. Every Purchases void (bill, vendor credit, payment, refund) reverses its journal on the original document date and adds negated allocation rows on the original allocation dates, so a voided document drops out of every as-of view consistently with the GL. Existing reversal dating is unchanged.
+  - **PD6 provider:** `purchases.payables`, read-only, registered globally in `app.ts`, so the S9 engine (and the dev CLI, which uses `buildApp`) discovers it.
+    - Open foreign bills are credit-negative; unapplied vendor credits and unallocated prepayments are debit-positive; all on the AP control account. Base-currency documents are excluded.
+    - Without an AP control account it reports nothing.
+    - **From 4B-5 onward every S9 run includes AP exposure when applicable.** The user workflow (routes, UI, approval) stays in 4B-10.
+  - **PD7 aging base:** historical carrying base, never revalued, consistent with the AR aging, the AP reconciliation and the subledger.
+- **Migration:** none. 0001–0038 are untouched; the existing Purchases indexes cover the as-of queries.
+- **Code:**
+  - `modules/purchases/ap-positions.ts`: `openBillsAsOf`, `openVendorCreditsAsOf`, `openPrepaymentsAsOf` (allocations and RECORDED refunds dated on or before the date), `vendorActivity`, `apControlBalance` (GL split into S9 revaluation lines and postings outside Purchases, excluding reversals of Purchases journals).
+  - `application/ap-report-service.ts` (`ApReportService`): `aging`, `statement`, `reconciliation`, and the provider `listExposures`. Every report runs in `withOrganization(…, { permission: purchases.reports.view, readOnlySnapshot: true })` and writes nothing.
+  - `api/v1/purchases-reports.routes.ts`, with strict zod query schemas.
+  - The permission key in `modules/purchases/permissions.ts` and both templates.
+- **Reconciliation presentation:** AP amounts are shown credit-positive (owed), so `glBalance − revaluationAdjustments − subledger.total = difference` is the frozen I-1, −(AP control GL balance − revaluation adjustments) = Σ bills `base_due` − Σ credits `base_unapplied` − Σ payments `base_unallocated`, with the sign applied once. Without an AP control account the reconciliation returns 409 (AR parity).
+- **API:**
+  - `GET /purchases/reports/aging?asOf&vendorId?`
+  - `GET /purchases/reports/statement?vendorId&from&to` (`from > to` → 400)
+  - `GET /purchases/reports/ap-reconciliation?asOf`
+  - All need `purchases.reports.view`; unknown query fields are rejected; another organization's vendor is 404 (aging filter and statement).
+- **Web:**
+  - `/purchases/reports` with tabs for AP aging (per vendor with a base column, the credits-and-prepayments column, expandable rows with drill links to bills, vendor credits or debit notes, and prepayments), vendor statement (vendor picker, running balance, document links, open bills at the end date) and AP reconciliation.
+  - A "Reports" link in the Purchases navigation and a "Statement" link on the vendor detail page, both gated by the new key; i18n keys.
+- **Tests:** API `test/ap-reports.test.ts` (5) and web `test/ap-reports.test.tsx` (5); the pinned permission lists in `unit`, `database` and `organizations` tests.
+- **Verification (2026-10-06):**
+
+  | Check                            | Result                                                                                                                                                                      |
+  | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | API, full runs                   | runs 2 and 3: 60 files / 763 tests each, all green. Run 1: 762/763; the S6 import housekeeping test (job worker over the shared queue) failed once and passes alone (26/26) |
+  | Web                              | 17 files / 155 tests                                                                                                                                                        |
+  | Typecheck, lint, Prettier, build | clean                                                                                                                                                                       |
+  | Migrations 0001–0038             | 38/38 checksums, LF; no new migration                                                                                                                                       |
+
+  Integrity audit:
+  - The 4B-2 to 4B-4 checks stay clean (refunds, batches, AP I-1 in every organization with refunds or batches).
+  - AP I-1 with the revaluation term holds in every organization with settlement activity. The organizations that do not reconcile, and the bills and credits whose derived position differs from the stored one, are all the known legacy fixtures that change balances by raw SQL in guard tests (no allocations, payments, refunds or batches).
+  - Every Purchases document void reverses on the original date. The only off-date reversals of Purchases journals come from the 4A-2 engine test that reverses a bare subledger journal with an explicit date; no document void passes a reversal date.
+
+- **Owner and member browser E2E (2026-10-06, dev organization):**
+
+  | Step                                         | Result                                                                                                                                                               |
+  | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | Reports navigation and AP aging today        | 1,935.50 = AP GL; bills 3,085.50, credits and prepayments −1,150.00                                                                                                  |
+  | Earlier as-of dates                          | 2026-10-03: 2,705.00 (the recorded 4B-1 state, VC-00002 void dropped out); 2026-10-04: −1,170.00; each reconciles                                                    |
+  | Buckets by hand                              | 2026-12-15: 41–43 days → 31–60; 2027-02-10: 98–100 days → over 90; all bills match                                                                                   |
+  | Credits and prepayments column; drill-down   | DN-00001, PAY-00005, PAY-00006 listed; the USD subtotal and bill links; BILL-00004 opens                                                                             |
+  | Statements                                   | E2E Island Supplies MVR 130.00 and USD −35.00, each equal to the open position; voided documents omitted; E2E Lagoon Imports brought forward 150.00 = open bills     |
+  | AP reconciliation                            | difference 0.00; postings outside Purchases 0.00                                                                                                                     |
+  | Dev revaluation (CLI) on 2026-10-06 at 15.80 | AP bills BILL-00003/4/5/7 credit-negative (−4.50, −3.00, −4.00, −10.00); prepayment PAY-00006 debit-positive (+10.00); MVR documents excluded; one AP line, Cr 11.50 |
+  | Reconciliation after posting                 | GL 1,947.00 − revaluation 11.50 = subledger 1,935.50; 0.00 again on the D + 1 reversal date                                                                          |
+  | AR                                           | unchanged: one exposure (INV-00002, carrying 3,863.63 = AR subledger); AR reconciles with its own 95.22                                                              |
+  | Cancel                                       | journals reversed; AP and AR reconciliations back to their prior state                                                                                               |
+  | Console, network, regression pages           | no server errors; Purchases, Sales and Accounting pages clean; no revaluation route exists (404)                                                                     |
+  | Member (existing organization)               | no key (no early backfill); Reports link and vendor Statement link hidden; page denied; the three report endpoints 403                                               |
+
+  Dev setup made for it: USD rate 15.80 on 2026-10-06; revaluation run `de651eab` posted and cancelled (JE-000064 to JE-000067).
+
+- **Deviations:** none. The dev CLI has no preview mode, so the E2E "preview" read the posted run's recorded exposure lines (the same plan a preview computes); no preview route or CLI option was added.
+- **Not implemented (later stages):** unpaid bills, purchase reports, the input-tax summary and payment register (4B-6); remittance and debit-note output (4B-7); the AP aging export and other exports, search (4B-8); direct expenses (4B-9); the revaluation user workflow (4B-10); the permission backfill (4B-12); opening bills and credits; credit-card and customer refunds.

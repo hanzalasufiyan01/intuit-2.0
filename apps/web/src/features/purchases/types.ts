@@ -395,3 +395,89 @@ export interface PaymentBatchDetail extends PaymentBatchSummary {
     voidedAt: string | null;
   }[];
 }
+
+/** Phase 4B-5: AP reports (P4-49). Amounts read "what we owe" (PD4); bases are historical (PD7). */
+export const AP_AGING_BUCKETS = [
+  'current',
+  'days1to30',
+  'days31to60',
+  'days61to90',
+  'over90',
+] as const;
+export type ApAgingBucket = (typeof AP_AGING_BUCKETS)[number];
+type ApBuckets = Record<ApAgingBucket | 'credit' | 'total', string>;
+
+export interface ApAgingReport {
+  asOf: string;
+  baseCurrency: string;
+  vendors: {
+    vendorId: string;
+    vendorName: string | null;
+    currencies: (ApBuckets & { currencyCode: string })[];
+    base: ApBuckets;
+    bills: {
+      id: string;
+      number: string;
+      vendorReference: string | null;
+      billDate: string;
+      dueDate: string;
+      daysOverdue: number;
+      bucket: ApAgingBucket;
+      currencyCode: string;
+      openAmount: string;
+      openBase: string;
+    }[];
+    credits: {
+      type: 'vendor_credit' | 'payment';
+      id: string;
+      number: string;
+      origin: string | null;
+      date: string;
+      currencyCode: string;
+      openAmount: string;
+      openBase: string;
+    }[];
+  }[];
+  totals: ApBuckets;
+}
+
+export interface VendorStatement {
+  vendorId: string;
+  vendorName: string | null;
+  from: string;
+  to: string;
+  currencies: {
+    currencyCode: string;
+    openingBalance: string;
+    closingBalance: string;
+    lines: {
+      type: 'bill' | 'vendor_credit' | 'payment' | 'refund';
+      id: string;
+      number: string;
+      origin: string | null;
+      date: string;
+      reference: string | null;
+      amount: string;
+      balance: string;
+    }[];
+    openBills: {
+      id: string;
+      number: string;
+      dueDate: string;
+      bucket: ApAgingBucket;
+      openAmount: string;
+    }[];
+  }[];
+}
+
+export interface ApReconciliation {
+  asOf: string;
+  baseCurrency: string;
+  apAccountId: string;
+  glBalance: string;
+  revaluationAdjustments: string;
+  postingsOutsidePurchases: string;
+  subledger: { openBills: string; unappliedCredits: string; prepayments: string; total: string };
+  difference: string;
+  reconciled: boolean;
+}

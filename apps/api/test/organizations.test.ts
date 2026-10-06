@@ -60,8 +60,8 @@ describe('organizations and ownership', () => {
     // + 4 parties.* keys (S4); Phase 3B adds 4 customers.*, 17 Sales keys and tax.codes.manage.
     // Phase 4 adds 4 vendors.* keys (ADR 0004 P4-39); 4A-4 adds catalog.items.manage and
     // purchases.settings.manage (P4-06, P4-39); 4A-5 adds the 7 bills.* keys; 4B-1 the 5 vendor_credits.* keys;
-    // 4B-2 the 4 vendor_payments.* keys.
-    expect(ownerRole.permissionKeys).toHaveLength(77);
+    // 4B-2 the 4 vendor_payments.* keys; 4B-5 purchases.reports.view (PD3).
+    expect(ownerRole.permissionKeys).toHaveLength(78);
     const member = roles.body.data.find((r: { name: string }) => r.name === 'Member');
     expect(member.permissionKeys).toEqual([
       'accounting.accounts.view',
@@ -77,6 +77,7 @@ describe('organizations and ownership', () => {
       'members.read',
       'organization.read',
       'parties.view', // Phase 3A S4 (Decision 65)
+      'purchases.reports.view', // Phase 4B-5 (P4-40, PD3)
       'receipts.view',
       'sales.reports.view',
       'vendor_credits.view', // Phase 4B-1 (P4-40)
@@ -160,6 +161,7 @@ describe('invitations', () => {
       'members.read',
       'organization.read',
       'parties.view', // Phase 3A S4 (Decision 65)
+      'purchases.reports.view', // Phase 4B-5 (P4-40, PD3)
       'receipts.view',
       'sales.reports.view',
       'vendor_credits.view', // Phase 4B-1 (P4-40)
@@ -572,6 +574,7 @@ describe('cross-organization isolation', () => {
       'members.read',
       'organization.read',
       'parties.view', // Phase 3A S4 (Decision 65)
+      'purchases.reports.view', // Phase 4B-5 (P4-40, PD3)
       'receipts.view',
       'sales.reports.view',
       'vendor_credits.view', // Phase 4B-1 (P4-40)
