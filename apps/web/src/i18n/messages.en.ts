@@ -69,6 +69,7 @@ export const en = {
   'purchases.bills.description':
     'Supplier bills: enter drafts, get them approved where a policy applies, then post them to accounts payable.',
   'purchases.bills.new': 'New bill',
+  'purchases.bills.export': 'Export bills',
   'purchases.bills.none': 'No bills found.',
   'purchases.bills.searchHint': 'Bill number, supplier invoice number or vendor',
   'purchases.bills.number': 'Number',
@@ -146,6 +147,7 @@ export const en = {
   'purchases.credits.description':
     "Credit notes received from suppliers and debit notes you raise. Both reduce what you owe and stay available to settle the vendor's bills.",
   'purchases.credits.new': 'New vendor credit',
+  'purchases.credits.export': 'Export credits and debit notes',
   'purchases.credits.none': 'No vendor credits found.',
   'purchases.credits.searchHint': 'Number, supplier credit-note number or vendor',
   'purchases.credits.origin': 'Type',
@@ -184,6 +186,7 @@ export const en = {
   'purchases.payments.description':
     'Money paid to vendors. A payment settles posted bills; anything not allocated is a prepayment you can apply to later bills.',
   'purchases.payments.new': 'New payment',
+  'purchases.payments.export': 'Export payments',
   'purchases.payments.none': 'No payments found.',
   'purchases.payments.searchHint': 'Number, reference or vendor',
   'purchases.payments.withUnallocated': 'Only with a prepayment balance',
@@ -278,6 +281,7 @@ export const en = {
   'purchases.reports.to': 'To',
   'purchases.reports.run': 'Run report',
   'purchases.reports.vendor': 'Vendor',
+  'purchases.reports.export': 'Export CSV',
   'purchases.reports.inBase': 'Amounts in {currency} at historical rates',
   'purchases.reports.inCurrency': 'In {currency}',
   'purchases.reports.noOpenItems': 'No open bills, credits or prepayments on this date.',
@@ -472,7 +476,15 @@ export const en = {
   'purchases.settings.doc.vendor_refund': 'Vendor refund',
   'purchases.settings.doc.expense': 'Expense',
 
+  'purchases.search.title': 'Search purchases',
+  'purchases.search.description': 'Vendors, bills, vendor credits and payments.',
+  'purchases.search.label': 'Search',
+  'purchases.search.hint': 'Vendor name, reference or TIN; document number or supplier reference.',
+  'purchases.search.noResults': 'Nothing matches “{q}”.',
+  'purchases.search.draft': 'Draft',
+  'purchases.nav.search': 'Search',
   'purchases.vendors.title': 'Vendors',
+  'purchases.vendors.export': 'Export vendors',
   'purchases.vendors.description':
     'Suppliers you buy from. Their contact details live on the shared contact record.',
   'purchases.vendors.new': 'New vendor',

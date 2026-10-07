@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ApReportService } from '../../application/ap-report-service.js';
+import type { PurchasesSearchService } from '../../application/purchases-search-service.js';
 import { requirePrincipal } from '../http/session.js';
 import { fields, parseInput } from '../http/validation.js';
 
@@ -36,10 +37,27 @@ const registerQuery = z
   })
   .strict();
 
+const searchQuery = z
+  .object({
+    q: z.string().max(100),
+    limit: z.coerce.number().int().min(1).max(25).default(5),
+  })
+  .strict();
+
 export function registerPurchasesReportRoutes(
   app: FastifyInstance,
-  { apReports }: { apReports: ApReportService },
+  {
+    apReports,
+    purchasesSearch,
+  }: { apReports: ApReportService; purchasesSearch: PurchasesSearchService },
 ) {
+  // Phase 4B-8: one search over vendors, bills, vendor credits and payments.
+  app.get('/purchases/search', async (request) => ({
+    data: await purchasesSearch.search(
+      requirePrincipal(request),
+      parseInput(searchQuery, request.query),
+    ),
+  }));
   app.get('/purchases/reports/aging', async (request) => ({
     data: await apReports.aging(requirePrincipal(request), parseInput(agingQuery, request.query)),
   }));

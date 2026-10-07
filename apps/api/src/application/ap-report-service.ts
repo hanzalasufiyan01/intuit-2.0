@@ -575,42 +575,50 @@ export class ApReportService implements RevaluationExposureProvider {
       this.deps,
       principal,
       { permission: PurchasesPermissions.ReportsView, readOnlySnapshot: true },
-      async (tx, ctx) => {
-        await this.requireVendor(tx, ctx.organizationId, input.vendorId);
-        const { lines, base } = await this.lines(tx, ctx.organizationId, input);
-        const groups = new Map<string, { bills: Set<string>; credits: Set<string>; sums: Sums }>();
-        const totals = zeroSums();
-        for (const l of lines) {
-          const g = groups.get(l.vendorId) ?? {
-            bills: new Set(),
-            credits: new Set(),
-            sums: zeroSums(),
-          };
-          groups.set(l.vendorId, g);
-          (l.documentType === 'bill' ? g.bills : g.credits).add(l.documentId);
-          addLine(g.sums, l);
-          addLine(totals, l);
-        }
-        const vendors = [];
-        for (const [vendorId, g] of groups) {
-          vendors.push({
-            vendorId,
-            vendorName: await vendorName(tx, ctx.organizationId, vendorId),
-            bills: g.bills.size,
-            credits: g.credits.size,
-            ...showSums(g.sums, base),
-          });
-        }
-        vendors.sort((a, b) => (a.vendorName ?? '').localeCompare(b.vendorName ?? ''));
-        return {
-          from: input.from,
-          to: input.to,
-          baseCurrency: base,
-          vendors,
-          totals: showSums(totals, base),
-        };
-      },
+      (tx, ctx) => this.purchasesByVendorInTransaction(tx, ctx.organizationId, input),
     );
+  }
+
+  /** The report body, also used by the purchases-by-vendor export (4B-8) inside its snapshot. */
+  async purchasesByVendorInTransaction(
+    tx: Transaction,
+    organizationId: string,
+    input: { from: string; to: string; vendorId?: string | undefined },
+  ) {
+    this.period(input);
+    await this.requireVendor(tx, organizationId, input.vendorId);
+    const { lines, base } = await this.lines(tx, organizationId, input);
+    const groups = new Map<string, { bills: Set<string>; credits: Set<string>; sums: Sums }>();
+    const totals = zeroSums();
+    for (const l of lines) {
+      const g = groups.get(l.vendorId) ?? {
+        bills: new Set(),
+        credits: new Set(),
+        sums: zeroSums(),
+      };
+      groups.set(l.vendorId, g);
+      (l.documentType === 'bill' ? g.bills : g.credits).add(l.documentId);
+      addLine(g.sums, l);
+      addLine(totals, l);
+    }
+    const vendors = [];
+    for (const [vendorId, g] of groups) {
+      vendors.push({
+        vendorId,
+        vendorName: await vendorName(tx, organizationId, vendorId),
+        bills: g.bills.size,
+        credits: g.credits.size,
+        ...showSums(g.sums, base),
+      });
+    }
+    vendors.sort((a, b) => (a.vendorName ?? '').localeCompare(b.vendorName ?? ''));
+    return {
+      from: input.from,
+      to: input.to,
+      baseCurrency: base,
+      vendors,
+      totals: showSums(totals, base),
+    };
   }
 
   /** Purchase lines per item; account-based lines form one "No item" row (PD10). */
@@ -815,182 +823,187 @@ export class ApReportService implements RevaluationExposureProvider {
       this.deps,
       principal,
       { permission: PurchasesPermissions.ReportsView, readOnlySnapshot: true },
-      async (tx, ctx) => {
-        await this.requireVendor(tx, ctx.organizationId, input.vendorId);
-        if (
-          input.paymentAccountId &&
-          !(await getAccount(tx, ctx.organizationId, input.paymentAccountId))
-        ) {
-          throw new NotFoundError('Account not found.');
-        }
-        const accounting = await requireAccountingSettings(tx, ctx.organizationId);
-        const base = accounting.baseCurrency;
-        const filter = {
-          organizationId: ctx.organizationId,
-          from: input.from,
-          to: input.to,
-          vendorId: input.vendorId ?? null,
-          paymentAccountId: input.paymentAccountId ?? null,
-          currencyCode: input.currencyCode ?? null,
-        };
-        // PD8: one cap over payments and refunds together, in register order.
-        const { payments, refunds, truncated } = limitRegister(
-          await registerPayments(tx, filter, limit),
-          await registerRefunds(tx, filter, limit),
-          limit,
-        );
-        const names = new Map<string, string | null>();
-        const accounts = new Map<string, { code: string; name: string } | null>();
-        const lookup = async (vendorId: string, accountId: string) => {
-          if (!names.has(vendorId))
-            names.set(vendorId, await vendorName(tx, ctx.organizationId, vendorId));
-          if (!accounts.has(accountId)) {
-            const a = await getAccount(tx, ctx.organizationId, accountId);
-            accounts.set(accountId, a ? { code: a.code, name: a.name } : null);
-          }
-          return {
-            vendorName: names.get(vendorId) ?? null,
-            account: accounts.get(accountId) ?? null,
-          };
-        };
-        const subtotal = (
-          rows: readonly {
-            status: string;
-            accountId: string;
-            currencyCode: string;
-            amount: string;
-            baseAmount: string;
-            fx: string;
-          }[],
-        ) => {
-          const groups = new Map<
-            string,
-            {
-              accountId: string;
-              currencyCode: string;
-              count: number;
-              amount: Decimal;
-              base: Decimal;
-              fx: Decimal;
-            }
-          >();
-          let baseTotal = decimal(0);
-          let count = 0;
-          let voided = 0;
-          for (const r of rows) {
-            if (r.status !== 'RECORDED') {
-              voided += 1;
-              continue;
-            }
-            const key = `${r.accountId}|${r.currencyCode}`;
-            const g = groups.get(key) ?? {
-              accountId: r.accountId,
-              currencyCode: r.currencyCode,
-              count: 0,
-              amount: decimal(0),
-              base: decimal(0),
-              fx: decimal(0),
-            };
-            groups.set(key, g);
-            g.count += 1;
-            g.amount = g.amount.plus(decimal(r.amount));
-            g.base = g.base.plus(decimal(r.baseAmount));
-            g.fx = g.fx.plus(decimal(r.fx));
-            baseTotal = baseTotal.plus(decimal(r.baseAmount));
-            count += 1;
-          }
-          return {
-            subtotals: [...groups.values()].map((g) => ({
-              accountId: g.accountId,
-              account: accounts.get(g.accountId) ?? null,
-              currencyCode: g.currencyCode,
-              count: g.count,
-              amount: g.amount.toFixed(minorUnits(g.currencyCode)),
-              baseAmount: g.base.toFixed(minorUnits(base)),
-              realizedFx: g.fx.toFixed(minorUnits(base)),
-            })),
-            totals: { count, voided, baseAmount: baseTotal.toFixed(minorUnits(base)) },
-          };
-        };
-        const paymentRows = [];
-        for (const p of payments) {
-          const { vendorName: name, account } = await lookup(p.vendorId, p.paymentAccountId);
-          const places = minorUnits(p.currencyCode);
-          paymentRows.push({
-            id: p.id,
-            number: p.number,
-            status: p.status,
-            paymentDate: p.paymentDate,
-            vendorId: p.vendorId,
-            vendorName: name,
-            paymentAccountId: p.paymentAccountId,
-            account,
-            paymentBatchId: p.paymentBatchId,
-            currencyCode: p.currencyCode,
-            amount: decimal(p.amount).toFixed(places),
-            exchangeRate: decimal(p.exchangeRate).toFixed(),
-            exchangeRateSource: p.exchangeRateSource,
-            baseAmount: decimal(p.baseAmount).toFixed(minorUnits(base)),
-            appliedToBills: decimal(p.appliedToBills).toFixed(places),
-            prepayment: decimal(p.prepayment).toFixed(places),
-            realizedFx: decimal(p.realizedFx).toFixed(minorUnits(base)),
-            voidedAt: p.voidedAt,
-          });
-        }
-        const refundRows = [];
-        for (const r of refunds) {
-          const { vendorName: name, account } = await lookup(r.vendorId, r.refundAccountId);
-          refundRows.push({
-            id: r.id,
-            number: r.number,
-            status: r.status,
-            refundDate: r.refundDate,
-            vendorId: r.vendorId,
-            vendorName: name,
-            refundAccountId: r.refundAccountId,
-            account,
-            sourceType: r.sourceType,
-            sourceId: r.sourceId,
-            sourceNumber: r.sourceNumber,
-            currencyCode: r.currencyCode,
-            amount: decimal(r.amount).toFixed(minorUnits(r.currencyCode)),
-            exchangeRate: decimal(r.exchangeRate).toFixed(),
-            baseAmount: decimal(r.baseAmount).toFixed(minorUnits(base)),
-            realizedFx: decimal(r.fxDifference).toFixed(minorUnits(base)),
-            voidedAt: r.voidedAt,
-          });
-        }
-        return {
-          from: input.from,
-          to: input.to,
-          baseCurrency: base,
-          limit,
-          truncated,
-          payments: paymentRows,
-          paymentSummary: subtotal(
-            paymentRows.map((p) => ({
-              status: p.status,
-              accountId: p.paymentAccountId,
-              currencyCode: p.currencyCode,
-              amount: p.amount,
-              baseAmount: p.baseAmount,
-              fx: p.realizedFx,
-            })),
-          ),
-          refunds: refundRows,
-          refundSummary: subtotal(
-            refundRows.map((r) => ({
-              status: r.status,
-              accountId: r.refundAccountId,
-              currencyCode: r.currencyCode,
-              amount: r.amount,
-              baseAmount: r.baseAmount,
-              fx: r.realizedFx,
-            })),
-          ),
-        };
-      },
+      (tx, ctx) => this.paymentRegisterInTransaction(tx, ctx.organizationId, input, limit),
     );
+  }
+
+  /** The register body; the 4B-8 export calls it with its own (much larger) row limit (PD8). */
+  async paymentRegisterInTransaction(
+    tx: Transaction,
+    organizationId: string,
+    input: RegisterInput,
+    limit: number,
+  ) {
+    this.period(input);
+    await this.requireVendor(tx, organizationId, input.vendorId);
+    if (input.paymentAccountId && !(await getAccount(tx, organizationId, input.paymentAccountId))) {
+      throw new NotFoundError('Account not found.');
+    }
+    const accounting = await requireAccountingSettings(tx, organizationId);
+    const base = accounting.baseCurrency;
+    const filter = {
+      organizationId: organizationId,
+      from: input.from,
+      to: input.to,
+      vendorId: input.vendorId ?? null,
+      paymentAccountId: input.paymentAccountId ?? null,
+      currencyCode: input.currencyCode ?? null,
+    };
+    // PD8: one cap over payments and refunds together, in register order.
+    const { payments, refunds, truncated } = limitRegister(
+      await registerPayments(tx, filter, limit),
+      await registerRefunds(tx, filter, limit),
+      limit,
+    );
+    const names = new Map<string, string | null>();
+    const accounts = new Map<string, { code: string; name: string } | null>();
+    const lookup = async (vendorId: string, accountId: string) => {
+      if (!names.has(vendorId)) names.set(vendorId, await vendorName(tx, organizationId, vendorId));
+      if (!accounts.has(accountId)) {
+        const a = await getAccount(tx, organizationId, accountId);
+        accounts.set(accountId, a ? { code: a.code, name: a.name } : null);
+      }
+      return {
+        vendorName: names.get(vendorId) ?? null,
+        account: accounts.get(accountId) ?? null,
+      };
+    };
+    const subtotal = (
+      rows: readonly {
+        status: string;
+        accountId: string;
+        currencyCode: string;
+        amount: string;
+        baseAmount: string;
+        fx: string;
+      }[],
+    ) => {
+      const groups = new Map<
+        string,
+        {
+          accountId: string;
+          currencyCode: string;
+          count: number;
+          amount: Decimal;
+          base: Decimal;
+          fx: Decimal;
+        }
+      >();
+      let baseTotal = decimal(0);
+      let count = 0;
+      let voided = 0;
+      for (const r of rows) {
+        if (r.status !== 'RECORDED') {
+          voided += 1;
+          continue;
+        }
+        const key = `${r.accountId}|${r.currencyCode}`;
+        const g = groups.get(key) ?? {
+          accountId: r.accountId,
+          currencyCode: r.currencyCode,
+          count: 0,
+          amount: decimal(0),
+          base: decimal(0),
+          fx: decimal(0),
+        };
+        groups.set(key, g);
+        g.count += 1;
+        g.amount = g.amount.plus(decimal(r.amount));
+        g.base = g.base.plus(decimal(r.baseAmount));
+        g.fx = g.fx.plus(decimal(r.fx));
+        baseTotal = baseTotal.plus(decimal(r.baseAmount));
+        count += 1;
+      }
+      return {
+        subtotals: [...groups.values()].map((g) => ({
+          accountId: g.accountId,
+          account: accounts.get(g.accountId) ?? null,
+          currencyCode: g.currencyCode,
+          count: g.count,
+          amount: g.amount.toFixed(minorUnits(g.currencyCode)),
+          baseAmount: g.base.toFixed(minorUnits(base)),
+          realizedFx: g.fx.toFixed(minorUnits(base)),
+        })),
+        totals: { count, voided, baseAmount: baseTotal.toFixed(minorUnits(base)) },
+      };
+    };
+    const paymentRows = [];
+    for (const p of payments) {
+      const { vendorName: name, account } = await lookup(p.vendorId, p.paymentAccountId);
+      const places = minorUnits(p.currencyCode);
+      paymentRows.push({
+        id: p.id,
+        number: p.number,
+        status: p.status,
+        paymentDate: p.paymentDate,
+        vendorId: p.vendorId,
+        vendorName: name,
+        paymentAccountId: p.paymentAccountId,
+        account,
+        paymentBatchId: p.paymentBatchId,
+        currencyCode: p.currencyCode,
+        amount: decimal(p.amount).toFixed(places),
+        exchangeRate: decimal(p.exchangeRate).toFixed(),
+        exchangeRateSource: p.exchangeRateSource,
+        baseAmount: decimal(p.baseAmount).toFixed(minorUnits(base)),
+        appliedToBills: decimal(p.appliedToBills).toFixed(places),
+        prepayment: decimal(p.prepayment).toFixed(places),
+        realizedFx: decimal(p.realizedFx).toFixed(minorUnits(base)),
+        voidedAt: p.voidedAt,
+      });
+    }
+    const refundRows = [];
+    for (const r of refunds) {
+      const { vendorName: name, account } = await lookup(r.vendorId, r.refundAccountId);
+      refundRows.push({
+        id: r.id,
+        number: r.number,
+        status: r.status,
+        refundDate: r.refundDate,
+        vendorId: r.vendorId,
+        vendorName: name,
+        refundAccountId: r.refundAccountId,
+        account,
+        sourceType: r.sourceType,
+        sourceId: r.sourceId,
+        sourceNumber: r.sourceNumber,
+        currencyCode: r.currencyCode,
+        amount: decimal(r.amount).toFixed(minorUnits(r.currencyCode)),
+        exchangeRate: decimal(r.exchangeRate).toFixed(),
+        baseAmount: decimal(r.baseAmount).toFixed(minorUnits(base)),
+        realizedFx: decimal(r.fxDifference).toFixed(minorUnits(base)),
+        voidedAt: r.voidedAt,
+      });
+    }
+    return {
+      from: input.from,
+      to: input.to,
+      baseCurrency: base,
+      limit,
+      truncated,
+      payments: paymentRows,
+      paymentSummary: subtotal(
+        paymentRows.map((p) => ({
+          status: p.status,
+          accountId: p.paymentAccountId,
+          currencyCode: p.currencyCode,
+          amount: p.amount,
+          baseAmount: p.baseAmount,
+          fx: p.realizedFx,
+        })),
+      ),
+      refunds: refundRows,
+      refundSummary: subtotal(
+        refundRows.map((r) => ({
+          status: r.status,
+          accountId: r.refundAccountId,
+          currencyCode: r.currencyCode,
+          amount: r.amount,
+          baseAmount: r.baseAmount,
+          fx: r.realizedFx,
+        })),
+      ),
+    };
   }
 
   // ---------------------------------------------------------------------------

@@ -36,6 +36,14 @@ export const exportDomainKeys = [
   'invoices',
   'receipts',
   'ar_aging',
+  // Phase 4B-8: Purchases exports (CSV).
+  'vendors',
+  'bills',
+  'vendor_credits',
+  'vendor_payments',
+  'ap_aging',
+  'purchases_by_vendor',
+  'payment_register',
 ] as const;
 export type ExportDomainKey = (typeof exportDomainKeys)[number];
 

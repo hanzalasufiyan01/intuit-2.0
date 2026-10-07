@@ -1252,3 +1252,20 @@ Phase 4B-6 was committed as `6ca38f3` and is frozen.
   - **Tests:** `test/pdf-renderer.test.ts` pins the Sales invoice, credit note and debit note by SHA-256 (captured from the renderer at `6ca38f3`) and, with the new `test/pdf-text.ts` reader, checks the drawn glyph order and positions of the remittance advice: first word at the right, each mark directly before its base, Latin against Thaana in both logical orders, hyphen and slash in the Latin font, and plain Latin left to right. The word-order and hyphen tests fail against the old drawing.
   - **Open, for the architects:** the shared `line()` has the same word-order defect for multi-word Thaana in the Sales invoice, credit note and debit note. It was left alone to keep those outputs byte-identical; fixing it changes their hashes and needs its own decision.
   - **Limitation:** brackets are not mirrored in right-to-left text.
+
+### 4B-8 — Purchases exports and search (P4-48, 4B-5 PD2, 4B-6 PD8), 2026-10-07
+
+Authorized under the 2026-10-07 execution authorization; implemented within the frozen decisions with no new product decision.
+
+- **Migration `0040_purchases_exports`:** the only schema change. It extends the `exports.domain` CHECK with seven Purchases domains. No table, permission or accounting object is created or changed.
+- **Exports (CSV, through the existing S6 export job, file service and signed-link pipeline):**
+  - `vendors` (`vendors.view`); `bills` (`bills.view`); `vendor_credits`, including debit notes (`vendor_credits.view`); `vendor_payments` (`vendor_payments.view`).
+  - `ap_aging`, `purchases_by_vendor` and `payment_register` (`purchases.reports.view`). These run inside a REPEATABLE READ snapshot and call the same report bodies as the screens, so a file equals its screen.
+  - Each export re-checks its view permission on every access (Decision 65); parameters are strict (unknown fields rejected); formula neutralization and the size cap are the S6 writer's.
+  - `payment_register` is the full export PD8 promised: it is not limited to the screen's 2,000 rows (it covers payments and refunds together; the file-size cap applies).
+- **Refactor with no behaviour change:** `ApReportService.purchasesByVendor` and `paymentRegister` now delegate to `purchasesByVendorInTransaction` and `paymentRegisterInTransaction`. The screens' behaviour, permissions and limits are unchanged (the 4B-6 tests are untouched and green).
+- **Search:** `GET /purchases/search?q=&limit=` (`PurchasesSearchService`) over vendors, bills, vendor credits and debit notes, and vendor payments. Each section is returned only to a user who may view it; the query needs at least 2 characters; the limit is 1–25. Vendor-name matching reuses the list screens' party matching. Read-only.
+- **UI:** an export button on the vendors, bills, vendor credits and payments lists and on the AP aging, purchases-by-vendor and payment-register reports; a Purchases search page and sub-navigation link. Blank report filters are left out of the export parameters.
+- **Tests:** `test/purchases-data-exchange.test.ts` (6, serial): every export's header and content, the register's payment and refund rows, view-permission gating for every domain, strict parameters, tenant isolation (an export of one organization is a 404 to another), search sections and permissions, minimum length, limit range. Web: `test/purchases-search.test.tsx` (3).
+- **Accounting impact:** none. Nothing writes a journal, event, allocation or balance.
+- **Known limitations / not in 4B-8:** XLSX (its own approved stage); purchase imports (P4-47, a later unit); a global (Sales plus Purchases) search; refunds as a search section.

@@ -37,6 +37,7 @@ import type { CreditNoteService } from '../../application/credit-note-service.js
 import type { SalesOutputService } from '../../application/sales-output-service.js';
 import type { ArReportService } from '../../application/ar-report-service.js';
 import type { ApReportService } from '../../application/ap-report-service.js';
+import type { PurchasesSearchService } from '../../application/purchases-search-service.js';
 import type { SalesSearchService } from '../../application/sales-search-service.js';
 import type { SalesSettingsService } from '../../application/sales-settings-service.js';
 import { registerAccountingRoutes } from './accounting.routes.js';
@@ -107,6 +108,7 @@ export interface ApiV1Services {
   salesOutput: SalesOutputService;
   arReports: ArReportService;
   salesSearch: SalesSearchService;
+  purchasesSearch: PurchasesSearchService;
 }
 
 /** Version 1 of the REST API, mounted at /api/v1. */

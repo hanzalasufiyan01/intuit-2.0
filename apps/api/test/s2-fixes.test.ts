@@ -358,6 +358,7 @@ describe('Decision 90 — additive dimension permission backfill (migration 0008
       '0037_vendor_refunds', // 4B-3 vendor refunds (P4-30, P4-33)
       '0038_payment_batches', // 4B-4 batch Pay bills (P4-32, P4-50)
       '0039_remittance_advice', // 4B-7 remittance advice PDF and email (P4-46)
+      '0040_purchases_exports', // 4B-8 Purchases exports (P4-48)
     ]);
     const { rows } = await owner.query(
       `SELECT version FROM schema_migrations WHERE version = '0008_dimension_permission_backfill'`,

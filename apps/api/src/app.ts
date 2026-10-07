@@ -35,6 +35,7 @@ import { ReceiptService } from './application/receipt-service.js';
 import { CreditNoteService } from './application/credit-note-service.js';
 import { ArReportService } from './application/ar-report-service.js';
 import { ApReportService } from './application/ap-report-service.js';
+import { PurchasesSearchService } from './application/purchases-search-service.js';
 import { SalesSearchService } from './application/sales-search-service.js';
 import {
   DOCUMENT_EMAIL_JOB,
@@ -129,6 +130,7 @@ export interface BuiltApp {
     arReports: ArReportService;
     apReports: ApReportService;
     salesSearch: SalesSearchService;
+    purchasesSearch: PurchasesSearchService;
   };
   /** Every registered route (method + URL), e.g. for the MFA default-deny test (S7-44). */
   routes: { method: string; url: string }[];
@@ -216,6 +218,7 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     items,
     invoices,
     arReports,
+    apReports,
   };
   // S9: revaluation support (engine only; no routes until Phase 4). Later modules register
   // their read-only document exposure providers here.
@@ -285,6 +288,7 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     arReports,
     // Phase 3B step 19: Sales search (D15).
     salesSearch: new SalesSearchService(deps),
+    purchasesSearch: new PurchasesSearchService(deps),
   };
   const handlers = new Map<string, JobHandler>([
     [FILES_PURGE_JOB, (job) => services.files.purge(job)],

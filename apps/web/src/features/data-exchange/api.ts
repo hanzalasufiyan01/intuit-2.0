@@ -31,7 +31,14 @@ export type ExportDomainKey =
   | 'sales_items'
   | 'invoices'
   | 'receipts'
-  | 'ar_aging';
+  | 'ar_aging'
+  | 'vendors'
+  | 'bills'
+  | 'vendor_credits'
+  | 'vendor_payments'
+  | 'ap_aging'
+  | 'purchases_by_vendor'
+  | 'payment_register';
 
 export type ImportStatus =
   | 'awaiting_file'

@@ -20,6 +20,7 @@ import { orNull, StatusBadge, useOrgKey, useTaxCodes } from '../sales/shared';
 import type { Item, Page } from '../sales/types';
 import { SettlementHistory } from './PaymentPages';
 import { PurchasesNav } from './PurchasesSection';
+import { ExportButton } from '../data-exchange/ExportButton';
 import {
   PURCHASE_ACCOUNT_SUBTYPES,
   type BillDetail,
@@ -72,6 +73,9 @@ export function BillsPage() {
         description={t('purchases.bills.description')}
       />
       <PurchasesNav />
+      <p className="actions">
+        <ExportButton domain="bills" label={t('purchases.bills.export')} />
+      </p>
       {canCreate ? (
         <p className="actions">
           <Link className="btn" to="/purchases/bills/new">

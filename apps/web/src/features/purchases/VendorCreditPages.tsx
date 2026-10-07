@@ -20,6 +20,7 @@ import { orNull, StatusBadge, useOrgKey, useTaxCodes } from '../sales/shared';
 import type { Item, Page } from '../sales/types';
 import { ApplyCreditPanel, SettlementHistory } from './PaymentPages';
 import { PurchasesNav } from './PurchasesSection';
+import { ExportButton } from '../data-exchange/ExportButton';
 import { RefundHistory } from './RefundPages';
 import {
   PURCHASE_ACCOUNT_SUBTYPES,
@@ -84,6 +85,9 @@ export function VendorCreditsPage() {
         description={t('purchases.credits.description')}
       />
       <PurchasesNav />
+      <p className="actions">
+        <ExportButton domain="vendor_credits" label={t('purchases.credits.export')} />
+      </p>
       {canCreate ? (
         <p className="actions">
           <Link className="btn" to="/purchases/vendor-credits/new">

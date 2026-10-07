@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Navigate, NavLink, Outlet } from 'react-router';
 import { LocaleProvider, useT } from '../../i18n/i18n';
 import { Can, Permission, useAnyPermission, usePermission } from '../../permissions/permissions';
@@ -47,12 +48,26 @@ export function PurchasesHome() {
   return <Navigate to="vendors" replace />;
 }
 
+/** Shows its children when the user may view any Purchases record (UX only; the server decides). */
+function AnyPurchasesView({ children }: { children: ReactNode }) {
+  const allowed = useAnyPermission([
+    Permission.VendorsView,
+    Permission.BillsView,
+    Permission.VendorCreditsView,
+    Permission.VendorPaymentsView,
+  ]);
+  return allowed ? <>{children}</> : null;
+}
+
 /** Purchases sub-navigation; every link is permission-aware (UX only; the server decides). */
 export function PurchasesNav() {
   const t = useT();
   const canCatalog = useAnyPermission(CATALOG_MANAGE_PERMISSIONS);
   return (
     <nav className="subnav" aria-label={t('purchases.nav.label')}>
+      <AnyPurchasesView>
+        <NavLink to="/purchases/search">{t('purchases.nav.search')}</NavLink>
+      </AnyPurchasesView>
       <Can permission={Permission.BillsView}>
         <NavLink to="/purchases/bills">{t('purchases.nav.bills')}</NavLink>
       </Can>

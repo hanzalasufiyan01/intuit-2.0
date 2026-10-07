@@ -31,6 +31,7 @@ import {
   PaymentBatchesPage,
 } from '../features/purchases/PayBillsPages';
 import { PurchasesReportsPage } from '../features/purchases/ReportsPage';
+import { PurchasesSearchPage } from '../features/purchases/PurchasesSearchPage';
 import { NewVendorPage, VendorDetailPage, VendorsPage } from '../features/purchases/VendorPages';
 import { AccountingDashboardPage } from '../features/accounting/AccountingDashboardPage';
 import { AccountsPage } from '../features/accounting/AccountsPage';
@@ -448,6 +449,22 @@ export const routes: RouteObject[] = [
             element: <PurchasesSection />,
             children: [
               { index: true, element: <PurchasesHome /> },
+              {
+                // Phase 4B-8: the server shows each section only to those who may view it.
+                path: 'search',
+                element: (
+                  <RequireAnyPermission
+                    permissions={[
+                      Permission.VendorsView,
+                      Permission.BillsView,
+                      Permission.VendorCreditsView,
+                      Permission.VendorPaymentsView,
+                    ]}
+                  >
+                    <PurchasesSearchPage />
+                  </RequireAnyPermission>
+                ),
+              },
               {
                 path: 'vendors',
                 element: (

@@ -32,6 +32,8 @@ const serialFiles = [
   'test/debit-note-output.test.ts',
   // Phase 4B-7: drives the job worker for remittance-advice PDFs and email.
   'test/remittance-output.test.ts',
+  // Phase 4B-8: drives the job worker for Purchases exports.
+  'test/purchases-data-exchange.test.ts',
 ];
 
 export default defineConfig({

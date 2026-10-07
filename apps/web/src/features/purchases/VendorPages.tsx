@@ -15,6 +15,7 @@ import { useAccounts } from '../accounting/shared';
 import type { PartySummary } from '../parties/types';
 import { orNull, StatusBadge, useOrgKey } from '../sales/shared';
 import { PurchasesNav } from './PurchasesSection';
+import { ExportButton } from '../data-exchange/ExportButton';
 import {
   fromRecoverableChoice,
   PURCHASE_ACCOUNT_SUBTYPES,
@@ -94,6 +95,9 @@ export function VendorsPage() {
         description={t('purchases.vendors.description')}
       />
       <PurchasesNav />
+      <p className="actions">
+        <ExportButton domain="vendors" label={t('purchases.vendors.export')} />
+      </p>
       <Card
         actions={
           <Can permission={Permission.VendorsCreate}>

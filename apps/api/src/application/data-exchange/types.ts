@@ -8,6 +8,7 @@ import type {
   RowMessage,
 } from '../../modules/data-exchange/index.js';
 import type { AccountingService } from '../accounting-service.js';
+import type { ApReportService } from '../ap-report-service.js';
 import type { ArReportService } from '../ar-report-service.js';
 import type { CustomerService } from '../customer-service.js';
 import type { InvoiceService } from '../invoice-service.js';
@@ -38,6 +39,8 @@ export interface DomainServices {
   items: ItemService;
   invoices: InvoiceService;
   arReports: ArReportService;
+  // Phase 4B-8: Purchases exports reuse the AP report bodies inside the export snapshot.
+  apReports: ApReportService;
 }
 
 export interface ImportField {

@@ -13,6 +13,7 @@ import { useAccounts } from '../accounting/shared';
 import { useItemOptions, useOrgKey } from '../sales/shared';
 import type { Page } from '../sales/types';
 import { PurchasesNav } from './PurchasesSection';
+import { ExportButton } from '../data-exchange/ExportButton';
 import {
   AP_AGING_BUCKETS,
   type ApAgingBucket,
@@ -162,6 +163,13 @@ function AgingView() {
   return (
     <Card>
       <AsOfForm onRun={setApplied} />
+      <p className="actions">
+        <ExportButton
+          domain="ap_aging"
+          params={{ asOf: applied }}
+          label={t('purchases.reports.export')}
+        />
+      </p>
       <Result query={report}>
         {(data) =>
           data.vendors.length === 0 ? (
@@ -560,6 +568,11 @@ function PeriodForm({
   );
 }
 
+/** Report filters as export parameters: blank filters are left out (the export schemas are strict). */
+function exportParams(applied: Record<string, string>) {
+  return Object.fromEntries(Object.entries(applied).filter(([, value]) => value !== ''));
+}
+
 function usePeriodForm<T extends Record<string, string>>(extra: T) {
   const [form, setFormState] = useState({ from: monthStart(), to: today(), ...extra });
   const [applied, setApplied] = useState(form);
@@ -715,6 +728,13 @@ function ByVendorView() {
       <PeriodForm form={p.form} setForm={p.setForm} onRun={p.run}>
         <VendorFilter value={p.form.vendorId} onChange={(v) => p.setForm({ vendorId: v })} />
       </PeriodForm>
+      <p className="actions">
+        <ExportButton
+          domain="purchases_by_vendor"
+          params={exportParams(p.applied)}
+          label={t('purchases.reports.export')}
+        />
+      </p>
       <Result query={report}>
         {(data) =>
           data.vendors.length === 0 ? (
@@ -1077,6 +1097,13 @@ function RegisterView() {
           </select>
         </div>
       </PeriodForm>
+      <p className="actions">
+        <ExportButton
+          domain="payment_register"
+          params={exportParams(p.applied)}
+          label={t('purchases.reports.export')}
+        />
+      </p>
       <Result query={report}>
         {(data) => (
           <>

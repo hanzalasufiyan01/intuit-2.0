@@ -19,6 +19,7 @@ import { ApprovalPanel } from '../sales/DocumentParts';
 import { orNull, StatusBadge, useOrgKey } from '../sales/shared';
 import type { Page } from '../sales/types';
 import { PurchasesNav } from './PurchasesSection';
+import { ExportButton } from '../data-exchange/ExportButton';
 import { RefundHistory, useRefundsOf } from './RefundPages';
 import { RemittancePanel } from './RemittancePanel';
 import type {
@@ -105,6 +106,9 @@ export function PaymentsPage() {
         description={t('purchases.payments.description')}
       />
       <PurchasesNav />
+      <p className="actions">
+        <ExportButton domain="vendor_payments" label={t('purchases.payments.export')} />
+      </p>
       {canCreate ? (
         <p className="actions">
           <Link className="btn" to="/purchases/payments/new">
