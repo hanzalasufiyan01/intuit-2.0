@@ -178,6 +178,54 @@ export interface BillDetail extends BillSummary {
 }
 
 // ---------------------------------------------------------------------------
+// Direct expenses (Phase 4B-9; P4-44)
+// ---------------------------------------------------------------------------
+
+export type ExpenseStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'POSTED' | 'VOID';
+
+export interface ExpenseSummary {
+  id: string;
+  status: ExpenseStatus;
+  number: string | null;
+  vendorId: string;
+  vendorName: string | null;
+  vendorReference: string | null;
+  expenseDate: string;
+  currencyCode: string;
+  paymentAccountId: string | null;
+  subtotal: string;
+  discountTotal: string;
+  taxTotal: string;
+  recoverableTaxTotal: string;
+  total: string;
+  baseTotal: string | null;
+  version: number;
+  postedAt: string | null;
+  voidedAt: string | null;
+}
+
+export interface ExpenseDetail extends ExpenseSummary {
+  defaultPaymentAccountId: string | null;
+  exchangeRate: string | null;
+  exchangeRateSource: 'base' | 'table' | 'manual' | null;
+  tableRate: string | null;
+  rateOverride: string | null;
+  rateOverrideReason: string | null;
+  taxTreatment: 'exclusive' | 'inclusive' | 'no_tax';
+  discount: { type: 'percent' | 'amount'; value: string } | null;
+  memo: string;
+  dimensionValueIds: string[];
+  journalId: string | null;
+  voidReason: string | null;
+  voidJournalId: string | null;
+  createdByUserId: string;
+  baseCurrency: string;
+  lines: BillLine[];
+  approval: BillDetail['approval'];
+  warnings: { code: string; message: string }[];
+}
+
+// ---------------------------------------------------------------------------
 // Vendor credits and debit notes (Phase 4B-1; P4-23, P4-24)
 // ---------------------------------------------------------------------------
 

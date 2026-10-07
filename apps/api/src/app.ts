@@ -16,6 +16,7 @@ import { PurchasesSettingsService } from './application/purchases-settings-servi
 import { ItemService } from './application/item-service.js';
 import { InvoiceService } from './application/invoice-service.js';
 import { BillService } from './application/bill-service.js';
+import { ExpenseService } from './application/expense-service.js';
 import { VendorCreditService } from './application/vendor-credit-service.js';
 import { VendorPaymentService } from './application/vendor-payment-service.js';
 import { VendorRefundService } from './application/vendor-refund-service.js';
@@ -121,6 +122,7 @@ export interface BuiltApp {
     items: ItemService;
     invoices: InvoiceService;
     bills: BillService;
+    expenses: ExpenseService;
     vendorCredits: VendorCreditService;
     purchasesOutput: PurchasesOutputService;
     remittance: RemittanceService;
@@ -187,6 +189,8 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   const invoices = new InvoiceService(deps, approvals, journals, idempotency, salesOutput);
   // Phase 4A-5: bills (ADR 0004 P4-15 to P4-22).
   const bills = new BillService(deps, approvals, journals, idempotency);
+  // Phase 4B-9: direct expenses (ADR 0004 P4-44).
+  const expenses = new ExpenseService(deps, approvals, journals, idempotency);
   // Phase 4B-1: vendor credits and debit notes, with debit-note PDFs and email (P4-23, P4-46).
   const purchasesOutput = new PurchasesOutputService(deps, files, jobs, new PdfkitRenderer());
   // Phase 4B-7: vendor remittance advice PDF and email (P4-46), output only.
@@ -260,6 +264,7 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     // Phase 4A-4: Purchases settings, numbering and the AP control account (P4-07, P4-08, P4-51).
     purchasesSettings: new PurchasesSettingsService(deps, accounting),
     bills,
+    expenses,
     vendorCredits,
     vendorPayments,
     vendorRefunds,

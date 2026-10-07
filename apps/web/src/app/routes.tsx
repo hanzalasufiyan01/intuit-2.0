@@ -31,6 +31,12 @@ import {
   PaymentBatchesPage,
 } from '../features/purchases/PayBillsPages';
 import { PurchasesReportsPage } from '../features/purchases/ReportsPage';
+import {
+  EditExpensePage,
+  ExpenseDetailPage,
+  ExpensesPage,
+  NewExpensePage,
+} from '../features/purchases/ExpensePages';
 import { PurchasesSearchPage } from '../features/purchases/PurchasesSearchPage';
 import { NewVendorPage, VendorDetailPage, VendorsPage } from '../features/purchases/VendorPages';
 import { AccountingDashboardPage } from '../features/accounting/AccountingDashboardPage';
@@ -492,6 +498,15 @@ export const routes: RouteObject[] = [
               // Phase 4A-5: bills (P4-15 to P4-22).
               ...(
                 [
+                  // Phase 4B-9: direct expenses (P4-44).
+                  ['expenses', Permission.ExpensesView, <ExpensesPage key="expenses" />],
+                  ['expenses/new', Permission.ExpensesCreate, <NewExpensePage key="new-expense" />],
+                  ['expenses/:id', Permission.ExpensesView, <ExpenseDetailPage key="expense" />],
+                  [
+                    'expenses/:id/edit',
+                    Permission.ExpensesCreate,
+                    <EditExpensePage key="edit-expense" />,
+                  ],
                   ['bills', Permission.BillsView, <BillsPage key="bills" />],
                   ['bills/new', Permission.BillsCreate, <NewBillPage key="new-bill" />],
                   ['bills/:id', Permission.BillsView, <BillDetailPage key="bill" />],

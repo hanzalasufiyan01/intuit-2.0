@@ -10,7 +10,10 @@ import { catalogPermissionDefinitions } from '../modules/catalog/index.js';
 import { organizationPermissionDefinitions } from '../modules/organizations/index.js';
 import { customerPermissionDefinitions } from '../modules/customers/index.js';
 import { partyPermissionDefinitions } from '../modules/parties/index.js';
-import { purchasesPermissionDefinitions } from '../modules/purchases/index.js';
+import {
+  expensePermissionDefinitions,
+  purchasesPermissionDefinitions,
+} from '../modules/purchases/index.js';
 import { salesPermissionDefinitions } from '../modules/sales/index.js';
 import { taxPermissionDefinitions } from '../modules/tax/index.js';
 import { vendorPermissionDefinitions } from '../modules/vendors/index.js';
@@ -35,4 +38,6 @@ export const permissionCatalog: readonly PermissionDefinition[] = validatePermis
   // Phase 4A-4 (P4-06, P4-39): the shared catalog key and Purchases settings.
   ...catalogPermissionDefinitions,
   ...purchasesPermissionDefinitions,
+  // Phase 4B-9 (P4-37, P4-39): direct expenses.
+  ...expensePermissionDefinitions,
 ]);

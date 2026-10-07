@@ -1,6 +1,7 @@
 import type { Transaction } from '../database/client.js';
 import {
   getBill,
+  getExpense,
   getPayment,
   getRefund,
   getVendorCredit,
@@ -130,6 +131,13 @@ export function createSourceDocumentRegistry(): SourceDocumentRegistry {
     const bill = await getBill(tx, organizationId, id);
     return bill
       ? doc('purchases', 'bill', id, bill.number, 'Bill', `/purchases/bills/${id}`)
+      : null;
+  });
+  // Phase 4B-9: a direct expense (EXP-).
+  registry.register('purchases', 'expense', async (tx, organizationId, id) => {
+    const expense = await getExpense(tx, organizationId, id);
+    return expense
+      ? doc('purchases', 'expense', id, expense.number, 'Expense', `/purchases/expenses/${id}`)
       : null;
   });
   registry.register('purchases', 'vendor_credit', purchasesVendorCredit);

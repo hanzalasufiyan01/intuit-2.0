@@ -88,6 +88,11 @@ export const Permission = {
   VendorPaymentsCreate: 'vendor_payments.create',
   VendorPaymentsVoid: 'vendor_payments.void',
   VendorPaymentsApprove: 'vendor_payments.approve',
+  // Phase 4B-9: direct expenses (P4-39).
+  ExpensesView: 'expenses.view',
+  ExpensesCreate: 'expenses.create',
+  ExpensesVoid: 'expenses.void',
+  ExpensesApprove: 'expenses.approve',
 } as const;
 export type PermissionKey = (typeof Permission)[keyof typeof Permission];
 

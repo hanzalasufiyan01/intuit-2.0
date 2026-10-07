@@ -25,6 +25,8 @@ export const fileLinkTypes = [
   'vendor_credit',
   // Phase 4B-7: generated remittance-advice PDFs, kept under legal hold (P4-46; no uploads).
   'vendor_payment',
+  // Phase 4B-9: expense receipts (evidence), removable only while the expense is a draft.
+  'expense',
 ] as const;
 export type FileLinkType = (typeof fileLinkTypes)[number];
 

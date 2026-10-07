@@ -9,7 +9,9 @@ import { getParty, PartyPermissions } from '../modules/parties/index.js';
 import { getCreditNote, getInvoice, getReceipt, SalesPermissions } from '../modules/sales/index.js';
 import {
   BillPermissions,
+  ExpensePermissions,
   getBill,
+  getExpense,
   getPayment,
   getVendorCredit,
   VendorCreditPermissions,
@@ -188,6 +190,29 @@ export const attachmentTargets: ReadonlyMap<FileLinkType, AttachmentTarget> = ne
               removable: false,
               removableReason:
                 'Vendor credit evidence cannot be removed once the credit is submitted or posted.',
+            };
+      },
+    },
+  ],
+  // Phase 4B-9: expense receipts (the evidence) can be added at any time and removed only while
+  // the expense is a draft, like bill evidence.
+  [
+    'expense',
+    {
+      linkType: 'expense',
+      allowedTypes: ALL_TYPES,
+      viewPermission: ExpensePermissions.View,
+      changePermission: ExpensePermissions.Create,
+      resolve: async (tx, organizationId, linkId) => {
+        if (!linkId) return null;
+        const expense = await getExpense(tx, organizationId, linkId);
+        if (!expense) return null;
+        return expense.status === 'DRAFT'
+          ? { removable: true }
+          : {
+              removable: false,
+              removableReason:
+                'Expense receipts cannot be removed once the expense is submitted or posted.',
             };
       },
     },

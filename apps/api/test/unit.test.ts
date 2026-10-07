@@ -118,6 +118,10 @@ describe('permission catalog', () => {
       'customers.create',
       'customers.update',
       'customers.view',
+      'expenses.approve', // Phase 4B-9 (ADR 0004 P4-39)
+      'expenses.create',
+      'expenses.view',
+      'expenses.void',
       'invoices.approve', // Phase 3B (D11, Decision 30)
       'invoices.create',
       'invoices.delete_draft',
@@ -174,6 +178,7 @@ describe('permission catalog', () => {
       'bills.view', // Phase 4A-5 (ADR 0004 P4-40)
       'credit_notes.view', // Phase 3B (D14): Sales view-only
       'customers.view',
+      'expenses.view', // Phase 4B-9 (P4-40)
       'invoices.view',
       'members.read',
       'organization.read',

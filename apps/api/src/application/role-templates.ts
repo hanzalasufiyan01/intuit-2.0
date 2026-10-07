@@ -13,6 +13,8 @@ import { PartyPermissions } from '../modules/parties/index.js';
 import {
   BillPermissions,
   billViewPermissions,
+  ExpensePermissions,
+  expenseViewPermissions,
   PurchasesPermissions,
   purchasesReportViewPermissions,
   VendorCreditPermissions,
@@ -70,6 +72,8 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       ...Object.values(VendorCreditPermissions),
       // Phase 4B-2 (P4-39): all vendor-payment permissions.
       ...Object.values(VendorPaymentPermissions),
+      // Phase 4B-9 (P4-39): all direct-expense permissions.
+      ...Object.values(ExpensePermissions),
     ],
   },
   {
@@ -98,6 +102,8 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       ...vendorPaymentViewPermissions,
       // Phase 4B-5 (P4-40, PD3): AP reports.
       ...purchasesReportViewPermissions,
+      // Phase 4B-9 (P4-40): expense view.
+      ...expenseViewPermissions,
     ],
   },
 ];

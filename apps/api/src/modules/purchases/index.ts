@@ -4,6 +4,11 @@
  */
 export * from './ap-positions.js';
 export * from './bills.js';
+// Phase 4B-9: direct expenses.
+export * from './expense-permissions.js';
+export * from './expenses.js';
+export { expenseStatuses } from './expense-schema.js';
+export type { ExpenseStatus } from './expense-schema.js';
 export * from './payment-batches.js';
 export * from './payments.js';
 export * from './permissions.js';

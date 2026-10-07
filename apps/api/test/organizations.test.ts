@@ -61,7 +61,7 @@ describe('organizations and ownership', () => {
     // Phase 4 adds 4 vendors.* keys (ADR 0004 P4-39); 4A-4 adds catalog.items.manage and
     // purchases.settings.manage (P4-06, P4-39); 4A-5 adds the 7 bills.* keys; 4B-1 the 5 vendor_credits.* keys;
     // 4B-2 the 4 vendor_payments.* keys; 4B-5 purchases.reports.view (PD3).
-    expect(ownerRole.permissionKeys).toHaveLength(78);
+    expect(ownerRole.permissionKeys).toHaveLength(82);
     const member = roles.body.data.find((r: { name: string }) => r.name === 'Member');
     expect(member.permissionKeys).toEqual([
       'accounting.accounts.view',
@@ -73,6 +73,7 @@ describe('organizations and ownership', () => {
       'bills.view', // Phase 4A-5 (ADR 0004 P4-40)
       'credit_notes.view', // Phase 3B (D14): Sales view-only
       'customers.view',
+      'expenses.view',
       'invoices.view',
       'members.read',
       'organization.read',
@@ -157,6 +158,7 @@ describe('invitations', () => {
       'bills.view', // Phase 4A-5 (ADR 0004 P4-40)
       'credit_notes.view', // Phase 3B (D14): Sales view-only
       'customers.view',
+      'expenses.view',
       'invoices.view',
       'members.read',
       'organization.read',
@@ -570,6 +572,7 @@ describe('cross-organization isolation', () => {
       'bills.view', // Phase 4A-5 (ADR 0004 P4-40)
       'credit_notes.view', // Phase 3B (D14): Sales view-only
       'customers.view',
+      'expenses.view',
       'invoices.view',
       'members.read',
       'organization.read',

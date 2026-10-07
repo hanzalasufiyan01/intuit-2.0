@@ -26,6 +26,7 @@ import type { PurchasesSettingsService } from '../../application/purchases-setti
 import type { ItemService } from '../../application/item-service.js';
 import type { InvoiceService } from '../../application/invoice-service.js';
 import type { BillService } from '../../application/bill-service.js';
+import type { ExpenseService } from '../../application/expense-service.js';
 import type { VendorCreditService } from '../../application/vendor-credit-service.js';
 import type { VendorPaymentService } from '../../application/vendor-payment-service.js';
 import type { VendorRefundService } from '../../application/vendor-refund-service.js';
@@ -58,6 +59,7 @@ import { registerPurchasesRoutes } from './purchases.routes.js';
 import { registerSalesRoutes } from './sales.routes.js';
 import { registerInvoiceRoutes } from './invoices.routes.js';
 import { registerBillRoutes } from './bills.routes.js';
+import { registerExpenseRoutes } from './expenses.routes.js';
 import { registerVendorCreditRoutes } from './vendor-credits.routes.js';
 import { registerVendorPaymentRoutes } from './vendor-payments.routes.js';
 import { registerVendorRefundRoutes } from './vendor-refunds.routes.js';
@@ -96,6 +98,7 @@ export interface ApiV1Services {
   items: ItemService;
   invoices: InvoiceService;
   bills: BillService;
+  expenses: ExpenseService;
   vendorCredits: VendorCreditService;
   vendorPayments: VendorPaymentService;
   vendorRefunds: VendorRefundService;
@@ -143,6 +146,7 @@ export function apiV1(deps: AppDependencies, services: ApiV1Services) {
     registerVendorRoutes(app, services);
     registerPurchasesRoutes(app, services);
     registerBillRoutes(app, services);
+    registerExpenseRoutes(app, services);
     registerVendorCreditRoutes(app, services);
     registerVendorPaymentRoutes(app, services);
     registerVendorRefundRoutes(app, services);
