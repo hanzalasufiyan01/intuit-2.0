@@ -225,6 +225,25 @@ export async function updateRevaluationRun(
   return row;
 }
 
+/** Removes a DRAFT run (the database refuses any other status); its lines cascade. */
+export async function deleteRevaluationRun(
+  tx: Transaction,
+  organizationId: string,
+  runId: string,
+): Promise<boolean> {
+  const rows = await tx
+    .delete(accountingRevaluationRuns)
+    .where(
+      and(
+        eq(accountingRevaluationRuns.organizationId, organizationId),
+        eq(accountingRevaluationRuns.id, runId),
+        eq(accountingRevaluationRuns.status, 'DRAFT'),
+      ),
+    )
+    .returning({ id: accountingRevaluationRuns.id });
+  return rows.length > 0;
+}
+
 export async function insertRevaluationLines(
   tx: Transaction,
   rows: (typeof accountingRevaluationLines.$inferInsert)[],

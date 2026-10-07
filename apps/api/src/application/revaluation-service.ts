@@ -1,9 +1,10 @@
 import { AppError, ConflictError, NotFoundError, ValidationError } from '../domain/errors.js';
-import { decimal, isSupportedCurrency, parseRate } from '../domain/money.js';
+import { decimal, isSupportedCurrency, minorUnits, parseRate } from '../domain/money.js';
 import type { Transaction } from '../database/client.js';
 import {
   AccountingPermissions,
   addDays,
+  deleteRevaluationRun,
   findActiveRunForDate,
   findApplicableRate,
   findPeriodForDate,
@@ -25,20 +26,31 @@ import {
   updateRevaluationRun,
   type ClosingRate,
   type RevaluationExposure,
+  type RevaluationLine,
   type RevaluationPlan,
   type RevaluationRun,
   type RuleIssue,
 } from '../modules/accounting/index.js';
+import { getApprovalRequest, type ApprovalFacts } from '../modules/approvals/index.js';
 import { recordAuditEvent, type EventOrigin } from '../modules/audit/index.js';
 import { requireAccountingSettings } from './accounting-service.js';
+import type { ApprovalService } from './approval-service.js';
 import type { AuthorizationContext, Principal } from './authorization.js';
 import type { AppDependencies } from './dependencies.js';
 import { MAX_JOURNAL_LINES, type JournalService } from './journal-service.js';
 import { withOrganization } from './organization-service.js';
 import type { RevaluationExposureRegistry } from './revaluation-exposures.js';
+import { documentApprovalState } from './sales-documents.js';
 
 const RESOURCE = 'accounting_revaluation_run';
+/** P4-52: the approval action of the revaluation user workflow, on the S9 PENDING_APPROVAL state. */
+export const REVALUATION_POST_ACTION = 'accounting.revaluation.post';
 const invalidState = (message: string) => new ConflictError('INVALID_STATE_TRANSITION', message);
+const versionConflict = () =>
+  new ConflictError(
+    'VERSION_CONFLICT',
+    'The revaluation run was changed by someone else. Reload and try again.',
+  );
 
 type Settings = Awaited<ReturnType<typeof requireAccountingSettings>>;
 
@@ -90,7 +102,41 @@ export class RevaluationService {
     private readonly deps: AppDependencies,
     private readonly journals: JournalService,
     readonly providers: RevaluationExposureRegistry,
-  ) {}
+    private readonly approvals: ApprovalService,
+  ) {
+    approvals.register({
+      actionKey: REVALUATION_POST_ACTION,
+      label: 'Approve foreign-currency revaluations before posting',
+      subjectType: RESOURCE,
+      approverPermission: AccountingPermissions.JournalsApprove,
+      decisionRequiresReauth: false,
+      // P4-52: the size of the revaluation in base (gain plus loss); the type is `revaluation`.
+      conditions: { amount: true, transactionTypes: ['revaluation'] },
+      onApproved: async (tx, { request, authz, now, origin }) => {
+        // Approval authorizes; the run stays pending until someone posts it.
+        await this.audit(tx, authz, 'revaluation.approved', request.subjectId, now, origin, {
+          approvalRequestId: request.id,
+        });
+      },
+      onRejected: async (tx, { request, authz, comment, now, origin }) => {
+        if (!comment?.trim()) {
+          throw new ValidationError([
+            { path: 'comment', message: 'Give a reason for rejecting the revaluation.' },
+          ]);
+        }
+        const run = await getRevaluationRun(tx, authz.organizationId, request.subjectId, {
+          forUpdate: true,
+        });
+        if (!run || run.status !== 'PENDING_APPROVAL') {
+          throw invalidState('The revaluation is no longer awaiting approval.');
+        }
+        await this.discardPending(tx, authz, run, now, origin, 'revaluation.rejected', {
+          approvalRequestId: request.id,
+          comment: comment.trim(),
+        });
+      },
+    });
+  }
 
   private get now() {
     return this.deps.clock.now();
@@ -141,7 +187,7 @@ export class RevaluationService {
       async (tx, ctx) => {
         const run = await getRevaluationRun(tx, ctx.organizationId, runId);
         if (!run) throw new NotFoundError('Revaluation run not found.');
-        return this.detail(tx, ctx.organizationId, run);
+        return this.detailWithApproval(tx, ctx, run);
       },
     );
   }
@@ -191,7 +237,19 @@ export class RevaluationService {
       async (tx, ctx) => {
         const settings = await requireAccountingSettings(tx, ctx.organizationId);
         const evaluation = await this.evaluate(tx, ctx.organizationId, settings, input);
+        const approvalRequired =
+          evaluation.plan && !evaluation.errors.length
+            ? (
+                await this.approvals.requirementFor(
+                  tx,
+                  ctx.organizationId,
+                  REVALUATION_POST_ACTION,
+                  this.factsOf(evaluation.plan, settings.baseCurrency),
+                )
+              ).required
+            : false;
         return {
+          approvalRequired,
           revaluationDate: evaluation.revaluationDate,
           reversalDate: evaluation.reversalDate,
           errors: evaluation.errors.map(({ path, message }) => ({ path, message })),
@@ -228,7 +286,10 @@ export class RevaluationService {
   // Posting
   // ---------------------------------------------------------------------------
 
-  /** Posts a run (S9): `accounting.journals.post` plus re-authentication. */
+  /**
+   * Posts a run (S9): `accounting.journals.post` plus re-authentication. When an approval policy
+   * applies to the run (Phase 4B-10, P4-52), it is refused and must go through `submit`.
+   */
   post(principal: Principal, input: RevaluationInput, origin: EventOrigin) {
     return withOrganization(
       this.deps,
@@ -245,9 +306,9 @@ export class RevaluationService {
 
   /**
    * The posting sequence, in the caller's transaction (the caller has authorized the action):
-   * lock, idempotency and duplicate checks, calculation, the DRAFT run and its lines, one
-   * revaluation journal per currency on D with its mirrored reversal on D + 1, the journal links,
-   * the move to POSTED and the audit event. Any failure rolls all of it back.
+   * lock, idempotency and duplicate checks, calculation, the approval check, the DRAFT run and its
+   * lines, one revaluation journal per currency on D with its mirrored reversal on D + 1, the
+   * journal links, the move to POSTED and the audit event. Any failure rolls all of it back.
    */
   async postInTransaction(
     tx: Transaction,
@@ -264,71 +325,137 @@ export class RevaluationService {
     const runKey = input.runKey?.trim() || null;
     await lockRevaluation(tx, actor.organizationId);
 
+    const replay = await this.guardNewRun(tx, actor.organizationId, runKey, input.revaluationDate);
+    if (replay) return { ...(await this.detail(tx, actor.organizationId, replay)), replayed: true };
+
+    const evaluation = await this.evaluate(tx, actor.organizationId, settings, input);
+    const plan = this.assertPostable(evaluation);
+    // P4-52 / S10: a policy step that matches the run's facts means it is approved, then posted.
+    const facts = this.factsOf(plan, settings.baseCurrency);
+    const requirement = await this.approvals.requirementFor(
+      tx,
+      actor.organizationId,
+      REVALUATION_POST_ACTION,
+      facts,
+    );
+    if (requirement.required) {
+      throw new AppError(
+        'APPROVAL_REQUIRED',
+        409,
+        'This revaluation needs approval: submit it for approval first.',
+      );
+    }
+
+    const now = this.now;
+    const run = await this.createRun(tx, actor, settings, evaluation, plan, runKey, options, now);
+    const updated = await this.postRunJournals(tx, actor, run, evaluation, plan, origin, now, {
+      trigger: options.trigger,
+      reauthentication: options.reauthentication,
+      from: 'DRAFT',
+    });
+    return { ...(await this.detail(tx, actor.organizationId, updated)), replayed: false };
+  }
+
+  /** Idempotent retry by run key, and one active run per revaluation date. */
+  private async guardNewRun(
+    tx: Transaction,
+    organizationId: string,
+    runKey: string | null,
+    revaluationDate: string,
+  ): Promise<RevaluationRun | null> {
     if (runKey) {
-      const existing = await findRunByKey(tx, actor.organizationId, runKey);
+      const existing = await findRunByKey(tx, organizationId, runKey);
       if (existing) {
-        if (existing.revaluationDate !== input.revaluationDate) {
+        if (existing.revaluationDate !== revaluationDate) {
           throw new ConflictError(
             'IDEMPOTENCY_CONFLICT',
             'This run key was already used for a revaluation at another date.',
           );
         }
-        return { ...(await this.detail(tx, actor.organizationId, existing)), replayed: true };
+        return existing;
       }
     }
-    if (isValidIsoDate(input.revaluationDate)) {
-      const active = await findActiveRunForDate(tx, actor.organizationId, input.revaluationDate);
+    if (isValidIsoDate(revaluationDate)) {
+      const active = await findActiveRunForDate(tx, organizationId, revaluationDate);
       if (active) {
         throw new ConflictError(
           'CONFLICT',
-          `A revaluation at ${input.revaluationDate} is already posted. Cancel it before revaluing that date again.`,
+          active.status === 'POSTED'
+            ? `A revaluation at ${revaluationDate} is already posted. Cancel it before revaluing that date again.`
+            : `A revaluation at ${revaluationDate} is already awaiting approval. Withdraw it before revaluing that date again.`,
         );
       }
     }
+    return null;
+  }
 
-    const evaluation = await this.evaluate(tx, actor.organizationId, settings, input);
+  /** The calculation must be free of blocking problems; returns its plan. */
+  private assertPostable(evaluation: Evaluation): RevaluationPlan {
     const coded = evaluation.errors.find((e) => e.code);
     if (coded?.code) throw new AppError(coded.code, 409, coded.message);
     if (evaluation.errors.length || !evaluation.plan || !evaluation.unrealizedAccountId) {
       throw new ValidationError(evaluation.errors, 'The revaluation cannot be posted.');
     }
-    const { plan } = evaluation;
+    return evaluation.plan;
+  }
 
-    const now = this.now;
+  /** The approval facts of a run: the revaluation's size in base (gain plus loss). */
+  private factsOf(plan: RevaluationPlan, baseCurrency: string): ApprovalFacts {
+    return {
+      transactionType: 'revaluation',
+      baseAmount: decimal(plan.totals.gain)
+        .plus(plan.totals.loss)
+        .toFixed(minorUnits(baseCurrency)),
+      baseCurrency,
+    };
+  }
+
+  /** Inserts the DRAFT run with its calculated lines. */
+  private async createRun(
+    tx: Transaction,
+    actor: Actor,
+    settings: Settings,
+    evaluation: Evaluation,
+    plan: RevaluationPlan,
+    runKey: string | null,
+    options: { trigger: 'user' | 'job'; jobId: string | null },
+    now: Date,
+  ): Promise<RevaluationRun> {
     const run = await insertRevaluationRun(tx, {
       organizationId: actor.organizationId,
       revaluationDate: evaluation.revaluationDate,
       reversalDate: evaluation.reversalDate,
       baseCurrency: settings.baseCurrency,
-      unrealizedAccountId: evaluation.unrealizedAccountId,
+      unrealizedAccountId: evaluation.unrealizedAccountId!,
       runKey,
       trigger: options.trigger,
       jobId: options.jobId,
       userId: actor.userId!,
       now,
     });
-    await insertRevaluationLines(
-      tx,
-      plan.lines.map((l) => ({
-        organizationId: actor.organizationId,
-        runId: run.id,
-        lineNumber: l.lineNumber,
-        exposureKind: l.exposure.kind,
-        accountId: l.exposure.accountId,
-        currencyCode: l.exposure.currency,
-        documentModule: l.exposure.document?.module ?? null,
-        documentType: l.exposure.document?.type ?? null,
-        documentId: l.exposure.document?.id ?? null,
-        foreignBalance: l.exposure.foreignBalance,
-        carryingBase: l.exposure.carryingBase,
-        rate: l.rate.rate,
-        rateDate: l.rate.rateDate,
-        rateSource: l.rate.source,
-        revaluedBase: l.revaluedBase,
-        adjustment: l.adjustment,
-      })),
-    );
+    await insertRevaluationLines(tx, lineRows(actor.organizationId, run.id, plan));
+    return run;
+  }
 
+  /**
+   * Posts the journals of a DRAFT run: one revaluation journal per currency on D with its mirrored
+   * reversal on D + 1, the links, the move to POSTED and the audit event (S9, unchanged).
+   */
+  private async postRunJournals(
+    tx: Transaction,
+    actor: Actor,
+    run: RevaluationRun,
+    evaluation: Evaluation,
+    plan: RevaluationPlan,
+    origin: EventOrigin,
+    now: Date,
+    options: {
+      trigger: 'user' | 'job';
+      reauthentication: RevaluationReauthentication;
+      from: 'DRAFT';
+      approvalRequestId?: string | null;
+    },
+  ): Promise<RevaluationRun> {
     const posted: { currency: string; journalId: string; reversalJournalId: string }[] = [];
     for (const journal of plan.journals) {
       const revaluation = await this.journals.postSystemJournal(
@@ -382,7 +509,7 @@ export class RevaluationService {
     const updated = await updateRevaluationRun(tx, {
       organizationId: actor.organizationId,
       runId: run.id,
-      from: 'DRAFT',
+      from: options.from,
       set: {
         status: 'POSTED',
         netAdjustment: plan.totals.net,
@@ -410,8 +537,251 @@ export class RevaluationService {
       journals: posted,
       warnings: evaluation.warnings.length,
       reauthentication: options.reauthentication,
+      ...(options.approvalRequestId ? { approvalRequestId: options.approvalRequestId } : {}),
     });
-    return { ...(await this.detail(tx, actor.organizationId, updated)), replayed: false };
+    return updated;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Approval (Phase 4B-10; P4-52): submit, post the approved run, withdraw
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Calculates the run and, when an approval policy step matches its facts, saves it as
+   * PENDING_APPROVAL with an approval request; nothing is posted. The approvers authorize exactly
+   * this calculation: posting it later recomputes and refuses if balances or rates have changed.
+   * `accounting.journals.post` is needed; there is no self-approval.
+   */
+  submit(principal: Principal, input: RevaluationInput, origin: EventOrigin) {
+    return withOrganization(
+      this.deps,
+      principal,
+      { permission: AccountingPermissions.JournalsPost },
+      async (tx, ctx) => {
+        const settings = await requireAccountingSettings(tx, ctx.organizationId);
+        const runKey = input.runKey?.trim() || null;
+        await lockRevaluation(tx, ctx.organizationId);
+        const replay = await this.guardNewRun(
+          tx,
+          ctx.organizationId,
+          runKey,
+          input.revaluationDate,
+        );
+        if (replay) {
+          return { ...(await this.detailWithApproval(tx, ctx, replay)), replayed: true };
+        }
+        const evaluation = await this.evaluate(tx, ctx.organizationId, settings, input);
+        const plan = this.assertPostable(evaluation);
+        const facts = this.factsOf(plan, settings.baseCurrency);
+        const now = this.now;
+        const run = await this.createRun(
+          tx,
+          ctx,
+          settings,
+          evaluation,
+          plan,
+          runKey,
+          { trigger: 'user', jobId: null },
+          now,
+        );
+        const request = await this.approvals.openRequest(tx, {
+          authz: ctx,
+          actionKey: REVALUATION_POST_ACTION,
+          subjectId: run.id,
+          // No self-approval: the submitter cannot approve their own revaluation.
+          excludedUserIds: [ctx.userId],
+          reason: null,
+          facts,
+          now,
+        });
+        if (!request) {
+          throw invalidState('No approval step applies to this revaluation; post it directly.');
+        }
+        const updated = await updateRevaluationRun(tx, {
+          organizationId: ctx.organizationId,
+          runId: run.id,
+          from: 'DRAFT',
+          set: {
+            status: 'PENDING_APPROVAL',
+            approvalRequestId: request.id,
+            netAdjustment: plan.totals.net,
+            totalGain: plan.totals.gain,
+            totalLoss: plan.totals.loss,
+            lineCount: plan.lines.length,
+            updatedByUserId: ctx.userId,
+            updatedAt: now,
+          },
+        });
+        if (!updated) throw invalidState('The revaluation run changed while submitting.');
+        await this.audit(tx, ctx, 'revaluation.submitted', run.id, now, origin, {
+          revaluationDate: run.revaluationDate,
+          approvalRequestId: request.id,
+          lineCount: plan.lines.length,
+          totalGain: plan.totals.gain,
+          totalLoss: plan.totals.loss,
+          facts,
+        });
+        return { ...(await this.detailWithApproval(tx, ctx, updated)), replayed: false };
+      },
+    );
+  }
+
+  /**
+   * Posts a run whose approval is complete (P4-52): `accounting.journals.post` plus
+   * re-authentication. The calculation is repeated and must equal the approved one.
+   */
+  postApproved(
+    principal: Principal,
+    runId: string,
+    input: { version: number },
+    origin: EventOrigin,
+  ) {
+    return withOrganization(
+      this.deps,
+      principal,
+      { permission: AccountingPermissions.JournalsPost, sensitive: true },
+      async (tx, ctx) => {
+        const settings = await requireAccountingSettings(tx, ctx.organizationId);
+        await lockRevaluation(tx, ctx.organizationId);
+        const run = await getRevaluationRun(tx, ctx.organizationId, runId, { forUpdate: true });
+        if (!run) throw new NotFoundError('Revaluation run not found.');
+        if (run.version !== input.version) throw versionConflict();
+        if (run.status !== 'PENDING_APPROVAL') {
+          throw invalidState('Only a revaluation awaiting approval can be posted this way.');
+        }
+        const evaluation = await this.evaluate(tx, ctx.organizationId, settings, {
+          revaluationDate: run.revaluationDate,
+        });
+        const plan = this.assertPostable(evaluation);
+        // The approvers authorized one calculation; balances or rates must not have moved.
+        const stored = await listRevaluationLines(tx, ctx.organizationId, run.id);
+        if (
+          evaluation.unrealizedAccountId !== run.unrealizedAccountId ||
+          !sameCalculation(stored, lineRows(ctx.organizationId, run.id, plan))
+        ) {
+          throw new AppError(
+            'APPROVAL_REQUIRED',
+            409,
+            'Balances or exchange rates have changed since this revaluation was submitted. Withdraw it and submit it again.',
+          );
+        }
+        const approval = await documentApprovalState(
+          this.approvals,
+          tx,
+          ctx.organizationId,
+          REVALUATION_POST_ACTION,
+          run,
+          this.factsOf(plan, settings.baseCurrency),
+        );
+        if (!approval.readyToIssue) {
+          throw new AppError(
+            'APPROVAL_REQUIRED',
+            409,
+            approval.approvalOutdated
+              ? 'The revaluation now needs further approval. Withdraw it and submit it again.'
+              : 'The revaluation has not received all required approvals.',
+          );
+        }
+        const now = this.now;
+        // Journals link to a DRAFT run only (migration 0017): the run returns to draft first.
+        const draft = await updateRevaluationRun(tx, {
+          organizationId: ctx.organizationId,
+          runId: run.id,
+          from: 'PENDING_APPROVAL',
+          version: run.version,
+          set: { status: 'DRAFT', updatedByUserId: ctx.userId, updatedAt: now },
+        });
+        if (!draft) throw versionConflict();
+        const updated = await this.postRunJournals(tx, ctx, draft, evaluation, plan, origin, now, {
+          trigger: 'user',
+          reauthentication: 'session',
+          from: 'DRAFT',
+          approvalRequestId: run.approvalRequestId,
+        });
+        return this.detailWithApproval(tx, ctx, updated);
+      },
+    );
+  }
+
+  /** Withdraws a run awaiting approval: the request is withdrawn and the draft run is removed. */
+  withdraw(principal: Principal, runId: string, input: { version: number }, origin: EventOrigin) {
+    return withOrganization(
+      this.deps,
+      principal,
+      { permission: AccountingPermissions.JournalsPost },
+      async (tx, ctx) => {
+        await lockRevaluation(tx, ctx.organizationId);
+        const run = await getRevaluationRun(tx, ctx.organizationId, runId, { forUpdate: true });
+        if (!run) throw new NotFoundError('Revaluation run not found.');
+        if (run.version !== input.version) throw versionConflict();
+        if (run.status !== 'PENDING_APPROVAL') {
+          throw invalidState('Only a revaluation awaiting approval can be withdrawn.');
+        }
+        const now = this.now;
+        const request = run.approvalRequestId
+          ? await getApprovalRequest(tx, ctx.organizationId, run.approvalRequestId, {
+              forUpdate: true,
+            })
+          : undefined;
+        if (request?.status === 'pending') {
+          await this.approvals.withdrawRequest(tx, ctx.organizationId, request.id, now);
+        }
+        await this.discardPending(tx, ctx, run, now, origin, 'revaluation.withdrawn', {
+          approvalRequestId: request?.id ?? null,
+        });
+        return { id: run.id, discarded: true };
+      },
+    );
+  }
+
+  /** Returns a pending run to draft and removes it, freeing its date; the audit event stays. */
+  private async discardPending(
+    tx: Transaction,
+    actor: Actor,
+    run: RevaluationRun,
+    now: Date,
+    origin: EventOrigin,
+    action: string,
+    metadata: Record<string, unknown>,
+  ) {
+    const draft = await updateRevaluationRun(tx, {
+      organizationId: actor.organizationId,
+      runId: run.id,
+      from: 'PENDING_APPROVAL',
+      set: { status: 'DRAFT', updatedByUserId: actor.userId, updatedAt: now },
+    });
+    if (!draft) throw invalidState('The revaluation run is no longer awaiting approval.');
+    await deleteRevaluationRun(tx, actor.organizationId, run.id);
+    await this.audit(tx, actor, action, run.id, now, origin, {
+      revaluationDate: run.revaluationDate,
+      ...metadata,
+    });
+  }
+
+  /** The run's detail with its approval state (the facts come from the stored totals). */
+  private async detailWithApproval(tx: Transaction, ctx: Actor, run: RevaluationRun) {
+    const detail = await this.detail(tx, ctx.organizationId, run);
+    const open = run.status === 'DRAFT' || run.status === 'PENDING_APPROVAL';
+    const facts = open ? this.factsOfTotals(run.totalGain, run.totalLoss, run.baseCurrency) : null;
+    return {
+      ...detail,
+      approval: await documentApprovalState(
+        this.approvals,
+        tx,
+        ctx.organizationId,
+        REVALUATION_POST_ACTION,
+        run,
+        facts,
+      ),
+    };
+  }
+
+  private factsOfTotals(gain: string, loss: string, baseCurrency: string): ApprovalFacts {
+    return {
+      transactionType: 'revaluation',
+      baseAmount: decimal(gain).plus(loss).toFixed(minorUnits(baseCurrency)),
+      baseCurrency,
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -720,6 +1090,64 @@ function trim(value: string): string {
   return decimal(value).toFixed();
 }
 
+/** The stored-line rows of a calculation (also the shape compared at approved post). */
+function lineRows(organizationId: string, runId: string, plan: RevaluationPlan) {
+  return plan.lines.map((l) => ({
+    organizationId,
+    runId,
+    lineNumber: l.lineNumber,
+    exposureKind: l.exposure.kind,
+    accountId: l.exposure.accountId,
+    currencyCode: l.exposure.currency,
+    documentModule: l.exposure.document?.module ?? null,
+    documentType: l.exposure.document?.type ?? null,
+    documentId: l.exposure.document?.id ?? null,
+    foreignBalance: l.exposure.foreignBalance,
+    carryingBase: l.exposure.carryingBase,
+    rate: l.rate.rate,
+    rateDate: l.rate.rateDate,
+    rateSource: l.rate.source,
+    revaluedBase: l.revaluedBase,
+    adjustment: l.adjustment,
+  }));
+}
+
+/** Whether a fresh calculation is the stored (approved) one, line by line. */
+function sameCalculation(
+  stored: readonly RevaluationLine[],
+  fresh: ReturnType<typeof lineRows>,
+): boolean {
+  const key = (l: {
+    lineNumber: number;
+    accountId: string;
+    currencyCode: string;
+    documentId: string | null;
+    foreignBalance: string;
+    carryingBase: string;
+    rate: string;
+    rateDate: string;
+    rateSource: string;
+    revaluedBase: string;
+    adjustment: string;
+  }) =>
+    [
+      l.lineNumber,
+      l.accountId,
+      l.currencyCode,
+      l.documentId ?? '',
+      trim(l.foreignBalance),
+      trim(l.carryingBase),
+      trim(l.rate),
+      l.rateDate,
+      l.rateSource,
+      trim(l.revaluedBase),
+      trim(l.adjustment),
+    ].join('|');
+  const a = stored.map(key).sort();
+  const b = fresh.map(key).sort();
+  return a.length === b.length && a.every((value, i) => value === b[i]);
+}
+
 function runView(run: RevaluationRun) {
   return {
     id: run.id,
@@ -741,5 +1169,6 @@ function runView(run: RevaluationRun) {
     postedAt: run.postedAt?.toISOString() ?? null,
     reversedAt: run.reversedAt?.toISOString() ?? null,
     reversalReason: run.reversalReason,
+    approvalRequestId: run.approvalRequestId,
   };
 }

@@ -31,6 +31,7 @@ import {
   PaymentBatchesPage,
 } from '../features/purchases/PayBillsPages';
 import { PurchasesReportsPage } from '../features/purchases/ReportsPage';
+import { RevaluationDetailPage, RevaluationsPage } from '../features/accounting/RevaluationPages';
 import {
   EditExpensePage,
   ExpenseDetailPage,
@@ -260,6 +261,23 @@ export const routes: RouteObject[] = [
                   >
                     <SetupPage />
                   </RequireAnyPermission>
+                ),
+              },
+              // Phase 4B-10: the revaluation user workflow (P4-52).
+              {
+                path: 'revaluations',
+                element: (
+                  <RequirePermission permission={Permission.JournalsView}>
+                    <RevaluationsPage />
+                  </RequirePermission>
+                ),
+              },
+              {
+                path: 'revaluations/:id',
+                element: (
+                  <RequirePermission permission={Permission.JournalsView}>
+                    <RevaluationDetailPage />
+                  </RequirePermission>
                 ),
               },
               ...(['opening-balances', 'opening-balances/:id'] as const).map((path) => ({

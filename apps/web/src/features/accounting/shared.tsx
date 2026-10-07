@@ -80,6 +80,7 @@ export function AccountingNav() {
         <NavLink to="/accounting/journals/approvals">Approval Queue</NavLink>
         <NavLink to="/accounting/journals/posted">Posted</NavLink>
         <NavLink to="/accounting/opening-balances">Opening Balances</NavLink>
+        <NavLink to="/accounting/revaluations">Revaluation</NavLink>
       </Can>
       <Can permission={Permission.PeriodsView}>
         <NavLink to="/accounting/fiscal-years">Fiscal Years</NavLink>

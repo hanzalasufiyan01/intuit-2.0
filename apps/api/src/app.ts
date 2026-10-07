@@ -231,7 +231,7 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   exposures.register(arReports);
   // Phase 4B-5 (PD6): open foreign-currency AP through the read-only `purchases.payables` provider.
   exposures.register(apReports);
-  const revaluations = new RevaluationService(deps, journals, exposures);
+  const revaluations = new RevaluationService(deps, journals, exposures, approvals);
   const services = {
     auth,
     organizations: new OrganizationService(deps),
