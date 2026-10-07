@@ -15,6 +15,7 @@ import { VendorService } from './application/vendor-service.js';
 import { PurchasesSettingsService } from './application/purchases-settings-service.js';
 import { ItemService } from './application/item-service.js';
 import { InventoryService } from './application/inventory-service.js';
+import { PurchaseOrderService } from './application/purchase-order-service.js';
 import { InvoiceService } from './application/invoice-service.js';
 import { BillService } from './application/bill-service.js';
 import { BankingPostingService } from './application/banking-posting-service.js';
@@ -129,6 +130,7 @@ export interface BuiltApp {
     banking: BankingService;
     bankingPosting: BankingPostingService;
     inventory: InventoryService;
+    purchaseOrders: PurchaseOrderService;
     vendorCredits: VendorCreditService;
     vendorPayments: VendorPaymentService;
     vendorRefunds: VendorRefundService;
@@ -206,7 +208,9 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     inventory,
   );
   // Phase 4A-5: bills (ADR 0004 P4-15 to P4-22).
-  const bills = new BillService(deps, approvals, journals, idempotency, inventory);
+  // Purchase orders, goods receiving and three-way matching (ADR 0007): additive to bills.
+  const purchaseOrders = new PurchaseOrderService(deps, approvals, idempotency);
+  const bills = new BillService(deps, approvals, journals, idempotency, inventory, purchaseOrders);
   // Phase 4B-9: direct expenses (ADR 0004 P4-44).
   const expenses = new ExpenseService(deps, approvals, journals, idempotency, inventory);
   // Banking: statements, matching, entries, transfers and reconciliation.
@@ -293,6 +297,7 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     banking,
     bankingPosting,
     inventory,
+    purchaseOrders,
     vendorCredits,
     vendorPayments,
     vendorRefunds,

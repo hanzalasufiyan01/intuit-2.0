@@ -5,6 +5,7 @@ import { requirePermission, type AuthorizationContext } from './authorization.js
 import { AccountingPermissions, getJournal, getOpeningBatch } from '../modules/accounting/index.js';
 import type { DetectedType, FileLinkType } from '../modules/files/index.js';
 import { OrganizationPermissions } from '../modules/organizations/index.js';
+import { getOrder, PurchaseOrderPermissions } from '../modules/purchase-orders/index.js';
 import { getParty, PartyPermissions } from '../modules/parties/index.js';
 import { getCreditNote, getInvoice, getReceipt, SalesPermissions } from '../modules/sales/index.js';
 import {
@@ -213,6 +214,28 @@ export const attachmentTargets: ReadonlyMap<FileLinkType, AttachmentTarget> = ne
               removable: false,
               removableReason:
                 'Expense receipts cannot be removed once the expense is submitted or posted.',
+            };
+      },
+    },
+  ],
+  // Purchase orders: supporting documents (quotes, agreements), removable only while a draft.
+  [
+    'purchase_order',
+    {
+      linkType: 'purchase_order',
+      allowedTypes: ALL_TYPES,
+      viewPermission: PurchaseOrderPermissions.View,
+      changePermission: PurchaseOrderPermissions.Create,
+      resolve: async (tx, organizationId, linkId) => {
+        if (!linkId) return null;
+        const order = await getOrder(tx, organizationId, linkId);
+        if (!order) return null;
+        return order.status === 'DRAFT'
+          ? { removable: true }
+          : {
+              removable: false,
+              removableReason:
+                'Purchase order documents cannot be removed once the order is submitted.',
             };
       },
     },

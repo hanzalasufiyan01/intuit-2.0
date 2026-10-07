@@ -103,6 +103,13 @@ export const Permission = {
   BankingTransfersVoid: 'banking.transfers.void',
   BankingReconcile: 'banking.reconcile',
   BankingRulesManage: 'banking.rules.manage',
+  // Purchase orders, goods receiving and three-way matching.
+  PurchaseOrdersView: 'purchase_orders.view',
+  PurchaseOrdersCreate: 'purchase_orders.create',
+  PurchaseOrdersApprove: 'purchase_orders.approve',
+  PurchaseOrdersReceive: 'purchase_orders.receive',
+  PurchaseOrdersClose: 'purchase_orders.close',
+  PurchaseOrdersSettingsManage: 'purchase_orders.settings.manage',
   // Inventory: tracked items, the stock ledger, adjustments and valuation.
   InventoryView: 'inventory.view',
   InventoryItemsManage: 'inventory.items.manage',

@@ -27,6 +27,8 @@ export const fileLinkTypes = [
   'vendor_payment',
   // Phase 4B-9: expense receipts (evidence), removable only while the expense is a draft.
   'expense',
+  // Purchase orders: supporting documents, removable only while the order is a draft.
+  'purchase_order',
 ] as const;
 export type FileLinkType = (typeof fileLinkTypes)[number];
 

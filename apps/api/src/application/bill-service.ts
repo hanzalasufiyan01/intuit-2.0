@@ -47,6 +47,7 @@ import type { AppDependencies } from './dependencies.js';
 import type { IdempotencyService } from './idempotency-service.js';
 import type { JournalService } from './journal-service.js';
 import type { InventoryHooks } from './inventory-hooks.js';
+import type { PurchaseOrderHooks } from './purchase-order-hooks.js';
 import { withOrganization } from './organization-service.js';
 import {
   openingCarryingValue,
@@ -166,6 +167,7 @@ export class BillService {
     private readonly journals: JournalService,
     private readonly idempotency: IdempotencyService,
     private readonly inventory?: InventoryHooks,
+    private readonly orders?: PurchaseOrderHooks,
   ) {
     approvals.register({
       actionKey: BILL_POST_ACTION,
@@ -1021,6 +1023,23 @@ export class BillService {
         resolved.lines.map((l) => ({ itemId: l.itemId ?? null, accountId: l.accountId ?? null })),
       );
     }
+    // Purchase orders: a bill linked to an order is matched to it (price, quantity received).
+    const matchPlan =
+      bill.kind !== 'opening'
+        ? await this.orders?.checkBill(
+            tx,
+            ctx,
+            { id },
+            resolved.lines.map((l, i) => ({
+              lineNo: i + 1,
+              itemId: l.itemId ?? null,
+              description: l.description,
+              quantity: l.quantity,
+              amount: l.amount,
+              lineDiscount: l.lineDiscount ?? '0',
+            })),
+          )
+        : null;
 
     const now = this.now;
     // Keep the recomputed values, the tax snapshot and the input accounts on the lines.
@@ -1223,6 +1242,7 @@ export class BillService {
       },
     });
     if (!posted) throw versionConflict();
+    if (matchPlan) await this.orders?.recordBill(tx, ctx, id, matchPlan, origin);
     // Inventory: tracked items bring stock in at the cost the bill posted (additive; the journal is untouched).
     if (posted.kind !== 'opening') {
       await this.inventory?.receiveBill(tx, ctx, {
@@ -1308,6 +1328,7 @@ export class BillService {
         const reason = input.reason.trim();
         // Inventory: the stock the bill brought leaves again (refused when it has been used).
         await this.inventory?.voidBill(tx, ctx, id);
+        await this.orders?.releaseBill(tx, ctx, id, origin);
         const reversal = await this.journals.reverseSubledgerJournalInTransaction(
           tx,
           ctx,

@@ -9,6 +9,7 @@ import { auditPermissionDefinitions } from '../modules/audit/index.js';
 import { bankingPermissionDefinitions } from '../modules/banking/index.js';
 import { catalogPermissionDefinitions } from '../modules/catalog/index.js';
 import { inventoryPermissionDefinitions } from '../modules/inventory/index.js';
+import { purchaseOrderPermissionDefinitions } from '../modules/purchase-orders/index.js';
 import { organizationPermissionDefinitions } from '../modules/organizations/index.js';
 import { customerPermissionDefinitions } from '../modules/customers/index.js';
 import { partyPermissionDefinitions } from '../modules/parties/index.js';
@@ -46,4 +47,6 @@ export const permissionCatalog: readonly PermissionDefinition[] = validatePermis
   ...bankingPermissionDefinitions,
   // Inventory: tracked items, the stock ledger, adjustments and valuation.
   ...inventoryPermissionDefinitions,
+  // Purchase orders, goods receiving and three-way matching.
+  ...purchaseOrderPermissionDefinitions,
 ]);

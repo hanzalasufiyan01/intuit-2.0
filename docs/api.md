@@ -246,6 +246,23 @@ Inventory is additive to Sales and Purchases: bills bring stock in, invoices tak
 
 `409 INSUFFICIENT_STOCK` is returned when an invoice, a bill void, an adjustment or its void would take stock below zero while negative stock is blocked.
 
+## Purchase orders and three-way matching (ADR 0007)
+
+An order creates no journal. Approve and reject use the shared approval routes (`purchases.order.approve`). A bill linked to an order is matched when it posts (mode, quantity and price tolerance from the matching settings). Totals come from the server; an `Idempotency-Key` is accepted on create, receive and create-bill.
+
+| Method           | Path                                              | Permission / notes                                                                                                                                   |
+| ---------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET, POST        | `/purchases/orders`                               | `purchase_orders.view` / `purchase_orders.create`; `status`, `vendorId`, `search`, `from`, `to`, `limit`, `after`                                    |
+| GET, PUT, DELETE | `/purchases/orders/:id`                           | view / `purchase_orders.create` (drafts only)                                                                                                        |
+| POST             | `/purchases/orders/:id/submit`, `/withdraw`       | `purchase_orders.create`; `{ version }`; submit numbers the order and approves it or opens an approval                                               |
+| POST             | `/purchases/orders/:id/close`, `/cancel`          | `purchase_orders.close`; `{ version, reason }` (reason optional on close)                                                                            |
+| POST             | `/purchases/orders/:id/receipts`                  | `purchase_orders.receive`; `{ receiptDate, lines: [{ orderLineId, quantity }] }`                                                                     |
+| GET              | `/purchases/receipts[/:id]`                       | view; `orderId` filters the list                                                                                                                     |
+| POST             | `/purchases/receipts/:id/void`                    | `purchase_orders.receive`; `{ version, reason }`                                                                                                     |
+| POST             | `/purchases/orders/:id/create-bill`, `/link-bill` | `purchase_orders.create` + `bills.create`; `{ basis: "received" \| "ordered", billDate, vendorReference? }` / `{ billId }`                           |
+| GET, PUT         | `/purchases/order-settings`                       | view / `purchase_orders.settings.manage` + re-auth; `{ version, matchMode: "off" \| "warning" \| "block", quantityTolerancePct, priceTolerancePct }` |
+| GET              | `/purchases/reports/commitments`                  | `purchase_orders.view`; what is still to be billed, by vendor and currency                                                                           |
+
 ## Approvals endpoints (Phase 2, `/api/v1/approvals`)
 
 | Method      | Path                                         | Permission / notes                                                                                                     |

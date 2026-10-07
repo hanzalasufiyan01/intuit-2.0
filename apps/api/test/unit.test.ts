@@ -152,6 +152,12 @@ describe('permission catalog', () => {
       'parties.create',
       'parties.update',
       'parties.view',
+      'purchase_orders.approve',
+      'purchase_orders.close',
+      'purchase_orders.create',
+      'purchase_orders.receive',
+      'purchase_orders.settings.manage',
+      'purchase_orders.view',
       'purchases.reports.view', // Phase 4B-5 (ADR 0004 P4-39, PD3)
       'purchases.settings.manage', // Phase 4A-4 (ADR 0004 P4-39)
       'receipts.create', // Phase 3B (D11, Decision 40)
@@ -199,6 +205,7 @@ describe('permission catalog', () => {
       'members.read',
       'organization.read',
       'parties.view', // Phase 3A S4 (Decision 65)
+      'purchase_orders.view', // Purchase orders (view only)
       'purchases.reports.view', // Phase 4B-5 (P4-40, PD3)
       'receipts.view',
       'sales.reports.view',

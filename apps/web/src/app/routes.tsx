@@ -20,6 +20,13 @@ import {
   StockPage,
   ValuationPage,
 } from '../features/inventory/InventoryPages';
+import {
+  CommitmentsPage,
+  MatchSettingsPage,
+  NewOrderPage,
+  OrderDetailPage,
+  OrdersPage,
+} from '../features/purchases/OrderPages';
 import { PurchasesHome, PurchasesSection } from '../features/purchases/PurchasesSection';
 import { PurchasesSettingsPage } from '../features/purchases/SettingsPage';
 import {
@@ -533,6 +540,16 @@ export const routes: RouteObject[] = [
               ...(
                 [
                   // Phase 4B-9: direct expenses (P4-44).
+                  // Purchase orders, goods receiving and three-way matching.
+                  ['orders', Permission.PurchaseOrdersView, <OrdersPage key="orders" />],
+                  ['orders/new', Permission.PurchaseOrdersCreate, <NewOrderPage key="new-order" />],
+                  ['orders/:id', Permission.PurchaseOrdersView, <OrderDetailPage key="order" />],
+                  [
+                    'commitments',
+                    Permission.PurchaseOrdersView,
+                    <CommitmentsPage key="commitments" />,
+                  ],
+                  ['matching', Permission.PurchaseOrdersView, <MatchSettingsPage key="matching" />],
                   ['expenses', Permission.ExpensesView, <ExpensesPage key="expenses" />],
                   ['expenses/new', Permission.ExpensesCreate, <NewExpensePage key="new-expense" />],
                   ['expenses/:id', Permission.ExpensesView, <ExpenseDetailPage key="expense" />],

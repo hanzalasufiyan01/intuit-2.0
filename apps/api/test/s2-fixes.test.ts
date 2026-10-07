@@ -365,6 +365,7 @@ describe('Decision 90 — additive dimension permission backfill (migration 0008
       '0044_purchases_permission_backfill', // 4B-12 Purchases permissions for existing organizations
       '0045_banking', // Banking: accounts, statements, matching, entries, transfers, reconciliation
       '0046_inventory', // Inventory: weighted-average stock ledger, adjustments
+      '0047_purchase_orders', // Purchase orders, goods receiving, three-way matching
     ]);
     const { rows } = await owner.query(
       `SELECT version FROM schema_migrations WHERE version = '0008_dimension_permission_backfill'`,

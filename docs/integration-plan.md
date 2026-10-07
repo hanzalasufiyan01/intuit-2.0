@@ -15,8 +15,9 @@ Migrations are strictly sequential (no reserved gaps). Before creating one, a st
 | 0043   | `purchases_imports`             | A / imports    | committed (`0603922`, local) |
 | 0044   | `purchases_permission_backfill` | A / 4B-12      | committed (`01078df`, local) |
 | 0045   | `banking`                       | B / Banking    | committed (`003233f`, local) |
-| 0046   | `inventory`                     | B / Inventory  | committed (local)            |
-| 0047   | (next free: claim before use)   | —              |                              |
+| 0046   | `inventory`                     | B / Inventory  | committed (`dd25ce4`, local) |
+| 0047   | `purchase_orders`               | B / PO         | committed (local)            |
+| 0048   | (next free: claim before use)   | —              |                              |
 
 ## Collision files
 

@@ -15,6 +15,8 @@ export const PURCHASES_VIEW_PERMISSIONS = [
   Permission.VendorPaymentsView,
   // Phase 4B-9: direct expenses.
   Permission.ExpensesView,
+  // Purchase orders.
+  Permission.PurchaseOrdersView,
   // Phase 4B-5: AP reports.
   Permission.PurchasesReportsView,
   // Phase 4A-4: Purchases settings (P4-39) and the shared catalog (P4-06).
@@ -75,6 +77,9 @@ export function PurchasesNav() {
       <Can permission={Permission.BillsView}>
         <NavLink to="/purchases/bills">{t('purchases.nav.bills')}</NavLink>
       </Can>
+      <Can permission={Permission.PurchaseOrdersView}>
+        <NavLink to="/purchases/orders">{t('purchases.nav.orders')}</NavLink>
+      </Can>
       <Can permission={Permission.ExpensesView}>
         <NavLink to="/purchases/expenses">{t('purchases.nav.expenses')}</NavLink>
       </Can>
@@ -95,6 +100,10 @@ export function PurchasesNav() {
       </Can>
       <Can permission={Permission.PurchasesReportsView}>
         <NavLink to="/purchases/reports">{t('purchases.nav.reports')}</NavLink>
+      </Can>
+      <Can permission={Permission.PurchaseOrdersView}>
+        <NavLink to="/purchases/commitments">{t('purchases.nav.commitments')}</NavLink>
+        <NavLink to="/purchases/matching">{t('purchases.nav.matching')}</NavLink>
       </Can>
       {/* The items catalog is shared with Sales (P4-05); one page serves both. */}
       {canCatalog ? <NavLink to="/sales/items">{t('purchases.nav.items')}</NavLink> : null}
