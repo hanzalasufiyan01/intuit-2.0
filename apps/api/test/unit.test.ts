@@ -131,6 +131,11 @@ describe('permission catalog', () => {
       'expenses.create',
       'expenses.view',
       'expenses.void',
+      'fixed_assets.depreciate',
+      'fixed_assets.dispose',
+      'fixed_assets.manage',
+      'fixed_assets.view',
+      'fixed_assets.void',
       'inventory.adjustments.create',
       'inventory.adjustments.void',
       'inventory.items.manage',
@@ -200,6 +205,7 @@ describe('permission catalog', () => {
       'credit_notes.view', // Phase 3B (D14): Sales view-only
       'customers.view',
       'expenses.view', // Phase 4B-9 (P4-40)
+      'fixed_assets.view', // Fixed assets (view only)
       'inventory.view', // Inventory (view only)
       'invoices.view',
       'members.read',

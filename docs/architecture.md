@@ -114,4 +114,5 @@ Manual journal (UI/API) -----------------------------+
 - **Banking (ADR 0005):** bank accounts, statement import (CSV and OFX behind a provider abstraction), matching, bank entries and transfers as accounting source documents, reconciliation and rules.
 - **Inventory (ADR 0006):** tracked items at weighted-average cost, an immutable stock ledger, stock in on bills and out on invoices (an additive cost-of-goods-sold journal through an accounting event), adjustments and valuation.
 - **Purchase orders (ADR 0007):** orders (no journal), goods receipts, bill conversion and linking, and the three-way match (OFF, WARNING or BLOCK with tolerances), additive to the bill flow.
-- Fixed assets, expense claims, the public API and tax returns are planned; see the [integration plan](integration-plan.md).
+- **Fixed assets (ADR 0008):** categories, the register, straight-line monthly depreciation runs with catch-up, disposal with gain or loss, category transfers and an immutable asset ledger reconciled to the general ledger.
+- Expense claims, the public API and tax returns are planned; see the [integration plan](integration-plan.md).

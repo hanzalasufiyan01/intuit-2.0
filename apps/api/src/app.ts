@@ -14,6 +14,7 @@ import { CustomerService } from './application/customer-service.js';
 import { VendorService } from './application/vendor-service.js';
 import { PurchasesSettingsService } from './application/purchases-settings-service.js';
 import { ItemService } from './application/item-service.js';
+import { FixedAssetService } from './application/fixed-asset-service.js';
 import { InventoryService } from './application/inventory-service.js';
 import { PurchaseOrderService } from './application/purchase-order-service.js';
 import { InvoiceService } from './application/invoice-service.js';
@@ -130,6 +131,7 @@ export interface BuiltApp {
     banking: BankingService;
     bankingPosting: BankingPostingService;
     inventory: InventoryService;
+    fixedAssets: FixedAssetService;
     purchaseOrders: PurchaseOrderService;
     vendorCredits: VendorCreditService;
     vendorPayments: VendorPaymentService;
@@ -199,6 +201,8 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   const items = new ItemService(deps);
   // Inventory (ADR 0006): additive to Sales and Purchases through hooks inside their transactions.
   const inventory = new InventoryService(deps, journals, idempotency);
+  // Fixed assets (ADR 0008): register, depreciation, disposal and transfers.
+  const fixedAssets = new FixedAssetService(deps, journals, idempotency);
   const invoices = new InvoiceService(
     deps,
     approvals,
@@ -297,6 +301,7 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     banking,
     bankingPosting,
     inventory,
+    fixedAssets,
     purchaseOrders,
     vendorCredits,
     vendorPayments,

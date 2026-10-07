@@ -2,7 +2,7 @@
 
 Cloud accounting and business-management platform. The initial market is the Maldives; the core is country- and industry-independent.
 
-> **Status:** Phases 1–4 are implemented: the foundation, the accounting core (chart of accounts, periods, the double-entry journal engine with configurable approvals, multi-currency, the general ledger, financial statements, dimensions, opening balances and foreign-currency revaluation), Sales and receivables, and Purchases and payables (vendors, bills, vendor credits and debit notes, payments, prepayments, refunds, batch Pay bills, direct expenses, AP reports, remittance advices, imports and exports). Banking (bank accounts, CSV and OFX statements, matching, bank entries, transfers, reconciliation and rules) follows. Inventory (weighted-average stock, cost of goods sold, adjustments, valuation) follows. Purchase orders with goods receiving and three-way matching follow. Fixed assets, expense claims, the public API and tax returns are not built yet; see [the integration plan](docs/integration-plan.md) and the decision records.
+> **Status:** Phases 1–4 are implemented: the foundation, the accounting core (chart of accounts, periods, the double-entry journal engine with configurable approvals, multi-currency, the general ledger, financial statements, dimensions, opening balances and foreign-currency revaluation), Sales and receivables, and Purchases and payables (vendors, bills, vendor credits and debit notes, payments, prepayments, refunds, batch Pay bills, direct expenses, AP reports, remittance advices, imports and exports). Banking (bank accounts, CSV and OFX statements, matching, bank entries, transfers, reconciliation and rules) follows. Inventory (weighted-average stock, cost of goods sold, adjustments, valuation) follows. Purchase orders with goods receiving and three-way matching follow. Fixed assets (register, straight-line depreciation, disposal, transfers) follow. Expense claims, the public API and tax returns are not built yet; see [the integration plan](docs/integration-plan.md) and the decision records.
 
 ## Architecture
 
@@ -24,6 +24,7 @@ Read more:
 - [Banking decisions](docs/decisions/0005-banking.md)
 - [Inventory decisions](docs/decisions/0006-inventory.md)
 - [Purchase order decisions](docs/decisions/0007-purchase-orders.md)
+- [Fixed asset decisions](docs/decisions/0008-fixed-assets.md)
 - [Integration plan](docs/integration-plan.md) (migration numbers and shared-file ownership)
 
 ## Repository layout

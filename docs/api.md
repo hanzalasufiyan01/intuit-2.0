@@ -263,6 +263,24 @@ An order creates no journal. Approve and reject use the shared approval routes (
 | GET, PUT         | `/purchases/order-settings`                       | view / `purchase_orders.settings.manage` + re-auth; `{ version, matchMode: "off" \| "warning" \| "block", quantityTolerancePct, priceTolerancePct }` |
 | GET              | `/purchases/reports/commitments`                  | `purchase_orders.view`; what is still to be billed, by vendor and currency                                                                           |
 
+## Fixed assets (ADR 0008)
+
+Every posting goes asset document → accounting event → journal. Costs are in the base currency; depreciation is computed by the server (straight line by month). `Idempotency-Key` is accepted on registration, depreciation runs and disposals.
+
+| Method           | Path                                                               | Permission / notes                                                                                                       |
+| ---------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| GET, PUT         | `/fixed-assets/settings`                                           | view / `fixed_assets.manage` + re-auth; `{ version, gainLossAccountId }`                                                 |
+| GET, POST, PATCH | `/fixed-assets/categories[/:id]`, POST `/:id/archive`, `/restore`  | view / `fixed_assets.manage`; cost, accumulated depreciation and expense accounts, default life                          |
+| GET, POST        | `/fixed-assets/assets`                                             | view / `fixed_assets.manage`; `creditAccountId` or `alreadyInLedger`; `status`, `categoryId`, `search`, `limit`, `after` |
+| GET, PATCH       | `/fixed-assets/assets/:id`                                         | view (with schedule, entries, transfers, disposals) / `fixed_assets.manage` (descriptive fields)                         |
+| POST             | `/fixed-assets/assets/:id/transfer`                                | `fixed_assets.manage`; `{ version, transferDate, toCategoryId?, toLocation?, memo? }`                                    |
+| POST             | `/fixed-assets/assets/:id/dispose`                                 | `fixed_assets.dispose`; `{ version, disposalDate, proceeds?, proceedsAccountId?, memo? }`                                |
+| GET, POST        | `/fixed-assets/disposals`, POST `/fixed-assets/disposals/:id/void` | view; `fixed_assets.void` + re-auth, `{ version, reason }`                                                               |
+| GET              | `/fixed-assets/depreciation/preview?monthEnd`                      | view; what is owing at a month end; writes nothing                                                                       |
+| GET, POST        | `/fixed-assets/depreciation/runs[/:id]`                            | view / `fixed_assets.depreciate`; `{ monthEnd }`; later than the latest run                                              |
+| POST             | `/fixed-assets/depreciation/runs/:id/void`                         | `fixed_assets.void` + re-auth; the latest run only; `{ version, reason }`                                                |
+| GET              | `/fixed-assets/reports/register?asOf`, `/reconciliation?asOf`      | view; the register from the entries; register against the ledger accounts                                                |
+
 ## Approvals endpoints (Phase 2, `/api/v1/approvals`)
 
 | Method      | Path                                         | Permission / notes                                                                                                     |

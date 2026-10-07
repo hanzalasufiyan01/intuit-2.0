@@ -110,6 +110,12 @@ export const Permission = {
   PurchaseOrdersReceive: 'purchase_orders.receive',
   PurchaseOrdersClose: 'purchase_orders.close',
   PurchaseOrdersSettingsManage: 'purchase_orders.settings.manage',
+  // Fixed assets: register, depreciation, disposal and transfers.
+  FixedAssetsView: 'fixed_assets.view',
+  FixedAssetsManage: 'fixed_assets.manage',
+  FixedAssetsDepreciate: 'fixed_assets.depreciate',
+  FixedAssetsDispose: 'fixed_assets.dispose',
+  FixedAssetsVoid: 'fixed_assets.void',
   // Inventory: tracked items, the stock ledger, adjustments and valuation.
   InventoryView: 'inventory.view',
   InventoryItemsManage: 'inventory.items.manage',

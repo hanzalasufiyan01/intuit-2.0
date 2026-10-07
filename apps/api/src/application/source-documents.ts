@@ -1,5 +1,7 @@
+import { sql } from 'drizzle-orm';
 import type { Transaction } from '../database/client.js';
 import { getBankEntry, getBankTransfer } from '../modules/banking/index.js';
+import { getAsset, getDisposal, getRun } from '../modules/fixed-assets/index.js';
 import { getAdjustment } from '../modules/inventory/index.js';
 import {
   getBill,
@@ -210,6 +212,58 @@ export function createSourceDocumentRegistry(): SourceDocumentRegistry {
           invoice.number,
           'Cost of goods sold, invoice',
           `/sales/invoices/${id}`,
+        )
+      : null;
+  });
+  // Fixed assets: an asset (FA-), a depreciation run (DEP-), a disposal and a category transfer
+  // (the last two are shown as the asset they concern).
+  registry.register('fixed_assets', 'asset', async (tx, organizationId, id) => {
+    const asset = await getAsset(tx, organizationId, id);
+    return asset
+      ? doc('fixed_assets', 'asset', id, asset.number, 'Fixed asset', `/assets/${id}`)
+      : null;
+  });
+  registry.register('fixed_assets', 'depreciation_run', async (tx, organizationId, id) => {
+    const run = await getRun(tx, organizationId, id);
+    return run
+      ? doc(
+          'fixed_assets',
+          'depreciation_run',
+          id,
+          run.number,
+          'Depreciation run',
+          `/assets/runs/${id}`,
+        )
+      : null;
+  });
+  registry.register('fixed_assets', 'disposal', async (tx, organizationId, id) => {
+    const disposal = await getDisposal(tx, organizationId, id);
+    const asset = disposal ? await getAsset(tx, organizationId, disposal.assetId) : undefined;
+    return asset
+      ? doc(
+          'fixed_assets',
+          'disposal',
+          id,
+          asset.number,
+          'Disposal of fixed asset',
+          `/assets/${asset.id}`,
+        )
+      : null;
+  });
+  registry.register('fixed_assets', 'transfer', async (tx, organizationId, id) => {
+    const { rows } = await tx.execute<{ asset_id: string; number: string }>(sql`
+      SELECT t.asset_id, a.number FROM fixed_asset_transfers t
+        JOIN fixed_assets a ON a.id = t.asset_id AND a.organization_id = t.organization_id
+       WHERE t.organization_id = ${organizationId} AND t.id = ${id}`);
+    const row = rows[0];
+    return row
+      ? doc(
+          'fixed_assets',
+          'transfer',
+          id,
+          row.number,
+          'Transfer of fixed asset',
+          `/assets/${row.asset_id}`,
         )
       : null;
   });

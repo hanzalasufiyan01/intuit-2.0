@@ -4,6 +4,14 @@ import { MfaChallengePage } from '../auth/pages/MfaChallengePage';
 import { ForgotPasswordPage, ResetPasswordPage } from '../auth/pages/PasswordResetPages';
 import { RegisterPage } from '../auth/pages/RegisterPage';
 import { RedirectIfAuthenticated, RequireAuth, RequirePendingMfa } from '../auth/RequireAuth';
+import {
+  AssetCategoriesPage,
+  AssetPage,
+  AssetReportsPage,
+  AssetsPage,
+  AssetsSection,
+  DepreciationPage,
+} from '../features/assets/AssetPages';
 import { BankAccountPage, BankAccountsPage } from '../features/banking/BankAccountPages';
 import {
   BankEntryPage,
@@ -671,6 +679,33 @@ export const routes: RouteObject[] = [
                     <BankEntryPage key="entry" />,
                   ],
                   ['rules', Permission.BankingTransactionsView, <BankRulesPage key="rules" />],
+                ] as const
+              ).map(([path, permission, page]) => ({
+                ...(path === '' ? { index: true } : { path }),
+                element: <RequirePermission permission={permission}>{page}</RequirePermission>,
+              })),
+            ],
+          },
+          {
+            // Fixed assets: register, depreciation, categories and reports.
+            path: 'assets',
+            element: <AssetsSection />,
+            children: [
+              ...(
+                [
+                  ['', Permission.FixedAssetsView, <AssetsPage key="assets" />],
+                  [
+                    'depreciation',
+                    Permission.FixedAssetsView,
+                    <DepreciationPage key="depreciation" />,
+                  ],
+                  [
+                    'categories',
+                    Permission.FixedAssetsView,
+                    <AssetCategoriesPage key="categories" />,
+                  ],
+                  ['reports', Permission.FixedAssetsView, <AssetReportsPage key="reports" />],
+                  [':id', Permission.FixedAssetsView, <AssetPage key="asset" />],
                 ] as const
               ).map(([path, permission, page]) => ({
                 ...(path === '' ? { index: true } : { path }),

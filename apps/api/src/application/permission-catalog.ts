@@ -8,6 +8,7 @@ import { approvalPermissionDefinitions } from '../modules/approvals/index.js';
 import { auditPermissionDefinitions } from '../modules/audit/index.js';
 import { bankingPermissionDefinitions } from '../modules/banking/index.js';
 import { catalogPermissionDefinitions } from '../modules/catalog/index.js';
+import { fixedAssetPermissionDefinitions } from '../modules/fixed-assets/index.js';
 import { inventoryPermissionDefinitions } from '../modules/inventory/index.js';
 import { purchaseOrderPermissionDefinitions } from '../modules/purchase-orders/index.js';
 import { organizationPermissionDefinitions } from '../modules/organizations/index.js';
@@ -49,4 +50,6 @@ export const permissionCatalog: readonly PermissionDefinition[] = validatePermis
   ...inventoryPermissionDefinitions,
   // Purchase orders, goods receiving and three-way matching.
   ...purchaseOrderPermissionDefinitions,
+  // Fixed assets: register, depreciation, disposal and transfers.
+  ...fixedAssetPermissionDefinitions,
 ]);

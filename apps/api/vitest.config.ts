@@ -41,6 +41,7 @@ const serialFiles = [
   'test/banking-permissions.test.ts',
   'test/inventory-permissions.test.ts',
   'test/purchase-orders-permissions.test.ts',
+  'test/fixed-assets-permissions.test.ts',
 ];
 
 export default defineConfig({
