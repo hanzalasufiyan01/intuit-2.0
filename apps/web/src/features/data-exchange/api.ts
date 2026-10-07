@@ -14,7 +14,10 @@ export type ImportDomainKey =
   | 'opening_balances'
   | 'customers'
   | 'sales_items'
-  | 'opening_invoices';
+  | 'opening_invoices'
+  | 'vendors'
+  | 'opening_bills'
+  | 'opening_vendor_credits';
 
 export type ExportDomainKey =
   | 'chart_of_accounts'
@@ -38,7 +41,8 @@ export type ExportDomainKey =
   | 'vendor_payments'
   | 'ap_aging'
   | 'purchases_by_vendor'
-  | 'payment_register';
+  | 'payment_register'
+  | 'expenses';
 
 export type ImportStatus =
   | 'awaiting_file'

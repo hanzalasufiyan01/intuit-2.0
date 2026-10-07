@@ -671,46 +671,58 @@ export class BillService {
           ctx,
           { key: options.idempotencyKey, scope: 'purchases.bill.create', request: input },
           async () => {
-            const accounting = await requireAccountingSettings(tx, ctx.organizationId);
-            const purchases = await getPurchasesSettings(tx, ctx.organizationId);
-            const resolved = await this.resolve(
-              tx,
-              ctx.organizationId,
-              accounting,
-              purchases,
-              input,
-            );
-            this.assertOverridePermissions(ctx, resolved);
-            const now = this.now;
-            const bill = await insertBill(tx, {
-              ...resolved.header,
-              organizationId: ctx.organizationId,
-              kind: input.kind ?? 'standard',
-              createdByUserId: ctx.userId,
-              createdAt: now,
-              updatedByUserId: ctx.userId,
-              updatedAt: now,
-            });
-            await replaceBillLines(
-              tx,
-              ctx.organizationId,
-              bill.id,
-              stripPurchaseLines(resolved.lines),
-            );
-            await this.audit(tx, ctx, 'bill.created', bill.id, now, origin, {
-              vendorId: bill.vendorId,
-              billDate: bill.billDate,
-              currencyCode: bill.currencyCode,
-              total: bill.total,
-              lines: resolved.lines.length,
-              ...(bill.rateOverride
-                ? { rateOverride: bill.rateOverride, rateOverrideReason: bill.rateOverrideReason }
-                : {}),
-            });
+            const bill = await this.createDraftInTransaction(tx, ctx, input, origin);
             return this.detail(tx, ctx, bill.id);
           },
         ),
     );
+  }
+
+  /** The draft rules without writing (opening-bill import validation, P4-47). */
+  async validateDraftInTransaction(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    input: BillDraftInput,
+  ) {
+    requirePermission(ctx, BillPermissions.Create);
+    const accounting = await requireAccountingSettings(tx, ctx.organizationId);
+    const purchases = await getPurchasesSettings(tx, ctx.organizationId);
+    const resolved = await this.resolve(tx, ctx.organizationId, accounting, purchases, input);
+    this.assertOverridePermissions(ctx, resolved);
+    return resolved;
+  }
+
+  /** Creates a draft in the caller's transaction with the HTTP rules and audit (imports never post). */
+  async createDraftInTransaction(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    input: BillDraftInput,
+    origin: EventOrigin,
+  ): Promise<Bill> {
+    const resolved = await this.validateDraftInTransaction(tx, ctx, input);
+    const now = this.now;
+    const bill = await insertBill(tx, {
+      ...resolved.header,
+      organizationId: ctx.organizationId,
+      kind: input.kind ?? 'standard',
+      createdByUserId: ctx.userId,
+      createdAt: now,
+      updatedByUserId: ctx.userId,
+      updatedAt: now,
+    });
+    await replaceBillLines(tx, ctx.organizationId, bill.id, stripPurchaseLines(resolved.lines));
+    await this.audit(tx, ctx, 'bill.created', bill.id, now, origin, {
+      vendorId: bill.vendorId,
+      kind: bill.kind,
+      billDate: bill.billDate,
+      currencyCode: bill.currencyCode,
+      total: bill.total,
+      lines: resolved.lines.length,
+      ...(bill.rateOverride
+        ? { rateOverride: bill.rateOverride, rateOverrideReason: bill.rateOverrideReason }
+        : {}),
+    });
+    return bill;
   }
 
   update(

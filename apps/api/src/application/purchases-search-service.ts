@@ -3,7 +3,9 @@ import { ValidationError } from '../domain/errors.js';
 import { getParty, listParties, partyIdsMatching } from '../modules/parties/index.js';
 import {
   BillPermissions,
+  ExpensePermissions,
   listBills,
+  listExpenses,
   listPayments,
   listVendorCredits,
   VendorCreditPermissions,
@@ -102,6 +104,32 @@ export class PurchasesSearchService {
             currencyCode: b.currencyCode,
             total: money(b.total, b.currencyCode),
             amountDue: money(b.amountDue, b.currencyCode),
+          });
+        }
+      }
+      if (can(ExpensePermissions.View)) {
+        const page = await listExpenses(tx, {
+          organizationId: org,
+          statuses: null,
+          vendorId: null,
+          search: q,
+          vendorIdsIn,
+          from: null,
+          to: null,
+          limit,
+          after: null,
+        });
+        result.expenses = [];
+        for (const e of page.items) {
+          result.expenses.push({
+            id: e.id,
+            number: e.number,
+            vendorReference: e.vendorReference,
+            status: e.status,
+            expenseDate: e.expenseDate,
+            vendorName: await nameOf(tx, e.vendorId),
+            currencyCode: e.currencyCode,
+            total: money(e.total, e.currencyCode),
           });
         }
       }

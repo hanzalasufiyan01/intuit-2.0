@@ -361,6 +361,7 @@ describe('Decision 90 — additive dimension permission backfill (migration 0008
       '0040_purchases_exports', // 4B-8 Purchases exports (P4-48)
       '0041_expenses', // 4B-9 direct expenses (P4-44)
       '0042_opening_ap_documents', // opening bills and opening vendor credits (P4-35)
+      '0043_purchases_imports', // Purchases import domains and the expenses export (P4-47)
     ]);
     const { rows } = await owner.query(
       `SELECT version FROM schema_migrations WHERE version = '0008_dimension_permission_backfill'`,

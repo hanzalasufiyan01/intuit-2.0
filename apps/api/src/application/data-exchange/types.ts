@@ -9,6 +9,7 @@ import type {
 } from '../../modules/data-exchange/index.js';
 import type { AccountingService } from '../accounting-service.js';
 import type { ApReportService } from '../ap-report-service.js';
+import type { BillService } from '../bill-service.js';
 import type { ArReportService } from '../ar-report-service.js';
 import type { CustomerService } from '../customer-service.js';
 import type { InvoiceService } from '../invoice-service.js';
@@ -19,6 +20,8 @@ import type { JournalService } from '../journal-service.js';
 import type { OpeningBalanceService } from '../opening-balance-service.js';
 import type { PartyService } from '../party-service.js';
 import type { ReportService } from '../report-service.js';
+import type { VendorCreditService } from '../vendor-credit-service.js';
+import type { VendorService } from '../vendor-service.js';
 
 /**
  * Import/export domain registry (S6-01). Each domain declares its fields and permission,
@@ -41,6 +44,10 @@ export interface DomainServices {
   arReports: ArReportService;
   // Phase 4B-8: Purchases exports reuse the AP report bodies inside the export snapshot.
   apReports: ApReportService;
+  // Phase 4B (P4-47): Purchases imports create drafts through the owning services.
+  vendors: VendorService;
+  bills: BillService;
+  vendorCredits: VendorCreditService;
 }
 
 export interface ImportField {

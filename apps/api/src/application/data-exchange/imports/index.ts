@@ -4,6 +4,7 @@ import { accountsImport } from './accounts.js';
 import { journalsImport } from './journals.js';
 import { openingBalancesImport } from './opening-balances.js';
 import { partiesImport } from './parties.js';
+import { openingBillsImport, openingVendorCreditsImport, vendorsImport } from './purchases.js';
 import { customersImport, openingInvoicesImport, salesItemsImport } from './sales.js';
 import { dimensionValuesImport, exchangeRatesImport, partyContactsImport } from './small.js';
 
@@ -22,5 +23,9 @@ export const importDomains: ReadonlyMap<ImportDomainKey, ImportDomain> = new Map
     customersImport,
     salesItemsImport,
     openingInvoicesImport,
+    // Phase 4B (P4-47): vendors, and AP opening bills and credits as drafts (never posted).
+    vendorsImport,
+    openingBillsImport,
+    openingVendorCreditsImport,
   ].map((d) => [d.key, d]),
 );

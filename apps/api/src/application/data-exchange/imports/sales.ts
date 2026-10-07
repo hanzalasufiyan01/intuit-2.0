@@ -132,6 +132,12 @@ const ITEM_PATHS: Record<string, string> = {
   unitPrice: 'unit_price',
   revenueAccountId: 'revenue_account',
   taxCodeId: 'tax_code',
+  isPurchased: 'is_purchased',
+  purchaseDescription: 'purchase_description',
+  purchaseUnitCost: 'purchase_cost',
+  expenseAccountId: 'expense_account',
+  purchaseTaxCodeId: 'purchase_tax_code',
+  purchaseTaxRecoverable: 'purchase_tax_recoverable',
 };
 
 export const salesItemsImport: ImportDomain = {
@@ -179,6 +185,39 @@ export const salesItemsImport: ImportDomain = {
         example: 'GST',
         synonyms: ['tax', 'gst code'],
       }),
+      // Phase 4B (P4-05, P4-47): the purchase side of the shared catalog. All optional; leave
+      // them blank for a sales-only item.
+      field('is_purchased', 'Purchased', {
+        description: 'yes if the item is also bought (it then appears on bills and expenses).',
+        example: 'yes',
+        synonyms: ['purchasable', 'buy', 'is purchasable'],
+      }),
+      field('purchase_description', 'Purchase description', {
+        description: 'Shown on purchase documents; blank uses the item name.',
+        example: 'Snorkel trip, supplier rate',
+        synonyms: ['supplier description'],
+      }),
+      field('purchase_cost', 'Purchase cost', {
+        description: 'Default unit cost in the base currency.',
+        example: '500.00',
+        synonyms: ['cost', 'unit cost', 'buy price'],
+      }),
+      field('expense_account', 'Expense account', {
+        description: 'Account code used on purchase lines; blank uses the Purchases default.',
+        example: '5400',
+        synonyms: ['purchase account', 'cost account'],
+      }),
+      field('purchase_tax_code', 'Purchase tax code', {
+        description: 'Tax code applied when bought, e.g. GST; blank for the Purchases default.',
+        example: 'GST',
+        synonyms: ['purchase tax', 'input tax code'],
+      }),
+      field('purchase_tax_recoverable', 'Purchase tax recoverable', {
+        description:
+          'yes or no: whether the tax on this item is recoverable; blank follows the default.',
+        example: 'yes',
+        synonyms: ['recoverable', 'input tax recoverable'],
+      }),
     ];
   },
 
@@ -224,10 +263,36 @@ export const salesItemsImport: ImportDomain = {
         if (!code) c.error('INVALID_VALUE', 'tax_code', `No tax code ${taxCode}.`);
         else taxCodeId = code.id;
       }
+      // Phase 4B: the purchase side of the shared catalog.
+      const isPurchased = c.take(normalize.boolean(v('is_purchased'), 'is_purchased'), null);
+      const purchaseCost = c.take(
+        normalize.decimal(v('purchase_cost'), env.options.decimalSeparator, 'purchase_cost'),
+        null,
+      );
+      const recoverable = c.take(
+        normalize.boolean(v('purchase_tax_recoverable'), 'purchase_tax_recoverable'),
+        null,
+      );
+      let expenseAccountId: string | null = null;
+      const expenseCode = v('expense_account');
+      if (expenseCode) {
+        const account = await findAccountByCode(tx, ctx.organizationId, expenseCode);
+        if (!account)
+          c.error('INVALID_VALUE', 'expense_account', `No account has the code ${expenseCode}.`);
+        else expenseAccountId = account.id;
+      }
+      let purchaseTaxCodeId: string | null = null;
+      const purchaseTax = v('purchase_tax_code');
+      if (purchaseTax) {
+        const code = codes.get(purchaseTax.toUpperCase());
+        if (!code) c.error('INVALID_VALUE', 'purchase_tax_code', `No tax code ${purchaseTax}.`);
+        else purchaseTaxCodeId = code.id;
+      }
       if (c.failed) {
         results.push(outcome(row.rowNumber, null, c.messages));
         continue;
       }
+      const purchaseDescription = v('purchase_description');
       const input: ItemInput = {
         sku,
         name: name!,
@@ -236,6 +301,13 @@ export const salesItemsImport: ImportDomain = {
         unitPrice: price,
         revenueAccountId,
         taxCodeId,
+        // Left out when blank, so a sales-only item keeps the create defaults (P4-05).
+        ...(isPurchased !== null ? { isPurchased } : {}),
+        ...(purchaseDescription ? { purchaseDescription } : {}),
+        ...(purchaseCost !== null ? { purchaseUnitCost: purchaseCost } : {}),
+        ...(expenseAccountId ? { expenseAccountId } : {}),
+        ...(purchaseTaxCodeId ? { purchaseTaxCodeId } : {}),
+        ...(recoverable !== null ? { purchaseTaxRecoverable: recoverable } : {}),
       };
       try {
         await env.services.items.validateInTransaction(tx, ctx, input);

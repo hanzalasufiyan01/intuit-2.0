@@ -223,6 +223,9 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     invoices,
     arReports,
     apReports,
+    vendors,
+    bills,
+    vendorCredits,
   };
   // S9: revaluation support (engine only; no routes until Phase 4). Later modules register
   // their read-only document exposure providers here.

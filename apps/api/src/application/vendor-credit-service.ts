@@ -713,53 +713,73 @@ export class VendorCreditService {
           ctx,
           { key: options.idempotencyKey, scope: 'purchases.vendor_credit.create', request: input },
           async () => {
-            const accounting = await requireAccountingSettings(tx, ctx.organizationId);
-            const purchases = await getPurchasesSettings(tx, ctx.organizationId);
-            const resolved = await this.resolve(
-              tx,
-              ctx.organizationId,
-              accounting,
-              purchases,
-              input.origin,
-              input,
-            );
-            this.assertOverridePermissions(ctx, resolved);
-            const now = this.now;
-            const credit = await insertVendorCredit(tx, {
-              ...resolved.header,
-              organizationId: ctx.organizationId,
-              origin: input.origin,
-              kind: input.kind ?? 'standard',
-              createdByUserId: ctx.userId,
-              createdAt: now,
-              updatedByUserId: ctx.userId,
-              updatedAt: now,
-            });
-            await replaceVendorCreditLines(
-              tx,
-              ctx.organizationId,
-              credit.id,
-              stripPurchaseLines(resolved.lines),
-            );
-            await this.audit(tx, ctx, 'vendor_credit.created', credit.id, now, origin, {
-              origin: credit.origin,
-              vendorId: credit.vendorId,
-              billId: credit.billId,
-              creditDate: credit.creditDate,
-              currencyCode: credit.currencyCode,
-              total: credit.total,
-              lines: resolved.lines.length,
-              ...(credit.rateOverride
-                ? {
-                    rateOverride: credit.rateOverride,
-                    rateOverrideReason: credit.rateOverrideReason,
-                  }
-                : {}),
-            });
+            const credit = await this.createDraftInTransaction(tx, ctx, input, origin);
             return this.detail(tx, ctx, credit.id);
           },
         ),
     );
+  }
+
+  /** The draft rules without writing (opening-credit import validation, P4-47). */
+  async validateDraftInTransaction(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    input: VendorCreditDraftInput & { origin: VendorCreditOrigin },
+  ) {
+    requirePermission(ctx, VendorCreditPermissions.Create);
+    const accounting = await requireAccountingSettings(tx, ctx.organizationId);
+    const purchases = await getPurchasesSettings(tx, ctx.organizationId);
+    const resolved = await this.resolve(
+      tx,
+      ctx.organizationId,
+      accounting,
+      purchases,
+      input.origin,
+      input,
+    );
+    this.assertOverridePermissions(ctx, resolved);
+    return resolved;
+  }
+
+  /** Creates a draft in the caller's transaction with the HTTP rules and audit (imports never post). */
+  async createDraftInTransaction(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    input: VendorCreditDraftInput & { origin: VendorCreditOrigin },
+    origin: EventOrigin,
+  ): Promise<VendorCredit> {
+    const resolved = await this.validateDraftInTransaction(tx, ctx, input);
+    const now = this.now;
+    const credit = await insertVendorCredit(tx, {
+      ...resolved.header,
+      organizationId: ctx.organizationId,
+      origin: input.origin,
+      kind: input.kind ?? 'standard',
+      createdByUserId: ctx.userId,
+      createdAt: now,
+      updatedByUserId: ctx.userId,
+      updatedAt: now,
+    });
+    await replaceVendorCreditLines(
+      tx,
+      ctx.organizationId,
+      credit.id,
+      stripPurchaseLines(resolved.lines),
+    );
+    await this.audit(tx, ctx, 'vendor_credit.created', credit.id, now, origin, {
+      origin: credit.origin,
+      kind: credit.kind,
+      vendorId: credit.vendorId,
+      billId: credit.billId,
+      creditDate: credit.creditDate,
+      currencyCode: credit.currencyCode,
+      total: credit.total,
+      lines: resolved.lines.length,
+      ...(credit.rateOverride
+        ? { rateOverride: credit.rateOverride, rateOverrideReason: credit.rateOverrideReason }
+        : {}),
+    });
+    return credit;
   }
 
   update(

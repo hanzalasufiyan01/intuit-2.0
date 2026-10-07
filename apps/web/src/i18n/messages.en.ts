@@ -66,6 +66,7 @@ export const en = {
   'purchases.expenses.description':
     'Money spent and paid at once: a receipt posted against a bank, cash or card account.',
   'purchases.expenses.new': 'New expense',
+  'purchases.expenses.export': 'Export expenses',
   'purchases.expenses.none': 'No expenses match.',
   'purchases.expenses.searchHint': 'Number, receipt number or payee.',
   'purchases.expenses.number': 'Number',

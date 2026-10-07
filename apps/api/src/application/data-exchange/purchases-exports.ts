@@ -6,7 +6,10 @@ import { listParties } from '../../modules/parties/index.js';
 import {
   billStatuses,
   BillPermissions,
+  ExpensePermissions,
+  expenseStatuses,
   listBills,
+  listExpenses,
   listPayments,
   listVendorCredits,
   paymentStatuses,
@@ -577,7 +580,92 @@ const registerExport: ExportDomain<z.infer<typeof registerParams>> = {
   },
 };
 
+const expensesParams = z
+  .object({
+    from: isoDate.optional(),
+    to: isoDate.optional(),
+    status: z.enum(expenseStatuses).optional(),
+  })
+  .strict();
+
+const expensesExport: ExportDomain<z.infer<typeof expensesParams>> = {
+  key: 'expenses',
+  label: 'Expenses',
+  params: expensesParams,
+  permission: async () => ExpensePermissions.View,
+  snapshot: false,
+  fileName: (_p, now) => `expenses-${today(now)}.csv`,
+  async generate(env, params) {
+    await env.write([
+      'number',
+      'status',
+      'payee',
+      'receipt_number',
+      'expense_date',
+      'currency',
+      'subtotal',
+      'discount',
+      'tax',
+      'recoverable_tax',
+      'total',
+      'exchange_rate',
+      'base_total',
+      'paid_from',
+      'memo',
+    ]);
+    const accounts = new Map(
+      (await listAccounts(env.tx, env.ctx.organizationId)).map((a) => [a.id, a.code]),
+    );
+    const cache = new Map<string, string | null>();
+    let after: { date: string; id: string } | null = null;
+    let count = 0;
+    for (;;) {
+      const page = await listExpenses(env.tx, {
+        organizationId: env.ctx.organizationId,
+        statuses: params.status ? [params.status] : null,
+        vendorId: null,
+        search: null,
+        from: params.from ?? null,
+        to: params.to ?? null,
+        limit: PAGE,
+        after,
+      });
+      await vendorNames(
+        env.tx,
+        env.ctx.organizationId,
+        page.items.map((e) => e.vendorId),
+        cache,
+      );
+      for (const e of page.items) {
+        await env.write([
+          e.number,
+          e.status.toLowerCase(),
+          cache.get(e.vendorId) ?? null,
+          e.vendorReference,
+          day(e.expenseDate),
+          e.currencyCode,
+          num(e.subtotal),
+          num(e.discountTotal),
+          num(e.taxTotal),
+          num(e.recoverableTaxTotal),
+          num(e.total),
+          num(e.exchangeRate),
+          num(e.baseTotal),
+          e.paymentAccountId ? (accounts.get(e.paymentAccountId) ?? null) : null,
+          e.memo,
+        ]);
+        count += 1;
+      }
+      if (!page.hasMore) break;
+      const last = page.items.at(-1)!;
+      after = { date: last.expenseDate, id: last.id };
+    }
+    return count;
+  },
+};
+
 export const purchasesExportDomains = [
+  expensesExport,
   vendorsExport,
   billsExport,
   creditsExport,

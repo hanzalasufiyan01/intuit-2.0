@@ -20,6 +20,7 @@ interface DocumentHit {
   currencyCode: string;
   vendorReference?: string | null;
   billDate?: string;
+  expenseDate?: string;
   creditDate?: string;
   paymentDate?: string;
   total?: string | null;
@@ -36,16 +37,18 @@ interface SearchResult {
     currencyCode: string;
   }[];
   bills?: DocumentHit[];
+  expenses?: DocumentHit[];
   vendorCredits?: DocumentHit[];
   payments?: DocumentHit[];
 }
 
 const SECTIONS: {
-  key: 'bills' | 'vendorCredits' | 'payments';
+  key: 'bills' | 'expenses' | 'vendorCredits' | 'payments';
   title: MessageKey;
   path: string;
 }[] = [
   { key: 'bills', title: 'purchases.nav.bills', path: '/purchases/bills' },
+  { key: 'expenses', title: 'purchases.nav.expenses', path: '/purchases/expenses' },
   { key: 'vendorCredits', title: 'purchases.nav.vendorCredits', path: '/purchases/vendor-credits' },
   { key: 'payments', title: 'purchases.nav.payments', path: '/purchases/payments' },
 ];
@@ -69,6 +72,7 @@ export function PurchasesSearchPage() {
     data !== undefined &&
     !data.vendors?.length &&
     !data.bills?.length &&
+    !data.expenses?.length &&
     !data.vendorCredits?.length &&
     !data.payments?.length;
   return (
@@ -129,7 +133,7 @@ export function PurchasesSearchPage() {
                       ) : null}
                     </td>
                     <td>{d.vendorName}</td>
-                    <td>{d.billDate ?? d.creditDate ?? d.paymentDate}</td>
+                    <td>{d.billDate ?? d.expenseDate ?? d.creditDate ?? d.paymentDate}</td>
                     <td className="num">
                       {formatAmount(d.total ?? d.amount ?? null, d.currencyCode)} {d.currencyCode}
                     </td>

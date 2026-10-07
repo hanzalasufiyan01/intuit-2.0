@@ -16,6 +16,10 @@ export const importDomainKeys = [
   'customers',
   'sales_items',
   'opening_invoices',
+  // Phase 4B (P4-47): Purchases imports; opening documents are created as drafts.
+  'vendors',
+  'opening_bills',
+  'opening_vendor_credits',
 ] as const;
 export type ImportDomainKey = (typeof importDomainKeys)[number];
 
@@ -44,6 +48,7 @@ export const exportDomainKeys = [
   'ap_aging',
   'purchases_by_vendor',
   'payment_register',
+  'expenses',
 ] as const;
 export type ExportDomainKey = (typeof exportDomainKeys)[number];
 

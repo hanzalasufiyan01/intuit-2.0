@@ -18,6 +18,7 @@ import { AttachmentsCard } from '../files/AttachmentsCard';
 import { ApprovalPanel, TotalsTable } from '../sales/DocumentParts';
 import { orNull, StatusBadge, useOrgKey, useTaxCodes } from '../sales/shared';
 import type { Item, Page } from '../sales/types';
+import { ExportButton } from '../data-exchange/ExportButton';
 import { PurchasesNav } from './PurchasesSection';
 import {
   PURCHASE_ACCOUNT_SUBTYPES,
@@ -80,6 +81,9 @@ export function ExpensesPage() {
         description={t('purchases.expenses.description')}
       />
       <PurchasesNav />
+      <p className="actions">
+        <ExportButton domain="expenses" label={t('purchases.expenses.export')} />
+      </p>
       {canCreate ? (
         <p className="actions">
           <Link className="btn" to="/purchases/expenses/new">

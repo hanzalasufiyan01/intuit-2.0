@@ -11,8 +11,9 @@ Migrations are strictly sequential (no reserved gaps). Before creating one, a st
 | 0039   | `remittance_advice`           | A / 4B-7       | committed (`8d162be`)        |
 | 0040   | `purchases_exports`           | A / 4B-8       | committed (`f9cc34b`, local) |
 | 0041   | `expenses`                    | A / 4B-9       | committed (`501db90`, local) |
-| 0042   | `opening_ap_documents`        | A / opening AP | implemented, uncommitted     |
-| 0043   | (next free: claim before use) | —              |                              |
+| 0042   | `opening_ap_documents`        | A / opening AP | committed (`cd44d29`, local) |
+| 0043   | `purchases_imports`           | A / imports    | implemented, uncommitted     |
+| 0044   | (next free: claim before use) | —              |                              |
 
 ## Collision files
 

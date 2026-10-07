@@ -12,4 +12,8 @@ export const IMPORT_PERMISSIONS: PermissionKey[] = [
   Permission.CustomersCreate,
   Permission.SalesItemsManage,
   Permission.InvoicesCreate,
+  // Phase 4B: vendors and AP opening bills and credits.
+  Permission.VendorsCreate,
+  Permission.BillsCreate,
+  Permission.VendorCreditsCreate,
 ];
