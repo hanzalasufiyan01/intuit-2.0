@@ -26,6 +26,8 @@ import type { PurchasesSettingsService } from '../../application/purchases-setti
 import type { ItemService } from '../../application/item-service.js';
 import type { InvoiceService } from '../../application/invoice-service.js';
 import type { BillService } from '../../application/bill-service.js';
+import type { BankingPostingService } from '../../application/banking-posting-service.js';
+import type { BankingService } from '../../application/banking-service.js';
 import type { ExpenseService } from '../../application/expense-service.js';
 import type { RevaluationService } from '../../application/revaluation-service.js';
 import type { VendorCreditService } from '../../application/vendor-credit-service.js';
@@ -60,6 +62,7 @@ import { registerPurchasesRoutes } from './purchases.routes.js';
 import { registerSalesRoutes } from './sales.routes.js';
 import { registerInvoiceRoutes } from './invoices.routes.js';
 import { registerBillRoutes } from './bills.routes.js';
+import { registerBankingRoutes } from './banking.routes.js';
 import { registerExpenseRoutes } from './expenses.routes.js';
 import { registerRevaluationRoutes } from './revaluation.routes.js';
 import { registerVendorCreditRoutes } from './vendor-credits.routes.js';
@@ -101,6 +104,8 @@ export interface ApiV1Services {
   invoices: InvoiceService;
   bills: BillService;
   expenses: ExpenseService;
+  banking: BankingService;
+  bankingPosting: BankingPostingService;
   revaluations: RevaluationService;
   vendorCredits: VendorCreditService;
   vendorPayments: VendorPaymentService;
@@ -152,6 +157,7 @@ export function apiV1(deps: AppDependencies, services: ApiV1Services) {
     registerPurchasesRoutes(app, services);
     registerBillRoutes(app, services);
     registerExpenseRoutes(app, services);
+    registerBankingRoutes(app, services);
     registerVendorCreditRoutes(app, services);
     registerVendorPaymentRoutes(app, services);
     registerVendorRefundRoutes(app, services);

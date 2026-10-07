@@ -207,6 +207,29 @@ Every Purchases posting goes purchases document → accounting event → journal
 
 Import domains `vendors`, `opening_bills` and `opening_vendor_credits` (drafts only, never posted) and the purchase columns of `sales_items`; export domains `vendors`, `bills`, `vendor_credits`, `vendor_payments`, `expenses`, `ap_aging`, `purchases_by_vendor` and `payment_register` use the S6 endpoints.
 
+## Banking (ADR 0005)
+
+Banking reads the ledger and never writes it. Entries and transfers post through accounting events; a reconciliation never changes a posted journal line. Amounts are decimal strings; statements are posted as JSON text (up to 5 MB). `Idempotency-Key` is accepted on the statement import, categorize and transfer routes.
+
+| Method         | Path                                                                        | Permission / notes                                                                                         |
+| -------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| GET, POST      | `/banking/accounts`, GET/PATCH `/banking/accounts/:id`                      | `banking.transactions.view` / `banking.accounts.manage`; a bank, cash or card posting account of the chart |
+| POST           | `/banking/accounts/:id/archive`, `/restore`                                 | `banking.accounts.manage`; `{ version }`                                                                   |
+| POST           | `/banking/statements/preview`                                               | `banking.transactions.import`; `{ content }`: the CSV header and a sample                                  |
+| GET, POST      | `/banking/accounts/:id/statements`                                          | import: `{ format: "csv" \| "ofx", content, mapping? }`; all or nothing; duplicates skipped and counted    |
+| GET            | `/banking/accounts/:id/transactions`                                        | `status`, `search`, `from`, `to`, `limit`, `after`; each unmatched row carries a rule suggestion           |
+| GET            | `/banking/accounts/:id/register`, `/unreconciled`                           | the account's journal lines with a running balance; transactions not yet reconciled                        |
+| POST           | `/banking/accounts/:id/auto-match`                                          | `banking.transactions.match`; only unambiguous matches                                                     |
+| GET            | `/banking/transactions/:id`, `/:id/suggestions`                             | posted journal lines with the same amount                                                                  |
+| POST           | `/banking/transactions/:id/match`, `/unmatch`, `/exclude`, `/restore`       | `banking.transactions.match`; `match` takes `{ journalLineId }`, `exclude` takes `{ reason }`              |
+| POST           | `/banking/transactions/:id/categorize`                                      | `banking.transactions.categorize`; `{ categoryAccountId, memo?, dimensionValueIds? }`; posts a bank entry  |
+| GET            | `/banking/entries[/:id]`, POST `/banking/entries/:id/void`                  | view; `banking.transfers.void` + re-auth, `{ version, reason }`                                            |
+| GET, POST      | `/banking/transfers[/:id]`, POST `/banking/transfers/:id/void`              | `banking.transfers.create`; `toAmount` when the currencies differ; void as above                           |
+| POST           | `/banking/accounts/:id/reconciliation/preview`                              | view; `{ statementDate, statementBalance }`; writes nothing                                                |
+| GET, POST      | `/banking/accounts/:id/reconciliations`, GET `/banking/reconciliations/:id` | `banking.reconcile`; completes only when the difference is zero                                            |
+| POST           | `/banking/reconciliations/:id/reopen`                                       | `banking.reconcile` + re-auth; the latest only; `{ version, reason }`                                      |
+| GET, POST, PUT | `/banking/rules`, `/banking/rules/:id`; POST `/archive`, `/restore`         | view / `banking.rules.manage`; rules only suggest                                                          |
+
 ## Approvals endpoints (Phase 2, `/api/v1/approvals`)
 
 | Method      | Path                                         | Permission / notes                                                                                                     |

@@ -93,6 +93,16 @@ export const Permission = {
   ExpensesCreate: 'expenses.create',
   ExpensesVoid: 'expenses.void',
   ExpensesApprove: 'expenses.approve',
+  // Banking: accounts, statements, matching, transfers, reconciliation and rules.
+  BankingAccountsManage: 'banking.accounts.manage',
+  BankingTransactionsView: 'banking.transactions.view',
+  BankingTransactionsImport: 'banking.transactions.import',
+  BankingTransactionsMatch: 'banking.transactions.match',
+  BankingTransactionsCategorize: 'banking.transactions.categorize',
+  BankingTransfersCreate: 'banking.transfers.create',
+  BankingTransfersVoid: 'banking.transfers.void',
+  BankingReconcile: 'banking.reconcile',
+  BankingRulesManage: 'banking.rules.manage',
 } as const;
 export type PermissionKey = (typeof Permission)[keyof typeof Permission];
 

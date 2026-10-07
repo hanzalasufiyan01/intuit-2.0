@@ -1,4 +1,5 @@
 import type { Transaction } from '../database/client.js';
+import { getBankEntry, getBankTransfer } from '../modules/banking/index.js';
 import {
   getBill,
   getExpense,
@@ -171,6 +172,19 @@ export function createSourceDocumentRegistry(): SourceDocumentRegistry {
       (await purchasesApplication(tx, organizationId, id)) ??
       (await purchasesRefund(tx, organizationId, id)),
   );
+  // Banking: a categorized statement transaction (BE-) and a transfer between bank accounts (TR-).
+  registry.register('banking', 'entry', async (tx, organizationId, id) => {
+    const entry = await getBankEntry(tx, organizationId, id);
+    return entry
+      ? doc('banking', 'entry', id, entry.number, 'Bank entry', `/banking/entries/${id}`)
+      : null;
+  });
+  registry.register('banking', 'transfer', async (tx, organizationId, id) => {
+    const transfer = await getBankTransfer(tx, organizationId, id);
+    return transfer
+      ? doc('banking', 'transfer', id, transfer.number, 'Bank transfer', `/banking/transfers/${id}`)
+      : null;
+  });
   registry.register('sales', 'invoice', async (tx, organizationId, id) => {
     const invoice = await getInvoice(tx, organizationId, id);
     return invoice

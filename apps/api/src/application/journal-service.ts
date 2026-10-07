@@ -119,7 +119,15 @@ export interface Actor {
  * module created, and any reversal of it, changes only through that module (its voids), so the
  * subledger and the GL never drift apart. The Sales wording is the Phase 3B one, unchanged.
  */
-const SUBLEDGER_JOURNALS: Record<Subledger, { label: string; refusal: string }> = {
+/** Modules whose journals only they reverse: the two subledgers and Banking (entries, transfers). */
+export type JournalOwner = Subledger | 'banking';
+
+const SUBLEDGER_JOURNALS: Record<JournalOwner, { label: string; refusal: string }> = {
+  banking: {
+    label: 'Banking',
+    refusal:
+      'Banking journals are reversed from their bank entry or transfer in Banking (void), not manually.',
+  },
   sales: {
     label: 'Sales',
     refusal:
@@ -132,8 +140,8 @@ const SUBLEDGER_JOURNALS: Record<Subledger, { label: string; refusal: string }> 
   },
 };
 
-const isSubledger = (module: string | null): module is Subledger =>
-  module !== null && (subledgers as readonly string[]).includes(module);
+const isSubledger = (module: string | null): module is JournalOwner =>
+  module !== null && (module === 'banking' || (subledgers as readonly string[]).includes(module));
 
 const CONTROL_ACCOUNT_MESSAGE =
   'Control accounts cannot be used in manual journals; they are maintained through their subledger.';
@@ -1422,7 +1430,7 @@ export class JournalService {
     journalId: string,
     input: { reason: string; reversalDate?: string | undefined },
     origin: EventOrigin,
-    options: { openingBatch?: boolean; subledger?: Subledger } = {},
+    options: { openingBatch?: boolean; subledger?: JournalOwner } = {},
   ) {
     await requireAccountingSettings(tx, ctx.organizationId);
     const original = await getJournal(tx, ctx.organizationId, journalId, { forUpdate: true });
@@ -1862,7 +1870,7 @@ export class JournalService {
     tx: Transaction,
     organizationId: string,
     journal: JournalEntry,
-  ): Promise<Subledger | null> {
+  ): Promise<JournalOwner | null> {
     if (isSubledger(journal.sourceModule)) return journal.sourceModule;
     if (journal.source !== 'reversal') return null;
     const { reverses } = await getReversalLinks(tx, organizationId, journal.id);
@@ -1882,7 +1890,7 @@ export class JournalService {
   async reverseSubledgerJournalInTransaction(
     tx: Transaction,
     ctx: AuthorizationContext,
-    module: Subledger,
+    module: JournalOwner,
     journalId: string,
     input: { reason: string; reversalDate?: string | undefined },
     origin: EventOrigin,

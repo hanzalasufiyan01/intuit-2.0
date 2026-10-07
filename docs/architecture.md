@@ -111,4 +111,5 @@ Manual journal (UI/API) -----------------------------+
 - **Phase 3A (Foundations):** account classification and currency, dimensions, financial statements, the party master, files and background jobs, CSV import and export, MFA, opening balances, revaluation support, conditional approvals.
 - **Phase 3B (Sales & Accounts Receivable):** tax codes, customers, items, invoices, credit notes, receipts, AR reports, PDFs and email.
 - **Phase 4 (Purchases & Accounts Payable):** vendors, bills, vendor credits and debit notes, payments, prepayments and refunds, batch Pay bills, direct expenses, opening AP documents, AP reports, remittance advices, purchase imports and exports, and the revaluation user workflow.
-- Banking, inventory, purchase orders, fixed assets, expense claims, the public API and tax returns are planned; see the [integration plan](integration-plan.md).
+- **Banking (ADR 0005):** bank accounts, statement import (CSV and OFX behind a provider abstraction), matching, bank entries and transfers as accounting source documents, reconciliation and rules.
+- Inventory, purchase orders, fixed assets, expense claims, the public API and tax returns are planned; see the [integration plan](integration-plan.md).

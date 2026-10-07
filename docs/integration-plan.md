@@ -13,8 +13,9 @@ Migrations are strictly sequential (no reserved gaps). Before creating one, a st
 | 0041   | `expenses`                      | A / 4B-9       | committed (`501db90`, local) |
 | 0042   | `opening_ap_documents`          | A / opening AP | committed (`cd44d29`, local) |
 | 0043   | `purchases_imports`             | A / imports    | committed (`0603922`, local) |
-| 0044   | `purchases_permission_backfill` | A / 4B-12      | implemented, uncommitted     |
-| 0045   | (next free: claim before use)   | —              |                              |
+| 0044   | `purchases_permission_backfill` | A / 4B-12      | committed (`01078df`, local) |
+| 0045   | `banking`                       | B / Banking    | committed (local)            |
+| 0046   | (next free: claim before use)   | —              |                              |
 
 ## Collision files
 
@@ -26,6 +27,7 @@ The integrator owns these. Other streams add their own modules and hand over a m
 - `modules/jobs/jobs.ts`
 - `messages.en.ts`, `vitest.config.ts`
 - ADR 0004 and the migration list in `test/s2-fixes.test.ts`
+- `journal-service.ts` (`JournalOwner`: Banking journals are reversed only by Banking)
 
 ## Approved architecture decisions (2026-10-07)
 

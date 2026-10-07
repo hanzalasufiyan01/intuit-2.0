@@ -4,6 +4,14 @@ import { MfaChallengePage } from '../auth/pages/MfaChallengePage';
 import { ForgotPasswordPage, ResetPasswordPage } from '../auth/pages/PasswordResetPages';
 import { RegisterPage } from '../auth/pages/RegisterPage';
 import { RedirectIfAuthenticated, RequireAuth, RequirePendingMfa } from '../auth/RequireAuth';
+import { BankAccountPage, BankAccountsPage } from '../features/banking/BankAccountPages';
+import {
+  BankEntryPage,
+  BankRulesPage,
+  ReconcilePage,
+  TransfersPage,
+} from '../features/banking/BankingPages';
+import { BankingSection } from '../features/banking/BankingSection';
 import { PurchasesHome, PurchasesSection } from '../features/purchases/PurchasesSection';
 import { PurchasesSettingsPage } from '../features/purchases/SettingsPage';
 import {
@@ -607,6 +615,42 @@ export const routes: RouteObject[] = [
                   </RequirePermission>
                 ),
               },
+            ],
+          },
+          {
+            // Banking: bank accounts, statements, matching, transfers, reconciliation and rules.
+            path: 'banking',
+            element: <BankingSection />,
+            children: [
+              ...(
+                [
+                  ['', Permission.BankingTransactionsView, <BankAccountsPage key="accounts" />],
+                  [
+                    'accounts/:id',
+                    Permission.BankingTransactionsView,
+                    <BankAccountPage key="account" />,
+                  ],
+                  [
+                    'accounts/:id/reconcile',
+                    Permission.BankingReconcile,
+                    <ReconcilePage key="reconcile" />,
+                  ],
+                  [
+                    'transfers',
+                    Permission.BankingTransactionsView,
+                    <TransfersPage key="transfers" />,
+                  ],
+                  [
+                    'entries/:id',
+                    Permission.BankingTransactionsView,
+                    <BankEntryPage key="entry" />,
+                  ],
+                  ['rules', Permission.BankingTransactionsView, <BankRulesPage key="rules" />],
+                ] as const
+              ).map(([path, permission, page]) => ({
+                ...(path === '' ? { index: true } : { path }),
+                element: <RequirePermission permission={permission}>{page}</RequirePermission>,
+              })),
             ],
           },
           { path: '*', element: <p>Page not found.</p> },

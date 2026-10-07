@@ -16,6 +16,8 @@ import { PurchasesSettingsService } from './application/purchases-settings-servi
 import { ItemService } from './application/item-service.js';
 import { InvoiceService } from './application/invoice-service.js';
 import { BillService } from './application/bill-service.js';
+import { BankingPostingService } from './application/banking-posting-service.js';
+import { BankingService } from './application/banking-service.js';
 import { ExpenseService } from './application/expense-service.js';
 import { VendorCreditService } from './application/vendor-credit-service.js';
 import { VendorPaymentService } from './application/vendor-payment-service.js';
@@ -123,6 +125,8 @@ export interface BuiltApp {
     invoices: InvoiceService;
     bills: BillService;
     expenses: ExpenseService;
+    banking: BankingService;
+    bankingPosting: BankingPostingService;
     vendorCredits: VendorCreditService;
     vendorPayments: VendorPaymentService;
     vendorRefunds: VendorRefundService;
@@ -194,6 +198,9 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   const bills = new BillService(deps, approvals, journals, idempotency);
   // Phase 4B-9: direct expenses (ADR 0004 P4-44).
   const expenses = new ExpenseService(deps, approvals, journals, idempotency);
+  // Banking: statements, matching, entries, transfers and reconciliation.
+  const banking = new BankingService(deps, idempotency);
+  const bankingPosting = new BankingPostingService(deps, journals, idempotency);
   // Phase 4B-1: vendor credits and debit notes, with debit-note PDFs and email (P4-23, P4-46).
   const purchasesOutput = new PurchasesOutputService(deps, files, jobs, new PdfkitRenderer());
   // Phase 4B-7: vendor remittance advice PDF and email (P4-46), output only.
@@ -271,6 +278,8 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     purchasesSettings: new PurchasesSettingsService(deps, accounting),
     bills,
     expenses,
+    banking,
+    bankingPosting,
     vendorCredits,
     vendorPayments,
     vendorRefunds,

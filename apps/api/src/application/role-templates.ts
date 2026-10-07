@@ -6,6 +6,7 @@ import {
 import { AccountingPermissions, accountingViewPermissions } from '../modules/accounting/index.js';
 import { ApprovalPermissions } from '../modules/approvals/index.js';
 import { AuditPermissions } from '../modules/audit/index.js';
+import { BankingPermissions, bankingViewPermissions } from '../modules/banking/index.js';
 import { CatalogPermissions } from '../modules/catalog/index.js';
 import { OrganizationPermissions } from '../modules/organizations/index.js';
 import { CustomerPermissions } from '../modules/customers/index.js';
@@ -74,6 +75,8 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       ...Object.values(VendorPaymentPermissions),
       // Phase 4B-9 (P4-39): all direct-expense permissions.
       ...Object.values(ExpensePermissions),
+      // Banking: all permissions.
+      ...Object.values(BankingPermissions),
     ],
   },
   {
@@ -104,6 +107,8 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       ...purchasesReportViewPermissions,
       // Phase 4B-9 (P4-40): expense view.
       ...expenseViewPermissions,
+      // Banking: view only.
+      ...bankingViewPermissions,
     ],
   },
 ];

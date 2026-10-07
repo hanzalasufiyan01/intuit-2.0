@@ -6,6 +6,7 @@ import {
 import { accountingPermissionDefinitions } from '../modules/accounting/index.js';
 import { approvalPermissionDefinitions } from '../modules/approvals/index.js';
 import { auditPermissionDefinitions } from '../modules/audit/index.js';
+import { bankingPermissionDefinitions } from '../modules/banking/index.js';
 import { catalogPermissionDefinitions } from '../modules/catalog/index.js';
 import { organizationPermissionDefinitions } from '../modules/organizations/index.js';
 import { customerPermissionDefinitions } from '../modules/customers/index.js';
@@ -40,4 +41,6 @@ export const permissionCatalog: readonly PermissionDefinition[] = validatePermis
   ...purchasesPermissionDefinitions,
   // Phase 4B-9 (P4-37, P4-39): direct expenses.
   ...expensePermissionDefinitions,
+  // Banking: accounts, statements, matching, transfers, reconciliation and rules.
+  ...bankingPermissionDefinitions,
 ]);

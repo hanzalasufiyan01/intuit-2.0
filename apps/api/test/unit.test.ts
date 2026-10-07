@@ -102,6 +102,15 @@ describe('permission catalog', () => {
       'accounting.setup',
       'approvals.manage',
       'audit.read',
+      'banking.accounts.manage',
+      'banking.reconcile',
+      'banking.rules.manage',
+      'banking.transactions.categorize',
+      'banking.transactions.import',
+      'banking.transactions.match',
+      'banking.transactions.view',
+      'banking.transfers.create',
+      'banking.transfers.void',
       'bills.approve', // Phase 4A-5 (ADR 0004 P4-39)
       'bills.create',
       'bills.delete_draft',
@@ -175,6 +184,7 @@ describe('permission catalog', () => {
       'accounting.ledger.view',
       'accounting.periods.view',
       'accounting.reports.view', // Phase 3A S3 (Decision 65, S3-01)
+      'banking.transactions.view', // Banking (view only)
       'bills.view', // Phase 4A-5 (ADR 0004 P4-40)
       'credit_notes.view', // Phase 3B (D14): Sales view-only
       'customers.view',

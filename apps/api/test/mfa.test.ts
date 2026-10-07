@@ -936,5 +936,6 @@ describe('audit completeness and secret hygiene (S7-25, S7-47)', () => {
       await db.end();
     }
     expect(logText).not.toMatch(/"code":"\d{6}"/);
-  });
+    // The scan reads a day of audit events from the shared database, so it grows with test volume.
+  }, 180_000);
 });
