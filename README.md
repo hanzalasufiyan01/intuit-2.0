@@ -2,7 +2,7 @@
 
 Cloud accounting and business-management platform. The initial market is the Maldives; the core is country- and industry-independent.
 
-> **Status:** Phase 1 (Foundation) and Phase 2 (Accounting Foundation & General Ledger) are implemented. Phase 2 adds the chart of accounts, fiscal years and periods, the double-entry journal engine with configurable approvals, posting and reversal, multi-currency, accounting events and the general ledger. There are no operational business modules yet (invoicing, expenses, banking and so on).
+> **Status:** Phases 1–4 are implemented: the foundation, the accounting core (chart of accounts, periods, the double-entry journal engine with configurable approvals, multi-currency, the general ledger, financial statements, dimensions, opening balances and foreign-currency revaluation), Sales and receivables, and Purchases and payables (vendors, bills, vendor credits and debit notes, payments, prepayments, refunds, batch Pay bills, direct expenses, AP reports, remittance advices, imports and exports). Banking, inventory, purchase orders, fixed assets, expense claims, the public API and tax returns are not built yet; see [the integration plan](docs/integration-plan.md) and the decision records.
 
 ## Architecture
 
@@ -19,6 +19,9 @@ Read more:
 - [Module boundaries](docs/module-boundaries.md)
 - [Phase 1 decisions](docs/decisions/0001-phase-1-foundation.md)
 - [Phase 2 decisions](docs/decisions/0002-phase-2-accounting.md)
+- [Phase 3 decisions](docs/decisions/0003-phase-3-sales-receivables.md)
+- [Phase 4 decisions](docs/decisions/0004-phase-4-purchases-payables.md)
+- [Integration plan](docs/integration-plan.md) (migration numbers and shared-file ownership)
 
 ## Repository layout
 

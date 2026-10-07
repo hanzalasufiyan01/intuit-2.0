@@ -124,6 +124,9 @@ export interface BuiltApp {
     bills: BillService;
     expenses: ExpenseService;
     vendorCredits: VendorCreditService;
+    vendorPayments: VendorPaymentService;
+    vendorRefunds: VendorRefundService;
+    paymentBatches: PaymentBatchService;
     purchasesOutput: PurchasesOutputService;
     remittance: RemittanceService;
     receipts: ReceiptService;

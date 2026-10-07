@@ -103,6 +103,7 @@ This creates the example organization "Maldives Demo Trading":
 - accounting set up with MVR and the Maldives template, plus the current fiscal year with monthly periods;
 - users `owner@`, `admin@` and `member@intuit2-dev.test` (Owner, Administrator, Member);
 - an approval policy for journals, a USD rate, one approved and posted journal, and one draft journal;
+- a Purchases demo (Phase 4): Purchases settings, vendors `DEMO-V1` (MVR) and `DEMO-V2` (USD), an MVR bill with a part payment, a USD bill, a direct expense and a draft bill, all through the real services. A step that an approval policy in the organization holds back stays a draft; GST is used on the demo bills only if it has an input tax account (older dev databases leave it unmapped, P4-13).
 - a Sales demo (Phase 3B): Sales settings, customers `DEMO-C1` (MVR) and `DEMO-C2` (USD), two items, an issued MVR invoice with a part payment, an overdue USD invoice with an issued credit note, and a draft invoice. All of it goes through the real services, so it posts through accounting like user activity.
 
 Details:
@@ -110,12 +111,12 @@ Details:
 - Set `DEV_SEED_PASSWORD` in `.env` first. All seeded users share that password, and it is never printed or committed.
 - Set `DEV_SEED_TOTP_SECRET` too (a base32 authenticator key, e.g. 20 random bytes). The Owner and Administrator must use two-step verification (Decision 57a), so the seed enrolls them with this key; add it to an authenticator app to sign in as them. The Member does not need it.
 - The command refuses to run unless `APP_ENV` is `development` or `testing`.
-- It is idempotent: if the seed owner already exists, it changes nothing, except that it sets up two-step verification for a seeded Owner or Administrator who does not have it yet, and adds any missing part of the Sales demo (each record is found by its `DEMO`/reference first, so an interrupted run resumes). For that it signs the Owner in with the password and a code from `DEV_SEED_TOTP_SECRET`; codes are single-use per 30-second step, so wait half a minute between runs if one reports an invalid code. On a chart seeded before Phase 3A S1 it also classifies 1110 as `CASH` and 1120 as `BANK`, as the template does, because receipts need a classified deposit account (Decision 42).
+- It is idempotent: if the seed owner already exists, it changes nothing, except that it sets up two-step verification for a seeded Owner or Administrator who does not have it yet, and adds any missing part of the Sales and Purchases demos (each record is found by its `DEMO`/reference first, so an interrupted run resumes). For that it signs the Owner in with the password and a code from `DEV_SEED_TOTP_SECRET`; codes are single-use per 30-second step, so wait half a minute between runs if one reports an invalid code. On a chart seeded before Phase 3A S1 it also classifies 1110 as `CASH` and 1120 as `BANK`, as the template does, because receipts need a classified deposit account (Decision 42).
 - A database seeded before Phase 3A S1 keeps its original chart: accounts are unclassified and there are no system-account designations. To try opening balances there, add an Opening Balance Equity account and designate it (and Retained Earnings), and classify the receivable account as `ACCOUNTS_RECEIVABLE` so that S8-07 excludes it.
 
 ### Revaluation development trigger (optional)
 
-S9 has no revaluation screen yet (Phase 4). In development or testing, a run can be posted or cancelled from the command line, through the real revaluation service, as an existing user:
+Revaluation has a screen (Accounting › Revaluation). In development or testing, a run can also be posted or cancelled from the command line, through the real revaluation service, as an existing user:
 
 ```sh
 pnpm --filter @intuit-2/api revaluation:dev-run --email owner@intuit2-dev.test --date 2026-09-30
@@ -125,7 +126,7 @@ pnpm --filter @intuit-2/api revaluation:dev-run --email owner@intuit2-dev.test -
 - The user needs `accounting.journals.post` (or `accounting.journals.reverse` to cancel) and must satisfy their MFA requirement.
 - Add `--organization "<name>"` when the user belongs to several organizations, and `--run-key <key>` to make a retry return the same run.
 - The command refuses to run in any other `APP_ENV`.
-- It has no browser session, so it skips the password re-confirmation that the real (Phase 4) flow will require. This test-only bypass is recorded on the audit event as `reauthentication: dev_trigger_bypass`.
+- It has no browser session, so it skips the password re-confirmation that the screen and API require. This test-only bypass is recorded on the audit event as `reauthentication: dev_trigger_bypass`. If an approval policy applies to the run, the trigger refuses it like the API does: use the screen's Submit for approval.
 
 ## 5. Run
 

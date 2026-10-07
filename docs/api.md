@@ -132,9 +132,21 @@ Read with `accounting.journals.view`; every change needs `accounting.setup` (S8-
 - `POST /accounting/journals/:id/reverse` on an opening-balance journal returns `409 SYSTEM_JOURNAL`: opening journals are reversed only with their batch.
 - Import domain `opening_balances` (into the draft batch only; never posts), export domain `opening_balances`, attachment target `opening_balance_batch` (changes only while the batch is a draft).
 
-## Revaluation (Phase 3A S9)
+## Revaluation (Phase 3A S9 engine; Phase 4B-10 workflow, ADR 0004 P4-52)
 
-There are no revaluation endpoints yet; the user workflow and its routes arrive in Phase 4. Revaluation journals appear in the existing journal, ledger and report endpoints with `source: "system"` and `sourceType` `revaluation` (dated D) or `revaluation_reversal` (dated D + 1, or a cancellation). `POST /accounting/journals/:id/reverse` on either returns `409 SYSTEM_JOURNAL`.
+Revaluation journals appear in the journal, ledger and report endpoints with `source: "system"` and `sourceType` `revaluation` (dated D) or `revaluation_reversal` (dated D + 1, or a cancellation). `POST /accounting/journals/:id/reverse` on either returns `409 SYSTEM_JOURNAL`; a run is corrected only by cancelling it. Closing rates come from the exchange-rate table; the routes accept no manual rates.
+
+| Method | Path                                    | Permission / notes                                                                                                                        |
+| ------ | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/accounting/revaluations[/:id]`        | `accounting.journals.view`; a run with its exposures (accounts and open AR/AP documents), journals and approval state                     |
+| POST   | `/accounting/revaluations/preview`      | `accounting.journals.view`; `{ revaluationDate }`; writes nothing; `approvalRequired` says whether a policy applies                       |
+| POST   | `/accounting/revaluations`              | `accounting.journals.post` + re-auth; posts directly (an `Idempotency-Key` is the run key); `409 APPROVAL_REQUIRED` when a policy applies |
+| POST   | `/accounting/revaluations/submit`       | `accounting.journals.post`; saves the calculation as `PENDING_APPROVAL` with an approval request (action `accounting.revaluation.post`)   |
+| POST   | `/accounting/revaluations/:id/post`     | `accounting.journals.post` + re-auth; `{ version }`; posts an approved run if the recalculation equals the approved one                   |
+| POST   | `/accounting/revaluations/:id/withdraw` | `accounting.journals.post`; removes a pending run and frees its date                                                                      |
+| POST   | `/accounting/revaluations/:id/cancel`   | `accounting.journals.reverse` + re-auth; `{ version, reason }`; reverses the run's journals on their own dates                            |
+
+Approve and reject use the shared `/approvals/requests/:id/approve|reject` routes (`accounting.journals.approve`).
 
 ## Sales and receivables (Phase 3B, ADR 0003 D1–D15)
 
@@ -166,6 +178,34 @@ Every Sales posting goes sales document → accounting event → journal; Sales 
 | GET                 | `/sales/reports/sales-by-customer`, `/sales-by-item`, `/tax-summary` `?from&to`       | `sales.reports.view`; base currency; opening invoices excluded; the tax summary is not a tax return (U19 open)              |
 
 Import domains `customers`, `sales_items` and `opening_invoices` (drafts only) and export domains `customers`, `sales_items`, `invoices`, `receipts` and `ar_aging` use the S6 endpoints.
+
+## Purchases and payables (Phase 4, ADR 0004 P4-01 to P4-53)
+
+Every Purchases posting goes purchases document → accounting event → journal; Purchases never writes ledger tables. Amounts are decimal strings. Writes that change a document take its `version`; creating and posting actions accept an optional `Idempotency-Key` header, and a replay returns the first result. Approve and reject use the shared approval routes.
+
+| Method           | Path                                                                                     | Permission / notes                                                                                                       |
+| ---------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| GET, POST, PATCH | `/vendors[/:id]` and `/vendors/:id/contacts`, `/addresses`                               | `vendors.view` / `vendors.create` / `vendors.update` (a vendor is a Party with the `vendor` role)                        |
+| GET, PUT         | `/purchases/settings`                                                                    | view: Purchases keys; change: `purchases.settings.manage` + re-auth. AP control account, defaults, numbering             |
+| GET, POST        | `/purchases/bills`                                                                       | `bills.view` / `bills.create`; `kind: "opening"` and `openingBaseTotal` (P4-35)                                          |
+| GET, PUT, DELETE | `/purchases/bills/:id`                                                                   | view / `bills.edit_draft` / `bills.delete_draft`                                                                         |
+| POST             | `/purchases/bills/:id/submit`, `/withdraw`, `/post`, `/void`                             | `bills.create`; `bills.post`; `bills.void` + re-auth                                                                     |
+| GET, POST        | `/purchases/expenses`, GET/PUT/DELETE `/:id`; POST `/:id/submit`, `/withdraw`, `/post`   | `expenses.view` / `expenses.create` (direct expenses: Dr expense / Cr bank, cash or card, P4-44)                         |
+| POST             | `/purchases/expenses/:id/void`                                                           | `expenses.void` + re-auth                                                                                                |
+| GET, POST        | `/purchases/vendor-credits`, GET/PUT/DELETE `/:id`; POST `/:id/submit`, `/withdraw`      | `vendor_credits.view` / `vendor_credits.create`; `origin` is `supplier_credit_note` or `debit_note`                      |
+| POST             | `/purchases/vendor-credits/:id/post`, `/void`                                            | `vendor_credits.post` + re-auth; `vendor_credits.void` + re-auth                                                         |
+| GET, POST        | `/purchases/vendor-credits/:id/pdf`, `/emails`, `/email`                                 | debit notes only: the immutable PDF and its email (P4-46)                                                                |
+| GET, POST        | `/purchases/payments`, GET/PUT/DELETE `/:id`; POST `/:id/submit`, `/withdraw`, `/record` | `vendor_payments.view` / `vendor_payments.create`; prepayments, rate and account overrides                               |
+| POST             | `/purchases/payments/:id/void`, `/purchases/credit-applications`                         | `vendor_payments.void` + re-auth; `vendor_payments.create`                                                               |
+| GET, POST        | `/purchases/payments/:id/remittance`, `/remittance/email`, GET `/remittance/emails`      | the remittance advice PDF and its email (frozen snapshot, P4-46)                                                         |
+| GET, POST        | `/purchases/refunds[/:id]`, POST `/:id/void`                                             | `vendor_payments.view` / `vendor_payments.create` / `vendor_payments.void` + re-auth                                     |
+| GET, POST        | `/purchases/pay-bills/open-bills`, `/purchases/payment-batches[/:id]`                    | batch Pay bills: one payment per vendor and currency, all or nothing (P4-32)                                             |
+| GET              | `/purchases/search?q&limit`                                                              | `q` ≥ 2 characters; sections for vendors, bills, expenses, vendor credits and payments only for what the caller may view |
+| GET              | `/purchases/reports/aging`, `/statement`, `/ap-reconciliation`, `/unpaid-bills`          | `purchases.reports.view`; AP aging, vendor statements, reconciliation (AP subledger vs GL)                               |
+| GET              | `/purchases/reports/purchases-by-vendor`, `/purchases-by-item`, `/purchases-by-account`  | `purchases.reports.view`; opening documents excluded                                                                     |
+| GET              | `/purchases/reports/input-tax-summary`, `/payment-register`                              | `purchases.reports.view`; the summary is not a tax return (MIRA, reverse charge and withholding are open, P4-14)         |
+
+Import domains `vendors`, `opening_bills` and `opening_vendor_credits` (drafts only, never posted) and the purchase columns of `sales_items`; export domains `vendors`, `bills`, `vendor_credits`, `vendor_payments`, `expenses`, `ap_aging`, `purchases_by_vendor` and `payment_register` use the S6 endpoints.
 
 ## Approvals endpoints (Phase 2, `/api/v1/approvals`)
 

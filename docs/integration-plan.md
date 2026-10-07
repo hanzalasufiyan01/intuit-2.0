@@ -6,14 +6,15 @@ Owned by the integrator. Streams record here, before they write code, every clai
 
 Migrations are strictly sequential (no reserved gaps). Before creating one, a stream reads the highest number here and in `apps/api/src/database/migrations`, claims the next, and adds a row. An applied migration is never edited.
 
-| Number | Name                          | Stream / stage | Status                       |
-| ------ | ----------------------------- | -------------- | ---------------------------- |
-| 0039   | `remittance_advice`           | A / 4B-7       | committed (`8d162be`)        |
-| 0040   | `purchases_exports`           | A / 4B-8       | committed (`f9cc34b`, local) |
-| 0041   | `expenses`                    | A / 4B-9       | committed (`501db90`, local) |
-| 0042   | `opening_ap_documents`        | A / opening AP | committed (`cd44d29`, local) |
-| 0043   | `purchases_imports`           | A / imports    | implemented, uncommitted     |
-| 0044   | (next free: claim before use) | —              |                              |
+| Number | Name                            | Stream / stage | Status                       |
+| ------ | ------------------------------- | -------------- | ---------------------------- |
+| 0039   | `remittance_advice`             | A / 4B-7       | committed (`8d162be`)        |
+| 0040   | `purchases_exports`             | A / 4B-8       | committed (`f9cc34b`, local) |
+| 0041   | `expenses`                      | A / 4B-9       | committed (`501db90`, local) |
+| 0042   | `opening_ap_documents`          | A / opening AP | committed (`cd44d29`, local) |
+| 0043   | `purchases_imports`             | A / imports    | committed (`0603922`, local) |
+| 0044   | `purchases_permission_backfill` | A / 4B-12      | implemented, uncommitted     |
+| 0045   | (next free: claim before use)   | —              |                              |
 
 ## Collision files
 

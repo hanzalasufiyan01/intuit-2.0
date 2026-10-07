@@ -11,6 +11,9 @@
  * receipt, a credit note and a draft invoice) is added through the real services; an
  * already-seeded database gets it once (the Owner signs in with password and authenticator code).
  *
+ * Phase 4: a Purchases demo (settings, two vendors, a posted bill with a part payment, a posted
+ * USD bill, a direct expense and a draft bill) is added the same way.
+ *
  * Phase 3A S7: the Owner and the Administrator must use two-step verification (Decision 57a).
  * They are enrolled through the real verification path with the authenticator secret
  * DEV_SEED_TOTP_SECRET from the git-ignored .env (never printed); add that key to an
@@ -19,6 +22,7 @@
 import { randomUUID } from 'node:crypto';
 import { buildApp } from '../../app.js';
 import type { Principal } from '../../application/authorization.js';
+import type { BillDraftInput } from '../../application/bill-service.js';
 import type { InvoiceDraftInput } from '../../application/invoice-service.js';
 import { inTransaction } from '../../application/unit-of-work.js';
 import { systemClock } from '../../infrastructure/clock.js';
@@ -33,7 +37,7 @@ import {
   hasActiveFactor,
   insertPendingTotpFactor,
 } from '../../modules/identity/index.js';
-import { ValidationError } from '../../domain/errors.js';
+import { AppError, ValidationError } from '../../domain/errors.js';
 import { createDatabase } from '../client.js';
 
 loadEnvFile();
@@ -413,18 +417,251 @@ async function seedSalesDemo(owner: Principal): Promise<boolean> {
   return added;
 }
 
+/**
+ * Phase 4: a small Purchases demo through the real services (bill → accounting event → journal;
+ * payment; direct expense). Each step finds its record by a DEMO reference first, so the seed
+ * resumes after an interruption and re-running changes nothing. Purchases settings are only filled
+ * in when not yet configured. Returns whether anything was added.
+ */
+async function seedPurchasesDemo(owner: Principal): Promise<boolean> {
+  let added = false;
+  const today = systemClock.now().toISOString().slice(0, 10);
+  const year = today.slice(0, 4);
+  const daysAgo = (n: number) => {
+    const date = new Date(Date.parse(`${today}T00:00:00Z`) - n * 86_400_000);
+    const iso = date.toISOString().slice(0, 10);
+    return iso < `${year}-01-02` ? `${year}-01-02` : iso;
+  };
+  const accounts = await services.accounting.listAccounts(owner);
+  const account = (code: string) => accounts.find((a) => a.code === code)?.id ?? null;
+  const bank =
+    accounts.find(
+      (a) =>
+        a.status === 'ACTIVE' &&
+        a.currencyCode === 'MVR' &&
+        (a.subtype === 'BANK' || a.subtype === 'CASH'),
+    )?.id ?? null;
+  const taxCodes = await services.tax.listCodes(owner);
+  // P4-13: a purchase document can use a tax code only once it has an input tax account; new
+  // Maldives organizations are mapped, a database seeded earlier is not (nothing is inferred),
+  // so the demo then leaves its bills untaxed.
+  const gst = taxCodes.find((c) => c.code === 'GST' && c.inputTaxAccountId)?.id ?? null;
+
+  const settings = await services.purchasesSettings.get(owner);
+  if (!settings.configured) {
+    await services.purchasesSettings.update(
+      owner,
+      {
+        version: settings.version,
+        apAccountId: settings.suggestedApAccountId ?? account('2110'),
+        defaultExpenseAccountId: account('5400'),
+        defaultPaymentAccountId: bank,
+        defaultTaxCodeId: gst,
+        defaultTaxTreatment: 'exclusive',
+        defaultPaymentTermsDays: 30,
+      },
+      origin,
+    );
+    added = true;
+  }
+
+  const vendor = async (
+    reference: string,
+    displayName: string,
+    currencyCode: string,
+    emailAddress: string,
+  ) => {
+    const found = await services.vendors.list(owner, {
+      search: reference,
+      status: 'all',
+      limit: 5,
+    });
+    const match = found.items.find((v) => v.reference === reference);
+    if (match) return match;
+    added = true;
+    return services.vendors.create(
+      owner,
+      {
+        currencyCode,
+        paymentTermsDays: 30,
+        party: {
+          kind: 'organization',
+          displayName,
+          companyName: displayName,
+          firstName: null,
+          lastName: null,
+          reference,
+          tin: null,
+          email: emailAddress,
+          phone: null,
+          website: null,
+          notes: null,
+          roles: ['vendor'],
+          contacts: [],
+          addresses: [
+            {
+              kind: 'billing',
+              label: null,
+              line1: 'Ameenee Magu',
+              line2: null,
+              city: 'Malé',
+              region: null,
+              postalCode: null,
+              countryCode: 'MV',
+              isDefault: true,
+            },
+          ],
+        },
+      },
+      origin,
+    );
+  };
+  const hardware = await vendor('DEMO-V1', 'Reef Hardware', 'MVR', 'ap@reefhardware.example');
+  const marine = await vendor(
+    'DEMO-V2',
+    'Atoll Marine Supplies',
+    'USD',
+    'billing@atollmarine.example',
+  );
+
+  const none = { idempotencyKey: null };
+  /**
+   * A posting step that an approval policy in this organization may hold back (it then stays a
+   * draft for a user to submit); anything else is a real failure.
+   */
+  const unlessApprovalNeeded = async (step: () => Promise<unknown>) => {
+    try {
+      await step();
+      added = true;
+    } catch (error) {
+      if (!(error instanceof AppError && error.code === 'APPROVAL_REQUIRED')) throw error;
+    }
+  };
+  /** Finds a bill by its supplier reference, or creates it; posts it unless `draft`. */
+  const bill = async (
+    reference: string,
+    input: Omit<BillDraftInput, 'vendorReference'>,
+    draft = false,
+  ) => {
+    const found = await services.bills.list(owner, { search: reference, limit: 5 });
+    let current: { id: string; version: number; status: string } | undefined = found.items.find(
+      (b) => b.vendorReference === reference,
+    );
+    if (!current) {
+      current = (
+        await services.bills.create(owner, { ...input, vendorReference: reference }, none, origin)
+      ).value;
+      added = true;
+    }
+    if (!draft && current.status === 'DRAFT') {
+      const draftBill = current;
+      await unlessApprovalNeeded(async () => {
+        current = (
+          await services.bills.post(
+            owner,
+            draftBill.id,
+            { version: draftBill.version },
+            none,
+            origin,
+          )
+        ).value;
+      });
+    }
+    return current;
+  };
+
+  // An MVR bill, part paid; a USD bill from the marine supplier; and a draft.
+  const hardwareBill = await bill('DEMO-INV-2041', {
+    vendorId: hardware.id,
+    billDate: daysAgo(45),
+    lines: [
+      {
+        description: 'Marine paint and fittings',
+        quantity: '1',
+        unitPrice: '8200.00',
+        taxCodeId: gst,
+      },
+      { description: 'Mooring ropes', quantity: '10', unitPrice: '120.00', taxCodeId: gst },
+    ],
+  });
+  const payments = await services.vendorPayments.list(owner, { search: 'DEMO-CHQ-1', limit: 5 });
+  if (!payments.items.some((p) => p.reference === 'DEMO-CHQ-1')) {
+    const payment = (
+      await services.vendorPayments.create(
+        owner,
+        {
+          vendorId: hardware.id,
+          paymentDate: daysAgo(12),
+          amount: '5000.00',
+          reference: 'DEMO-CHQ-1',
+          allocations: [{ billId: hardwareBill.id, amount: '5000.00' }],
+        },
+        none,
+        origin,
+      )
+    ).value;
+    await unlessApprovalNeeded(() =>
+      services.vendorPayments.record(owner, payment.id, { version: payment.version }, none, origin),
+    );
+    added = true;
+  }
+  await bill('DEMO-INV-USD-7', {
+    vendorId: marine.id,
+    billDate: daysAgo(30),
+    lines: [{ description: 'Dive compressor service parts', quantity: '2', unitPrice: '640.00' }],
+  });
+  const expenses = await services.expenses.list(owner, { search: 'DEMO-RCPT-1', limit: 5 });
+  if (!expenses.items.some((e) => e.vendorReference === 'DEMO-RCPT-1')) {
+    const expense = (
+      await services.expenses.create(
+        owner,
+        {
+          vendorId: hardware.id,
+          expenseDate: daysAgo(3),
+          vendorReference: 'DEMO-RCPT-1',
+          memo: 'Boat fuel, paid from the bank account.',
+          lines: [
+            { description: 'Boat fuel', quantity: '1', unitPrice: '430.00', taxCodeId: null },
+          ],
+        },
+        none,
+        origin,
+      )
+    ).value;
+    await unlessApprovalNeeded(() =>
+      services.expenses.post(owner, expense.id, { version: expense.version }, none, origin),
+    );
+    added = true;
+  }
+  await bill(
+    'DEMO-INV-DRAFT',
+    {
+      vendorId: hardware.id,
+      billDate: today,
+      memo: 'Draft for next month’s deliveries.',
+      lines: [
+        { description: 'Safety equipment', quantity: '3', unitPrice: '980.00', taxCodeId: gst },
+      ],
+    },
+    true,
+  );
+  return added;
+}
+
 try {
   const existing = await inTransaction(database.db, {}, (tx) =>
     findUserByEmail(tx, USERS.owner.email),
   );
   if (existing) {
     const upgraded = [await ensureSeedMfa(USERS.owner), await ensureSeedMfa(USERS.admin)];
-    const sales = await seedSalesDemo(await signInWithMfa(USERS.owner));
+    const demoOwner = await signInWithMfa(USERS.owner);
+    const sales = await seedSalesDemo(demoOwner);
+    const purchases = await seedPurchasesDemo(demoOwner);
     console.log(
       upgraded.some(Boolean)
         ? 'Development seed already present; two-step verification set up for the Owner and Administrator (DEV_SEED_TOTP_SECRET).'
-        : sales
-          ? 'Development seed already present; Sales demo added.'
+        : sales || purchases
+          ? `Development seed already present; ${[sales && 'Sales', purchases && 'Purchases'].filter(Boolean).join(' and ')} demo added.`
           : 'Development seed already present; nothing changed.',
     );
   } else {
@@ -524,6 +761,7 @@ try {
     );
 
     await seedSalesDemo(owner);
+    await seedPurchasesDemo(owner);
 
     console.log('Development seed created:');
     for (const [role, user] of Object.entries(USERS))

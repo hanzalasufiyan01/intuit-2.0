@@ -36,6 +36,8 @@ const serialFiles = [
   'test/purchases-data-exchange.test.ts',
   // Phase 4B (P4-47): drives the job worker for Purchases imports and the expenses export.
   'test/purchases-imports.test.ts',
+  // Phase 4B-12: replays the Purchases permission backfill (migration 0044).
+  'test/purchases-permissions.test.ts',
 ];
 
 export default defineConfig({
