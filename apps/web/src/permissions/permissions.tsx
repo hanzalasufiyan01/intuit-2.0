@@ -103,6 +103,12 @@ export const Permission = {
   BankingTransfersVoid: 'banking.transfers.void',
   BankingReconcile: 'banking.reconcile',
   BankingRulesManage: 'banking.rules.manage',
+  // Inventory: tracked items, the stock ledger, adjustments and valuation.
+  InventoryView: 'inventory.view',
+  InventoryItemsManage: 'inventory.items.manage',
+  InventorySettingsManage: 'inventory.settings.manage',
+  InventoryAdjustmentsCreate: 'inventory.adjustments.create',
+  InventoryAdjustmentsVoid: 'inventory.adjustments.void',
 } as const;
 export type PermissionKey = (typeof Permission)[keyof typeof Permission];
 

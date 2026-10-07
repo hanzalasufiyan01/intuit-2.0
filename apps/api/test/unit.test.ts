@@ -131,6 +131,11 @@ describe('permission catalog', () => {
       'expenses.create',
       'expenses.view',
       'expenses.void',
+      'inventory.adjustments.create',
+      'inventory.adjustments.void',
+      'inventory.items.manage',
+      'inventory.settings.manage',
+      'inventory.view',
       'invoices.approve', // Phase 3B (D11, Decision 30)
       'invoices.create',
       'invoices.delete_draft',
@@ -189,6 +194,7 @@ describe('permission catalog', () => {
       'credit_notes.view', // Phase 3B (D14): Sales view-only
       'customers.view',
       'expenses.view', // Phase 4B-9 (P4-40)
+      'inventory.view', // Inventory (view only)
       'invoices.view',
       'members.read',
       'organization.read',

@@ -42,6 +42,7 @@ import type { AuthorizationContext, Principal } from './authorization.js';
 import type { AppDependencies } from './dependencies.js';
 import type { IdempotencyService } from './idempotency-service.js';
 import type { JournalService } from './journal-service.js';
+import type { InventoryHooks } from './inventory-hooks.js';
 import { withOrganization } from './organization-service.js';
 import {
   inputTaxCheck,
@@ -151,6 +152,7 @@ export class ExpenseService {
     private readonly approvals: ApprovalService,
     private readonly journals: JournalService,
     private readonly idempotency: IdempotencyService,
+    private readonly inventory?: InventoryHooks,
   ) {
     approvals.register({
       actionKey: EXPENSE_POST_ACTION,
@@ -854,6 +856,12 @@ export class ExpenseService {
     const inputTax = await inputTaxCheck(tx, ctx.organizationId, resolved.lines);
     issues.push(...inputTax.issues);
     if (issues.length) throw new ValidationError(issues, 'The expense cannot be posted yet.');
+    await this.inventory?.assertNoTrackedItems(
+      tx,
+      ctx.organizationId,
+      resolved.lines.map((l) => ({ itemId: l.itemId ?? null })),
+      'expenses',
+    );
 
     const now = this.now;
     // Keep the recomputed values, the tax snapshot and the input accounts on the lines.

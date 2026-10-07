@@ -119,10 +119,15 @@ export interface Actor {
  * module created, and any reversal of it, changes only through that module (its voids), so the
  * subledger and the GL never drift apart. The Sales wording is the Phase 3B one, unchanged.
  */
-/** Modules whose journals only they reverse: the two subledgers and Banking (entries, transfers). */
-export type JournalOwner = Subledger | 'banking';
+/** Modules whose journals only they reverse: the two subledgers, Banking and Inventory. */
+export type JournalOwner = Subledger | 'banking' | 'inventory';
 
 const SUBLEDGER_JOURNALS: Record<JournalOwner, { label: string; refusal: string }> = {
+  inventory: {
+    label: 'Inventory',
+    refusal:
+      'Inventory journals are reversed from their invoice or stock adjustment (void), not manually.',
+  },
   banking: {
     label: 'Banking',
     refusal:
@@ -141,7 +146,10 @@ const SUBLEDGER_JOURNALS: Record<JournalOwner, { label: string; refusal: string 
 };
 
 const isSubledger = (module: string | null): module is JournalOwner =>
-  module !== null && (module === 'banking' || (subledgers as readonly string[]).includes(module));
+  module !== null &&
+  (module === 'banking' ||
+    module === 'inventory' ||
+    (subledgers as readonly string[]).includes(module));
 
 const CONTROL_ACCOUNT_MESSAGE =
   'Control accounts cannot be used in manual journals; they are maintained through their subledger.';

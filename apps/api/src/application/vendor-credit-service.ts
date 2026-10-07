@@ -47,6 +47,7 @@ import { requirePermission, type AuthorizationContext, type Principal } from './
 import type { AppDependencies } from './dependencies.js';
 import type { IdempotencyService } from './idempotency-service.js';
 import type { JournalService } from './journal-service.js';
+import type { InventoryHooks } from './inventory-hooks.js';
 import { withOrganization } from './organization-service.js';
 import {
   inputTaxCheck,
@@ -171,6 +172,7 @@ export class VendorCreditService {
     private readonly journals: JournalService,
     private readonly idempotency: IdempotencyService,
     private readonly output: PurchasesOutputService,
+    private readonly inventory?: InventoryHooks,
   ) {
     approvals.register({
       actionKey: VENDOR_CREDIT_POST_ACTION,
@@ -1088,6 +1090,12 @@ export class VendorCreditService {
     const inputTax = await inputTaxCheck(tx, ctx.organizationId, resolved.lines);
     issues.push(...inputTax.issues);
     if (issues.length) throw new ValidationError(issues, 'The vendor credit cannot be posted yet.');
+    await this.inventory?.assertNoTrackedItems(
+      tx,
+      ctx.organizationId,
+      resolved.lines.map((l) => ({ itemId: l.itemId ?? null })),
+      'vendor credits',
+    );
 
     const now = this.now;
     const snapshot = await updateVendorCredit(tx, {

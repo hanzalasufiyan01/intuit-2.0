@@ -39,6 +39,7 @@ const serialFiles = [
   // Phase 4B-12: replays the Purchases permission backfill (migration 0044).
   'test/purchases-permissions.test.ts',
   'test/banking-permissions.test.ts',
+  'test/inventory-permissions.test.ts',
 ];
 
 export default defineConfig({

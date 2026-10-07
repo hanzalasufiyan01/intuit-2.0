@@ -12,6 +12,14 @@ import {
   TransfersPage,
 } from '../features/banking/BankingPages';
 import { BankingSection } from '../features/banking/BankingSection';
+import {
+  AdjustmentsPage,
+  InventorySection,
+  InventorySettingsPage,
+  StockItemPage,
+  StockPage,
+  ValuationPage,
+} from '../features/inventory/InventoryPages';
 import { PurchasesHome, PurchasesSection } from '../features/purchases/PurchasesSection';
 import { PurchasesSettingsPage } from '../features/purchases/SettingsPage';
 import {
@@ -646,6 +654,25 @@ export const routes: RouteObject[] = [
                     <BankEntryPage key="entry" />,
                   ],
                   ['rules', Permission.BankingTransactionsView, <BankRulesPage key="rules" />],
+                ] as const
+              ).map(([path, permission, page]) => ({
+                ...(path === '' ? { index: true } : { path }),
+                element: <RequirePermission permission={permission}>{page}</RequirePermission>,
+              })),
+            ],
+          },
+          {
+            // Inventory: tracked items, the stock ledger, adjustments and valuation.
+            path: 'inventory',
+            element: <InventorySection />,
+            children: [
+              ...(
+                [
+                  ['', Permission.InventoryView, <StockPage key="stock" />],
+                  ['items/:itemId', Permission.InventoryView, <StockItemPage key="item" />],
+                  ['adjustments', Permission.InventoryView, <AdjustmentsPage key="adjustments" />],
+                  ['valuation', Permission.InventoryView, <ValuationPage key="valuation" />],
+                  ['settings', Permission.InventoryView, <InventorySettingsPage key="settings" />],
                 ] as const
               ).map(([path, permission, page]) => ({
                 ...(path === '' ? { index: true } : { path }),

@@ -14,6 +14,7 @@ import { CustomerService } from './application/customer-service.js';
 import { VendorService } from './application/vendor-service.js';
 import { PurchasesSettingsService } from './application/purchases-settings-service.js';
 import { ItemService } from './application/item-service.js';
+import { InventoryService } from './application/inventory-service.js';
 import { InvoiceService } from './application/invoice-service.js';
 import { BillService } from './application/bill-service.js';
 import { BankingPostingService } from './application/banking-posting-service.js';
@@ -127,6 +128,7 @@ export interface BuiltApp {
     expenses: ExpenseService;
     banking: BankingService;
     bankingPosting: BankingPostingService;
+    inventory: InventoryService;
     vendorCredits: VendorCreditService;
     vendorPayments: VendorPaymentService;
     vendorRefunds: VendorRefundService;
@@ -193,11 +195,20 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   // Phase 4A-3: vendors on the shared Party master (ADR 0004 P4-03).
   const vendors = new VendorService(deps, parties);
   const items = new ItemService(deps);
-  const invoices = new InvoiceService(deps, approvals, journals, idempotency, salesOutput);
+  // Inventory (ADR 0006): additive to Sales and Purchases through hooks inside their transactions.
+  const inventory = new InventoryService(deps, journals, idempotency);
+  const invoices = new InvoiceService(
+    deps,
+    approvals,
+    journals,
+    idempotency,
+    salesOutput,
+    inventory,
+  );
   // Phase 4A-5: bills (ADR 0004 P4-15 to P4-22).
-  const bills = new BillService(deps, approvals, journals, idempotency);
+  const bills = new BillService(deps, approvals, journals, idempotency, inventory);
   // Phase 4B-9: direct expenses (ADR 0004 P4-44).
-  const expenses = new ExpenseService(deps, approvals, journals, idempotency);
+  const expenses = new ExpenseService(deps, approvals, journals, idempotency, inventory);
   // Banking: statements, matching, entries, transfers and reconciliation.
   const banking = new BankingService(deps, idempotency);
   const bankingPosting = new BankingPostingService(deps, journals, idempotency);
@@ -211,6 +222,7 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     journals,
     idempotency,
     purchasesOutput,
+    inventory,
   );
   // Phase 4B-2: vendor payments, prepayments, AP credit application and realized FX (P4-25 to P4-33).
   const vendorPayments = new VendorPaymentService(deps, approvals, journals, idempotency);
@@ -280,6 +292,7 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     expenses,
     banking,
     bankingPosting,
+    inventory,
     vendorCredits,
     vendorPayments,
     vendorRefunds,

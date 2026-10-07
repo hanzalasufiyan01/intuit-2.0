@@ -59,7 +59,9 @@ export type ErrorCode =
   | 'MFA_CHALLENGE_FAILED'
   | 'MFA_UNAVAILABLE'
   // Phase 4A-5 (ADR 0004 P4-18): a bill's supplier reference is already used by the vendor.
-  | 'DUPLICATE_VENDOR_REFERENCE';
+  | 'DUPLICATE_VENDOR_REFERENCE'
+  // Inventory: an issue would take the stock below zero while negative stock is blocked.
+  | 'INSUFFICIENT_STOCK';
 
 export interface ValidationIssue {
   path: string;

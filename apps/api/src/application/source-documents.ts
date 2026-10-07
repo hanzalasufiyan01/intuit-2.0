@@ -1,5 +1,6 @@
 import type { Transaction } from '../database/client.js';
 import { getBankEntry, getBankTransfer } from '../modules/banking/index.js';
+import { getAdjustment } from '../modules/inventory/index.js';
 import {
   getBill,
   getExpense,
@@ -183,6 +184,33 @@ export function createSourceDocumentRegistry(): SourceDocumentRegistry {
     const transfer = await getBankTransfer(tx, organizationId, id);
     return transfer
       ? doc('banking', 'transfer', id, transfer.number, 'Bank transfer', `/banking/transfers/${id}`)
+      : null;
+  });
+  // Inventory: a stock adjustment (ADJ-), and the cost of goods sold of an invoice (shown as the invoice).
+  registry.register('inventory', 'adjustment', async (tx, organizationId, id) => {
+    const adjustment = await getAdjustment(tx, organizationId, id);
+    return adjustment
+      ? doc(
+          'inventory',
+          'adjustment',
+          id,
+          adjustment.number,
+          'Stock adjustment',
+          `/inventory/adjustments/${id}`,
+        )
+      : null;
+  });
+  registry.register('inventory', 'sale', async (tx, organizationId, id) => {
+    const invoice = await getInvoice(tx, organizationId, id);
+    return invoice
+      ? doc(
+          'sales',
+          'invoice',
+          id,
+          invoice.number,
+          'Cost of goods sold, invoice',
+          `/sales/invoices/${id}`,
+        )
       : null;
   });
   registry.register('sales', 'invoice', async (tx, organizationId, id) => {

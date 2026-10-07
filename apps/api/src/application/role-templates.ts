@@ -8,6 +8,7 @@ import { ApprovalPermissions } from '../modules/approvals/index.js';
 import { AuditPermissions } from '../modules/audit/index.js';
 import { BankingPermissions, bankingViewPermissions } from '../modules/banking/index.js';
 import { CatalogPermissions } from '../modules/catalog/index.js';
+import { InventoryPermissions, inventoryViewPermissions } from '../modules/inventory/index.js';
 import { OrganizationPermissions } from '../modules/organizations/index.js';
 import { CustomerPermissions } from '../modules/customers/index.js';
 import { PartyPermissions } from '../modules/parties/index.js';
@@ -77,6 +78,8 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       ...Object.values(ExpensePermissions),
       // Banking: all permissions.
       ...Object.values(BankingPermissions),
+      // Inventory: all permissions.
+      ...Object.values(InventoryPermissions),
     ],
   },
   {
@@ -109,6 +112,8 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       ...expenseViewPermissions,
       // Banking: view only.
       ...bankingViewPermissions,
+      // Inventory: view only.
+      ...inventoryViewPermissions,
     ],
   },
 ];

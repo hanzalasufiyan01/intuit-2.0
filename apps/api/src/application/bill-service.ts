@@ -46,6 +46,7 @@ import { requirePermission, type AuthorizationContext, type Principal } from './
 import type { AppDependencies } from './dependencies.js';
 import type { IdempotencyService } from './idempotency-service.js';
 import type { JournalService } from './journal-service.js';
+import type { InventoryHooks } from './inventory-hooks.js';
 import { withOrganization } from './organization-service.js';
 import {
   openingCarryingValue,
@@ -164,6 +165,7 @@ export class BillService {
     private readonly approvals: ApprovalService,
     private readonly journals: JournalService,
     private readonly idempotency: IdempotencyService,
+    private readonly inventory?: InventoryHooks,
   ) {
     approvals.register({
       actionKey: BILL_POST_ACTION,
@@ -1011,6 +1013,14 @@ export class BillService {
     const inputTax = await inputTaxCheck(tx, ctx.organizationId, resolved.lines);
     issues.push(...inputTax.issues);
     if (issues.length) throw new ValidationError(issues, 'The bill cannot be posted yet.');
+    // Inventory: a tracked item posts to its inventory account; stock accounts take tracked items only.
+    if (bill.kind !== 'opening') {
+      await this.inventory?.assertBillLines(
+        tx,
+        ctx.organizationId,
+        resolved.lines.map((l) => ({ itemId: l.itemId ?? null, accountId: l.accountId ?? null })),
+      );
+    }
 
     const now = this.now;
     // Keep the recomputed values, the tax snapshot and the input accounts on the lines.
@@ -1213,6 +1223,20 @@ export class BillService {
       },
     });
     if (!posted) throw versionConflict();
+    // Inventory: tracked items bring stock in at the cost the bill posted (additive; the journal is untouched).
+    if (posted.kind !== 'opening') {
+      await this.inventory?.receiveBill(tx, ctx, {
+        billId: id,
+        date: posted.billDate,
+        journalId: event.journalId,
+        lines: lines.map((l) => ({
+          itemId: l.itemId,
+          quantity: l.quantity,
+          netAmount: l.netAmount,
+          nonRecoverableTax: l.nonRecoverableTax,
+        })),
+      });
+    }
     // 4A-4: the first Purchases posting fixes the AP control account.
     await lockApAccount(tx, ctx.organizationId, now);
     if (duplicates.length) {
@@ -1282,6 +1306,8 @@ export class BillService {
           );
         }
         const reason = input.reason.trim();
+        // Inventory: the stock the bill brought leaves again (refused when it has been used).
+        await this.inventory?.voidBill(tx, ctx, id);
         const reversal = await this.journals.reverseSubledgerJournalInTransaction(
           tx,
           ctx,

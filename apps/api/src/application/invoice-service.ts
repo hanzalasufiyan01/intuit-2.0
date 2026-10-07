@@ -52,6 +52,7 @@ import { requirePermission, type AuthorizationContext, type Principal } from './
 import type { AppDependencies } from './dependencies.js';
 import type { IdempotencyService } from './idempotency-service.js';
 import type { JournalService } from './journal-service.js';
+import type { InventoryHooks } from './inventory-hooks.js';
 import { withOrganization } from './organization-service.js';
 import type { SalesOutputService } from './sales-output-service.js';
 import {
@@ -158,6 +159,7 @@ export class InvoiceService {
     private readonly journals: JournalService,
     private readonly idempotency: IdempotencyService,
     private readonly output: SalesOutputService,
+    private readonly inventory?: InventoryHooks,
   ) {
     approvals.register({
       actionKey: INVOICE_ISSUE_ACTION,
@@ -1131,6 +1133,26 @@ export class InvoiceService {
       },
     });
     if (!issued) throw versionConflict();
+    // Inventory: tracked items leave stock at the average cost and post the cost of goods sold
+    // (additive; the invoice journal is untouched).
+    if (issued.kind !== 'opening') {
+      await this.inventory?.issueInvoice(
+        tx,
+        ctx,
+        {
+          invoiceId: id,
+          number,
+          date: issued.invoiceDate,
+          dimensionValueIds: issued.dimensionValueIds,
+          lines: lines.map((l) => ({
+            itemId: l.itemId,
+            quantity: l.quantity,
+            dimensionValueIds: l.dimensionValueIds,
+          })),
+        },
+        origin,
+      );
+    }
     await lockArAccount(tx, ctx.organizationId, now);
     // §Z: the PDF is rendered from the frozen snapshot off the request path.
     await this.output.enqueuePdfInTransaction(tx, ctx, 'invoice', id);
@@ -1191,6 +1213,8 @@ export class InvoiceService {
           { reason: `Invoice ${invoice.number} voided: ${reason}` },
           origin,
         );
+        // Inventory: the stock comes back at its original cost and the cost journal is reversed.
+        await this.inventory?.voidInvoice(tx, ctx, id, reason, origin);
         const now = this.now;
         const voided = await updateInvoice(tx, {
           organizationId: ctx.organizationId,
