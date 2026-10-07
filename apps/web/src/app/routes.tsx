@@ -14,6 +14,13 @@ import {
 } from '../features/assets/AssetPages';
 import { BankAccountPage, BankAccountsPage } from '../features/banking/BankAccountPages';
 import {
+  ClaimDetailPage,
+  ClaimSettingsPage,
+  ClaimsPage,
+  ClaimsSection,
+  NewClaimPage,
+} from '../features/claims/ClaimPages';
+import {
   BankEntryPage,
   BankRulesPage,
   ReconcilePage,
@@ -679,6 +686,28 @@ export const routes: RouteObject[] = [
                     <BankEntryPage key="entry" />,
                   ],
                   ['rules', Permission.BankingTransactionsView, <BankRulesPage key="rules" />],
+                ] as const
+              ).map(([path, permission, page]) => ({
+                ...(path === '' ? { index: true } : { path }),
+                element: <RequirePermission permission={permission}>{page}</RequirePermission>,
+              })),
+            ],
+          },
+          {
+            // Employee expense claims.
+            path: 'claims',
+            element: <ClaimsSection />,
+            children: [
+              ...(
+                [
+                  ['', Permission.ExpenseClaimsView, <ClaimsPage key="claims" />],
+                  ['new', Permission.ExpenseClaimsCreate, <NewClaimPage key="new-claim" />],
+                  [
+                    'settings',
+                    Permission.ExpenseClaimsView,
+                    <ClaimSettingsPage key="claim-settings" />,
+                  ],
+                  [':id', Permission.ExpenseClaimsView, <ClaimDetailPage key="claim" />],
                 ] as const
               ).map(([path, permission, page]) => ({
                 ...(path === '' ? { index: true } : { path }),

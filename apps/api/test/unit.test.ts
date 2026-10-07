@@ -127,6 +127,12 @@ describe('permission catalog', () => {
       'customers.create',
       'customers.update',
       'customers.view',
+      'expense_claims.approve',
+      'expense_claims.create',
+      'expense_claims.post',
+      'expense_claims.settings.manage',
+      'expense_claims.view',
+      'expense_claims.void',
       'expenses.approve', // Phase 4B-9 (ADR 0004 P4-39)
       'expenses.create',
       'expenses.view',
@@ -204,6 +210,7 @@ describe('permission catalog', () => {
       'bills.view', // Phase 4A-5 (ADR 0004 P4-40)
       'credit_notes.view', // Phase 3B (D14): Sales view-only
       'customers.view',
+      'expense_claims.view', // Expense claims (view only)
       'expenses.view', // Phase 4B-9 (P4-40)
       'fixed_assets.view', // Fixed assets (view only)
       'inventory.view', // Inventory (view only)

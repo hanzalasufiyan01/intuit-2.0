@@ -8,6 +8,10 @@ import { ApprovalPermissions } from '../modules/approvals/index.js';
 import { AuditPermissions } from '../modules/audit/index.js';
 import { BankingPermissions, bankingViewPermissions } from '../modules/banking/index.js';
 import { CatalogPermissions } from '../modules/catalog/index.js';
+import {
+  ExpenseClaimPermissions,
+  expenseClaimViewPermissions,
+} from '../modules/expense-claims/index.js';
 import { FixedAssetPermissions, fixedAssetViewPermissions } from '../modules/fixed-assets/index.js';
 import { InventoryPermissions, inventoryViewPermissions } from '../modules/inventory/index.js';
 import {
@@ -89,6 +93,8 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       ...Object.values(PurchaseOrderPermissions),
       // Fixed assets: all permissions.
       ...Object.values(FixedAssetPermissions),
+      // Expense claims: all permissions.
+      ...Object.values(ExpenseClaimPermissions),
     ],
   },
   {
@@ -127,6 +133,8 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       ...purchaseOrderViewPermissions,
       // Fixed assets: view only.
       ...fixedAssetViewPermissions,
+      // Expense claims: view only.
+      ...expenseClaimViewPermissions,
     ],
   },
 ];

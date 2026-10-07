@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router';
 import { useAuth } from '../auth/auth-context';
 import { Can, Permission, useAnyPermission } from '../permissions/permissions';
 import { IMPORT_PERMISSIONS } from '../features/data-exchange/permissions';
+import { CLAIM_VIEW_PERMISSIONS } from '../features/claims/ClaimPages';
 import { ASSET_VIEW_PERMISSIONS } from '../features/assets/AssetPages';
 import { INVENTORY_VIEW_PERMISSIONS } from '../features/inventory/InventoryPages';
 import { BANKING_VIEW_PERMISSIONS } from '../features/banking/BankingSection';
@@ -22,6 +23,7 @@ export function AppLayout() {
   const canBanking = useAnyPermission(BANKING_VIEW_PERMISSIONS);
   const canInventory = useAnyPermission(INVENTORY_VIEW_PERMISSIONS);
   const canAssets = useAnyPermission(ASSET_VIEW_PERMISSIONS);
+  const canClaims = useAnyPermission(CLAIM_VIEW_PERMISSIONS);
   const remaining = session?.mfa.recoveryCodesRemaining;
   const lowRecoveryCodes =
     remaining === null || remaining === undefined
@@ -67,6 +69,7 @@ export function AppLayout() {
           {canBanking ? <NavLink to="/banking">Banking</NavLink> : null}
           {canInventory ? <NavLink to="/inventory">Inventory</NavLink> : null}
           {canAssets ? <NavLink to="/assets">Fixed assets</NavLink> : null}
+          {canClaims ? <NavLink to="/claims">Expense claims</NavLink> : null}
           {canImport ? <NavLink to="/imports">Import</NavLink> : null}
           <NavLink to="/exports">Exports</NavLink>
           <Can permission={Permission.ApprovalsManage}>

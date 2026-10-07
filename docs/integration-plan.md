@@ -17,8 +17,9 @@ Migrations are strictly sequential (no reserved gaps). Before creating one, a st
 | 0045   | `banking`                       | B / Banking      | committed (`003233f`, local) |
 | 0046   | `inventory`                     | B / Inventory    | committed (`dd25ce4`, local) |
 | 0047   | `purchase_orders`               | B / PO           | committed (`f25b305`, local) |
-| 0048   | `fixed_assets`                  | C / Fixed assets | committed (local)            |
-| 0049   | (next free: claim before use)   | —                |                              |
+| 0048   | `fixed_assets`                  | C / Fixed assets | committed (`8099887`, local) |
+| 0049   | `expense_claims`                | D / Claims       | committed (local)            |
+| 0050   | (next free: claim before use)   | —                |                              |
 
 ## Collision files
 

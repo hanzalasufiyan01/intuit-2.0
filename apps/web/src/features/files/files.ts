@@ -15,7 +15,9 @@ export type FileLinkType =
   | 'receipt'
   | 'bill'
   | 'vendor_credit'
-  | 'expense';
+  | 'expense'
+  | 'purchase_order'
+  | 'expense_claim';
 
 export interface StoredFile {
   id: string;

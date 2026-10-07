@@ -110,6 +110,13 @@ export const Permission = {
   PurchaseOrdersReceive: 'purchase_orders.receive',
   PurchaseOrdersClose: 'purchase_orders.close',
   PurchaseOrdersSettingsManage: 'purchase_orders.settings.manage',
+  // Employee expense claims.
+  ExpenseClaimsView: 'expense_claims.view',
+  ExpenseClaimsCreate: 'expense_claims.create',
+  ExpenseClaimsApprove: 'expense_claims.approve',
+  ExpenseClaimsPost: 'expense_claims.post',
+  ExpenseClaimsVoid: 'expense_claims.void',
+  ExpenseClaimsSettingsManage: 'expense_claims.settings.manage',
   // Fixed assets: register, depreciation, disposal and transfers.
   FixedAssetsView: 'fixed_assets.view',
   FixedAssetsManage: 'fixed_assets.manage',

@@ -5,6 +5,7 @@ import { requirePermission, type AuthorizationContext } from './authorization.js
 import { AccountingPermissions, getJournal, getOpeningBatch } from '../modules/accounting/index.js';
 import type { DetectedType, FileLinkType } from '../modules/files/index.js';
 import { OrganizationPermissions } from '../modules/organizations/index.js';
+import { ExpenseClaimPermissions, getClaim } from '../modules/expense-claims/index.js';
 import { getOrder, PurchaseOrderPermissions } from '../modules/purchase-orders/index.js';
 import { getParty, PartyPermissions } from '../modules/parties/index.js';
 import { getCreditNote, getInvoice, getReceipt, SalesPermissions } from '../modules/sales/index.js';
@@ -236,6 +237,28 @@ export const attachmentTargets: ReadonlyMap<FileLinkType, AttachmentTarget> = ne
               removable: false,
               removableReason:
                 'Purchase order documents cannot be removed once the order is submitted.',
+            };
+      },
+    },
+  ],
+  // Expense claims: receipts can be added while the claim is a draft or awaiting its approval
+  // and removed only from a draft.
+  [
+    'expense_claim',
+    {
+      linkType: 'expense_claim',
+      allowedTypes: ALL_TYPES,
+      viewPermission: ExpenseClaimPermissions.View,
+      changePermission: ExpenseClaimPermissions.Create,
+      resolve: async (tx, organizationId, linkId) => {
+        if (!linkId) return null;
+        const claim = await getClaim(tx, organizationId, linkId);
+        if (!claim) return null;
+        return claim.status === 'DRAFT'
+          ? { removable: true }
+          : {
+              removable: false,
+              removableReason: 'Receipts cannot be removed once the claim is submitted.',
             };
       },
     },

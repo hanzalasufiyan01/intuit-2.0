@@ -115,4 +115,5 @@ Manual journal (UI/API) -----------------------------+
 - **Inventory (ADR 0006):** tracked items at weighted-average cost, an immutable stock ledger, stock in on bills and out on invoices (an additive cost-of-goods-sold journal through an accounting event), adjustments and valuation.
 - **Purchase orders (ADR 0007):** orders (no journal), goods receipts, bill conversion and linking, and the three-way match (OFF, WARNING or BLOCK with tolerances), additive to the bill flow.
 - **Fixed assets (ADR 0008):** categories, the register, straight-line monthly depreciation runs with catch-up, disposal with gain or loss, category transfers and an immutable asset ledger reconciled to the general ledger.
-- Expense claims, the public API and tax returns are planned; see the [integration plan](integration-plan.md).
+- **Expense claims (ADR 0009):** employee claims with receipts and approval, posted as a bill from the employee as a vendor and reimbursed through the payment engine.
+- The public API, webhooks and tax returns are planned; see the [integration plan](integration-plan.md).

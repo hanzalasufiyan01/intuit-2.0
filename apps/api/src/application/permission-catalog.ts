@@ -8,6 +8,7 @@ import { approvalPermissionDefinitions } from '../modules/approvals/index.js';
 import { auditPermissionDefinitions } from '../modules/audit/index.js';
 import { bankingPermissionDefinitions } from '../modules/banking/index.js';
 import { catalogPermissionDefinitions } from '../modules/catalog/index.js';
+import { expenseClaimPermissionDefinitions } from '../modules/expense-claims/index.js';
 import { fixedAssetPermissionDefinitions } from '../modules/fixed-assets/index.js';
 import { inventoryPermissionDefinitions } from '../modules/inventory/index.js';
 import { purchaseOrderPermissionDefinitions } from '../modules/purchase-orders/index.js';
@@ -52,4 +53,6 @@ export const permissionCatalog: readonly PermissionDefinition[] = validatePermis
   ...purchaseOrderPermissionDefinitions,
   // Fixed assets: register, depreciation, disposal and transfers.
   ...fixedAssetPermissionDefinitions,
+  // Employee expense claims.
+  ...expenseClaimPermissionDefinitions,
 ]);

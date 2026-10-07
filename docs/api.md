@@ -281,6 +281,22 @@ Every posting goes asset document → accounting event → journal. Costs are in
 | POST             | `/fixed-assets/depreciation/runs/:id/void`                         | `fixed_assets.void` + re-auth; the latest run only; `{ version, reason }`                                                |
 | GET              | `/fixed-assets/reports/register?asOf`, `/reconciliation?asOf`      | view; the register from the entries; register against the ledger accounts                                                |
 
+## Expense claims (ADR 0009)
+
+Employees are Parties with the `employee` role. A claim posts as a bill from the employee as a vendor (Dr expense / Cr AP control); reimbursement is an ordinary vendor payment. Approve and reject use the shared approval routes (`expense_claims.approve`). `Idempotency-Key` is accepted on create.
+
+| Method           | Path                                      | Permission / notes                                                                                                       |
+| ---------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| GET, PUT         | `/expense-claims/settings`                | view / `expense_claims.settings.manage`; `{ version, defaultExpenseAccountId, receiptRequiredOver }`                     |
+| GET, POST        | `/expense-claims`                         | `expense_claims.view` / `expense_claims.create`; `status`, `employeePartyId`, `search`, `limit`, `after`                 |
+| GET, PUT, DELETE | `/expense-claims/:id`                     | view / `expense_claims.create` (drafts only); the detail includes receipts and the bill                                  |
+| POST             | `/expense-claims/:id/submit`, `/withdraw` | `expense_claims.create`; `{ version }`; submit numbers the claim and approves it or opens an approval                    |
+| POST             | `/expense-claims/:id/cancel`              | `expense_claims.create`; `{ version, reason }`; an approved claim with no bill                                           |
+| POST             | `/expense-claims/:id/post`                | `expense_claims.post` + `bills.create`, `bills.post`, `bills.view` (and `vendors.create` the first time); safe to repeat |
+| POST             | `/expense-claims/:id/void`                | `expense_claims.void` + re-auth + `bills.void`; `{ version, reason }`; refused while the bill has payments               |
+
+Receipts are uploaded to `/files` with `linkType=expense_claim&linkId=<claim id>`.
+
 ## Approvals endpoints (Phase 2, `/api/v1/approvals`)
 
 | Method      | Path                                         | Permission / notes                                                                                                     |

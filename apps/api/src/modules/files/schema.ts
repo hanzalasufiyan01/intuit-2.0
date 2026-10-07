@@ -29,6 +29,8 @@ export const fileLinkTypes = [
   'expense',
   // Purchase orders: supporting documents, removable only while the order is a draft.
   'purchase_order',
+  // Expense claims: receipts, removable only while the claim is a draft.
+  'expense_claim',
 ] as const;
 export type FileLinkType = (typeof fileLinkTypes)[number];
 
