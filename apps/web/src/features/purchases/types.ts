@@ -647,3 +647,20 @@ export interface PaymentRegisterReport {
   }[];
   refundSummary: RegisterSummary;
 }
+
+/** Phase 4B-7: a payment's remittance advice (P4-46). */
+export interface RemittanceStatus {
+  status: 'none' | 'pending' | 'ready' | 'failed';
+  fileId: string | null;
+  jobId: string | null;
+  download?: { url: string };
+}
+
+export interface RemittanceEmail {
+  id: string;
+  recipient: string;
+  subject: string;
+  status: 'queued' | 'sent' | 'failed';
+  requestedAt: string;
+  sentAt: string | null;
+}

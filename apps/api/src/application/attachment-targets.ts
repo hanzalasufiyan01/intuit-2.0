@@ -10,8 +10,10 @@ import { getCreditNote, getInvoice, getReceipt, SalesPermissions } from '../modu
 import {
   BillPermissions,
   getBill,
+  getPayment,
   getVendorCredit,
   VendorCreditPermissions,
+  VendorPaymentPermissions,
 } from '../modules/purchases/index.js';
 
 /**
@@ -187,6 +189,25 @@ export const attachmentTargets: ReadonlyMap<FileLinkType, AttachmentTarget> = ne
               removableReason:
                 'Vendor credit evidence cannot be removed once the credit is submitted or posted.',
             };
+      },
+    },
+  ],
+  // Phase 4B-7: a payment's remittance-advice PDF. Generated only (no uploads), stored under legal
+  // hold and never removed; downloading follows the payment's view permission (D7).
+  [
+    'vendor_payment',
+    {
+      linkType: 'vendor_payment',
+      allowedTypes: ['pdf'],
+      viewPermission: VendorPaymentPermissions.View,
+      changePermission: VendorPaymentPermissions.Create,
+      uploads: false,
+      resolve: async (tx, organizationId, linkId) => {
+        if (!linkId || !(await getPayment(tx, organizationId, linkId))) return null;
+        return {
+          removable: false,
+          removableReason: 'A remittance advice is kept under legal hold.',
+        };
       },
     },
   ],

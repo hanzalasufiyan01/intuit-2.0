@@ -39,6 +39,11 @@ export class PdfkitRenderer implements PdfRenderer {
   readonly name = 'pdfkit';
 
   render(snapshot: Record<string, unknown>, resources: PdfResources = {}): Promise<Buffer> {
+    // Phase 4B-7 (D10): remittance advices have their own layout; invoices, credit notes and debit
+    // notes are drawn exactly as before.
+    if (snapshot.documentType === 'remittance_advice') {
+      return renderRemittance(snapshot as unknown as RemittanceSnapshot, resources);
+    }
     return new Promise((resolve, reject) => {
       const s = snapshot as unknown as Snapshot;
       const doc = new PDFDocument({
@@ -388,6 +393,273 @@ function draw(doc: PDFDocument, s: Snapshot, resources: PdfResources) {
   for (let i = range.start; i < range.start + range.count; i += 1) {
     doc.switchToPage(i);
     line(doc, `Page ${i + 1} of ${range.count}`, right, doc.page.height - MARGIN + 18, {
+      size: 8,
+      align: 'right',
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Remittance advice (Phase 4B-7; ADR 0004 P4-46, decisions D2-D4, D10, D14, D15)
+// ---------------------------------------------------------------------------
+
+/**
+ * The frozen content of one payment's remittance advice: the payer's profile, the vendor, the
+ * bills this payment itself settled and any advance. No base amounts, FX, payment account or bank
+ * details (D3, D17).
+ */
+interface RemittanceSnapshot {
+  documentType: 'remittance_advice';
+  number: string;
+  paymentDate: string;
+  currencyCode: string;
+  amount: string;
+  reference: string | null;
+  seller: Snapshot['seller'];
+  vendor: {
+    displayName: string;
+    companyName: string | null;
+    email: string | null;
+    address: Address | null;
+  } | null;
+  lines: {
+    billNumber: string;
+    vendorReference: string | null;
+    billDate: string;
+    billTotal: string;
+    amountPaid: string;
+  }[];
+  totals: { applied: string; advance: string; total: string };
+}
+
+function renderRemittance(s: RemittanceSnapshot, resources: PdfResources): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({
+      size: 'A4',
+      margin: 10,
+      autoFirstPage: true,
+      bufferPages: true,
+      info: {
+        Title: `Remittance advice ${s.number}`,
+        Producer: 'Intuit 2.0',
+        Creator: 'Intuit 2.0',
+        CreationDate: FIXED_DATE,
+        ModDate: FIXED_DATE,
+      },
+    });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+    try {
+      doc.registerFont('regular', FONTS.regular);
+      doc.registerFont('bold', FONTS.bold);
+      doc.registerFont('thaana', FONTS.thaana);
+      doc.registerFont('thaanaBold', FONTS.thaanaBold);
+      drawRemittance(doc, s, resources);
+      doc.end();
+    } catch (error) {
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+}
+
+/**
+ * One line of text for the remittance advice with correct right-to-left word order (4B-7, Thaana
+ * review). PDFKit shapes text word by word and appends the words in logical order, so a run of
+ * several Thaana words comes out with each word right but the words in left-to-right order (the
+ * first word on the left). That is how `line()` draws every document, so the Sales invoice, credit
+ * note and debit note keep that output byte for byte; the remittance advice does not:
+ *
+ * - the line is cut into atoms in logical order (a Thaana word, a space, a Latin run, a hyphen);
+ * - the atoms are placed in reverse for a right-to-left base direction; and
+ * - each atom is drawn with its own `text()` call, so a Thaana word is a single PDFKit chunk that
+ *   fontkit shapes right to left with its combining marks attached.
+ *
+ * `-` and `/` have no glyph in Noto Sans Thaana, so they are drawn in the Latin font. Text without
+ * Thaana is a plain left-to-right line, drawn exactly as `line()` draws it.
+ */
+function rtlLine(
+  doc: PDFDocument,
+  text: string,
+  x: number,
+  y: number,
+  options: { size?: number; bold?: boolean; align?: 'left' | 'right' } = {},
+) {
+  const parts = runs(text);
+  if (!parts.some((p) => p.rtl)) return line(doc, text, x, y, options);
+  const size = options.size ?? 9;
+  const bold = options.bold ?? false;
+  const latin = bold ? 'bold' : 'regular';
+  interface Atom {
+    text: string;
+    font: string;
+    draw: boolean;
+  }
+  const atoms: Atom[] = [];
+  for (const run of parts) {
+    if (run.rtl) {
+      for (const piece of run.text.split(/(\s+|[-/])/).filter(Boolean)) {
+        if (/^\s+$/.test(piece)) atoms.push({ text: piece, font: fontFor(run, bold), draw: false });
+        else if (piece === '-' || piece === '/')
+          atoms.push({ text: piece, font: latin, draw: true });
+        else atoms.push({ text: piece, font: fontFor(run, bold), draw: true });
+      }
+    } else {
+      const [, before, core, after] = /^(\s*)([\s\S]*?)(\s*)$/.exec(run.text)!;
+      if (before) atoms.push({ text: before, font: latin, draw: false });
+      if (core) atoms.push({ text: core, font: latin, draw: true });
+      if (after) atoms.push({ text: after, font: latin, draw: false });
+    }
+  }
+  const visual = atoms.reverse();
+  doc.fontSize(size);
+  const widths = visual.map((a) => {
+    doc.font(a.font);
+    return doc.widthOfString(a.text);
+  });
+  const total = widths.reduce((sum, w) => sum + w, 0);
+  let cursor = options.align === 'right' ? x - total : x;
+  visual.forEach((a, i) => {
+    if (a.draw) {
+      doc.font(a.font);
+      doc.text(a.text, cursor, y, { lineBreak: false });
+    }
+    cursor += widths[i]!;
+  });
+}
+
+function drawRemittance(doc: PDFDocument, s: RemittanceSnapshot, resources: PdfResources) {
+  const width = doc.page.width;
+  const bottom = doc.page.height - MARGIN;
+  const right = width - MARGIN;
+  let y = MARGIN;
+  const need = (height: number, onNewPage?: () => void) => {
+    if (y + height > bottom) {
+      doc.addPage();
+      y = MARGIN;
+      onNewPage?.();
+    }
+  };
+
+  // Header: the payer's logo or name, and the title.
+  let headerHeight = 18;
+  if (resources.logo) {
+    try {
+      doc.image(resources.logo, MARGIN, y, { fit: [140, 48] });
+      headerHeight = 52;
+    } catch {
+      rtlLine(doc, s.seller?.tradingName ?? s.seller?.legalName ?? '', MARGIN, y, {
+        size: 14,
+        bold: true,
+      });
+    }
+  } else {
+    rtlLine(doc, s.seller?.tradingName ?? s.seller?.legalName ?? '', MARGIN, y, {
+      size: 14,
+      bold: true,
+    });
+  }
+  rtlLine(doc, 'REMITTANCE ADVICE', right, y, { size: 16, bold: true, align: 'right' });
+  y += headerHeight + 6;
+
+  const payerLines = [
+    resources.logo || s.seller?.tradingName ? s.seller?.legalName : null,
+    ...addressLines(s.seller?.address ?? null),
+    s.seller?.tin ? `TIN ${s.seller.tin}` : null,
+    s.seller?.gstRegistrationNumber ? `GST ${s.seller.gstRegistrationNumber}` : null,
+    s.seller?.email,
+    s.seller?.phone,
+  ].filter((l): l is string => Boolean(l));
+  const meta: [string, string][] = [
+    ['Payment', s.number],
+    ['Date', s.paymentDate],
+    ...(s.reference ? [['Reference', s.reference] as [string, string]] : []),
+    ['Currency', s.currencyCode],
+    ['Amount paid', money(s.amount, s.currencyCode)],
+  ];
+  for (let i = 0; i < Math.max(payerLines.length, meta.length); i += 1) {
+    if (payerLines[i]) rtlLine(doc, payerLines[i]!, MARGIN, y);
+    if (meta[i]) {
+      rtlLine(doc, meta[i]![0], right - 110, y, { bold: true, align: 'right' });
+      rtlLine(doc, meta[i]![1], right, y, { align: 'right' });
+    }
+    y += 13;
+  }
+  y += 10;
+  rtlLine(doc, 'Paid to', MARGIN, y, { bold: true });
+  y += 13;
+  for (const text of [
+    s.vendor?.displayName,
+    s.vendor?.companyName && s.vendor.companyName !== s.vendor.displayName
+      ? s.vendor.companyName
+      : null,
+    ...addressLines(s.vendor?.address ?? null),
+    s.vendor?.email,
+  ].filter((l): l is string => Boolean(l))) {
+    rtlLine(doc, text, MARGIN, y);
+    y += 13;
+  }
+  y += 14;
+
+  // The bills this payment settled.
+  const col = { bill: MARGIN, supplier: 135, date: 300, billTotal: 440, paid: right };
+  const header = () => {
+    rtlLine(doc, 'Bill', col.bill, y, { bold: true });
+    rtlLine(doc, 'Supplier invoice', col.supplier, y, { bold: true });
+    rtlLine(doc, 'Bill date', col.date, y, { bold: true });
+    rtlLine(doc, 'Bill total', col.billTotal, y, { bold: true, align: 'right' });
+    rtlLine(doc, 'Paid', col.paid, y, { bold: true, align: 'right' });
+    y += 14;
+    doc
+      .lineWidth(0.5)
+      .strokeColor('#999999')
+      .moveTo(MARGIN, y - 2)
+      .lineTo(right, y - 2)
+      .stroke();
+    y += 2;
+  };
+  header();
+  for (const item of s.lines) {
+    const reference = wrap(doc, item.vendorReference ?? '-', 9, col.date - col.supplier - 10);
+    need(13 * reference.length + 3, header);
+    rtlLine(doc, item.billNumber, col.bill, y);
+    rtlLine(doc, item.billDate, col.date, y);
+    rtlLine(doc, money(item.billTotal, s.currencyCode), col.billTotal, y, { align: 'right' });
+    rtlLine(doc, money(item.amountPaid, s.currencyCode), col.paid, y, { align: 'right' });
+    for (const text of reference) {
+      rtlLine(doc, text, col.supplier, y);
+      y += 13;
+    }
+    y += 3;
+  }
+  const advance = Number(s.totals.advance) > 0;
+  if (advance) {
+    need(16, header);
+    rtlLine(doc, 'Advance (not applied to a bill)', col.bill, y);
+    rtlLine(doc, money(s.totals.advance, s.currencyCode), col.paid, y, { align: 'right' });
+    y += 16;
+  }
+
+  // Totals.
+  need(60);
+  y += 6;
+  const totals: [string, string, boolean][] = [
+    ['Applied to bills', s.totals.applied, false],
+    ...(advance ? [['Advance', s.totals.advance, false] as [string, string, boolean]] : []),
+    [`Total paid ${s.currencyCode}`, s.totals.total, true],
+  ];
+  for (const [label, value, bold] of totals) {
+    rtlLine(doc, label, col.billTotal, y, { size: 10, bold, align: 'right' });
+    rtlLine(doc, money(value, s.currencyCode), col.paid, y, { size: 10, bold, align: 'right' });
+    y += 15;
+  }
+
+  // Page numbers.
+  const range = doc.bufferedPageRange();
+  for (let i = range.start; i < range.start + range.count; i += 1) {
+    doc.switchToPage(i);
+    rtlLine(doc, `Page ${i + 1} of ${range.count}`, right, doc.page.height - MARGIN + 18, {
       size: 8,
       align: 'right',
     });

@@ -9,6 +9,7 @@ export * from './payments.js';
 export * from './permissions.js';
 export * from './purchase-reports.js';
 export * from './refunds.js';
+export * from './remittance.js';
 export * from './settings.js';
 export * from './vendor-credits.js';
 export {

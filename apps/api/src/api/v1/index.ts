@@ -31,6 +31,7 @@ import type { VendorPaymentService } from '../../application/vendor-payment-serv
 import type { VendorRefundService } from '../../application/vendor-refund-service.js';
 import type { PaymentBatchService } from '../../application/payment-batch-service.js';
 import type { PurchasesOutputService } from '../../application/purchases-output-service.js';
+import type { RemittanceService } from '../../application/remittance-service.js';
 import type { ReceiptService } from '../../application/receipt-service.js';
 import type { CreditNoteService } from '../../application/credit-note-service.js';
 import type { SalesOutputService } from '../../application/sales-output-service.js';
@@ -60,6 +61,7 @@ import { registerVendorCreditRoutes } from './vendor-credits.routes.js';
 import { registerVendorPaymentRoutes } from './vendor-payments.routes.js';
 import { registerVendorRefundRoutes } from './vendor-refunds.routes.js';
 import { registerPaymentBatchRoutes } from './payment-batches.routes.js';
+import { registerRemittanceRoutes } from './remittance.routes.js';
 import { registerPurchasesReportRoutes } from './purchases-reports.routes.js';
 import { registerReceiptRoutes } from './receipts.routes.js';
 import { registerCreditNoteRoutes } from './credit-notes.routes.js';
@@ -99,6 +101,7 @@ export interface ApiV1Services {
   paymentBatches: PaymentBatchService;
   apReports: ApReportService;
   purchasesOutput: PurchasesOutputService;
+  remittance: RemittanceService;
   receipts: ReceiptService;
   creditNotes: CreditNoteService;
   salesOutput: SalesOutputService;
@@ -142,6 +145,7 @@ export function apiV1(deps: AppDependencies, services: ApiV1Services) {
     registerVendorPaymentRoutes(app, services);
     registerVendorRefundRoutes(app, services);
     registerPaymentBatchRoutes(app, services);
+    registerRemittanceRoutes(app, services);
     registerPurchasesReportRoutes(app, services);
     registerInvoiceRoutes(app, services);
     registerReceiptRoutes(app, services);

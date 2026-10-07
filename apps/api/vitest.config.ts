@@ -30,6 +30,8 @@ const serialFiles = [
   'test/opening-balance-ap-guard.test.ts',
   // Phase 4B-1: drives the job worker for debit-note PDFs and email.
   'test/debit-note-output.test.ts',
+  // Phase 4B-7: drives the job worker for remittance-advice PDFs and email.
+  'test/remittance-output.test.ts',
 ];
 
 export default defineConfig({

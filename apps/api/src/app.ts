@@ -26,6 +26,11 @@ import {
   PURCHASES_PDF_JOB,
   PurchasesOutputService,
 } from './application/purchases-output-service.js';
+import {
+  REMITTANCE_EMAIL_JOB,
+  REMITTANCE_PDF_JOB,
+  RemittanceService,
+} from './application/remittance-service.js';
 import { ReceiptService } from './application/receipt-service.js';
 import { CreditNoteService } from './application/credit-note-service.js';
 import { ArReportService } from './application/ar-report-service.js';
@@ -117,6 +122,7 @@ export interface BuiltApp {
     bills: BillService;
     vendorCredits: VendorCreditService;
     purchasesOutput: PurchasesOutputService;
+    remittance: RemittanceService;
     receipts: ReceiptService;
     creditNotes: CreditNoteService;
     salesOutput: SalesOutputService;
@@ -181,6 +187,8 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   const bills = new BillService(deps, approvals, journals, idempotency);
   // Phase 4B-1: vendor credits and debit notes, with debit-note PDFs and email (P4-23, P4-46).
   const purchasesOutput = new PurchasesOutputService(deps, files, jobs, new PdfkitRenderer());
+  // Phase 4B-7: vendor remittance advice PDF and email (P4-46), output only.
+  const remittance = new RemittanceService(deps, files, jobs, new PdfkitRenderer());
   const vendorCredits = new VendorCreditService(
     deps,
     approvals,
@@ -256,6 +264,7 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     // Phase 4B-5: AP aging, statements and reconciliation.
     apReports,
     purchasesOutput,
+    remittance,
     items,
     // Phase 3B steps 6-7: invoice drafts, conditional approval and atomic issue (D1).
     invoices,
@@ -288,6 +297,8 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     [DOCUMENT_EMAIL_JOB, (job) => services.salesOutput.runEmail(job)],
     [PURCHASES_PDF_JOB, (job) => services.purchasesOutput.runPdf(job)],
     [PURCHASES_EMAIL_JOB, (job) => services.purchasesOutput.runEmail(job)],
+    [REMITTANCE_PDF_JOB, (job) => services.remittance.runPdf(job)],
+    [REMITTANCE_EMAIL_JOB, (job) => services.remittance.runEmail(job)],
   ]);
   const worker = new JobWorker(deps, handlers);
 

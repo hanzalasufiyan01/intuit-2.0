@@ -1152,3 +1152,103 @@ Phase 4B-5 was committed as `125cda5` and is frozen.
   - The 2,000-row cap is proven with 2,000 and 2,001 synthetic rows through the pure merge, and end to end with a small test-only limit; no test records 2,001 real documents.
   - When the register is truncated, its subtotals cover only the returned rows (the full set belongs to the 4B-8 export).
 - **Not implemented (later stages):** remittance and debit-note output (4B-7); exports, including purchases by vendor and the AP aging, and search (4B-8); direct expenses (4B-9); the revaluation workflow (4B-10); the permission backfill (4B-12); dimension filters; opening bills and credits; MIRA returns, MIRA FX conversion, reverse charge, customs GST and withholding (OPEN).
+
+Phase 4B-6 was committed as `6ca38f3` and is frozen.
+
+### 4B-7 — vendor remittance advice PDF and email (P4-46), 2026-10-07
+
+- **Scope source:** the frozen brief's sequence, "4B-7: remittance and debit-note PDFs and email (0033)". **Debit-note PDFs and email were already built and frozen in 4B-1**, so 4B-7 implements remittance advice only and adds regression coverage for the debit-note output; the debit-note code is not touched.
+- **Decisions (approved 2026-10-07 after the impact audit, D1–D17):**
+  - **D1 scope:** remittance advice only; the debit-note PDF and email stay frozen (regression tests only).
+  - **D2 unit:** one advice per recorded payment. A Pay-bills batch payment has its own; there is no batch-level document and no "email all" (D11, deferred).
+  - **D3 content:**
+    - header: payer organization and legal profile, vendor name, address and email, the `PAY-` number, date, currency, amount and reference;
+    - lines: each bill settled by this payment's own recorded allocations (bill number, supplier invoice number, bill date, bill total, amount paid now);
+    - an advance: the amount not allocated when the payment was recorded.
+    - Excluded: base amounts, realized FX, the payment account, bank details, later prepayment applications, vendor-credit applications and refunds (D17).
+  - **D4 snapshot:** frozen on the first request from the payment and its own allocations (so old payments are supported) and never changed.
+  - **D5:** generated on demand; nothing is generated when a payment is recorded.
+  - **D6 voided payments:** a new advice or a new email for a VOID payment is refused (409); an existing PDF stays downloadable and is never regenerated or modified.
+  - **D7 permissions:** no new keys. `vendor_payments.view` sees and downloads; `vendor_payments.create` generates and emails. No re-authentication. The catalog stays at 78 keys; no backfill.
+  - **D8:** a new sibling table `purchases_remittance_emails`; the 4B-1 `purchases_document_emails` is untouched.
+  - **D9:** migration 0039 (below).
+  - **D10 renderer:** an additive `remittance_advice` branch in the shared PDF renderer; invoices, credit notes and debit notes render byte for byte as before (proven by pinned hashes).
+  - **D12:** a job that dies after its retries may leave its email row `queued` (the Sales and 4B-1 behaviour); no lifecycle redesign.
+  - **D13:** each explicit email request is a new audited row; no new idempotency-key design. The UI disables the button while a request is in flight.
+  - **D14:** a payment with no bill allocation gets an advice showing the amount as an advance, with no invented bill row.
+  - **D15:** English layout with the existing Thaana and mixed-script handling; no Dhivehi template.
+  - **D16:** a vendor without an email never blocks the advice; for email the vendor's address is offered and a typed one is accepted; a blank or invalid recipient is a 400.
+- **Migration `0039_remittance_advice` (forward-only, LF, like 0001–0038):**
+  - `purchases_payments` gains `render_snapshot jsonb` and `remittance_pdf_file_id uuid`, with the composite foreign key `(remittance_pdf_file_id, organization_id)` to `files` (tenant ownership) and a CHECK that output exists only on a RECORDED or VOID payment and that a PDF needs its snapshot.
+  - A separate guard `purchases_payments_remittance_guard`: each column is set at most once and only while the payment is RECORDED. The 0036 guard is not changed, so a VOID payment is still wholly immutable there.
+  - `purchases_remittance_emails`: payment foreign key `(payment_id, organization_id)`, recipient, subject and message as requested, `queued → sent | failed` once, never deleted or truncated, tenant RLS, no PUBLIC grants, `intuit_app` gets SELECT, INSERT and UPDATE only.
+  - `file_links` gains the `vendor_payment` link type.
+- **Output only, by construction:** the service reads the payment and its own allocation rows and writes only the two set-once columns, the generated file and the email requests. It never touches a journal, an accounting event, an allocation, a payment amount or a balance; tests compare the journal, event and allocation counts, bill and payment balances and the AP ledger before and after generating, emailing, failing and retrying.
+- **Code:**
+  - `application/remittance-service.ts` (`RemittanceService`, `buildRemittanceSnapshot`): its own jobs `purchases.remittance_pdf` and `purchases.remittance_email`, so the 4B-1 debit-note job handlers are not changed. (The audit text proposed dispatching on a document type inside those handlers; separate job types keep the frozen debit-note path untouched.)
+  - `modules/purchases/remittance.ts` (set-once accessors and email data), `api/v1/remittance.routes.ts`, an attachment target `vendor_payment` (view with `vendor_payments.view`, generated only, no uploads), and `findLatestJobForRecord` in the jobs module (read-only).
+  - `infrastructure/pdf/pdf-renderer.ts`: the remittance layout (multi-page, header repeated, up to 497 bill rows); the existing document path is unchanged.
+- **PDF lifecycle:**
+  - The first request freezes the snapshot and queues `purchases.remittance_pdf` (key `remittance:<payment>`, then `…:2`, `…:3` for each retry after a failed job).
+  - The job re-checks the requester's permission, renders the frozen snapshot, stores `PAY-xxxxx-remittance.pdf` through the file service under legal hold and links it once; a retry finds it linked and does nothing.
+  - Download links last 5 minutes and follow the payment's view permission; the file cannot be deleted (legal hold).
+- **Email lifecycle:** a request needs a RECORDED payment, freezes the snapshot if needed, stores the recipient, subject and message on the row and queues `purchases.remittance_email`. The job re-checks permission, renders the PDF first if it is missing, sends it through the email provider with the PDF attached, then marks the row sent and audits it. A failed send leaves the PDF available and the job runner retries (5 attempts, backoff 5–900 seconds). A payment voided after the request, or a requester who has lost the permission, marks the row `failed` and sends nothing. Recipient addresses are kept on the row only, never in audit metadata.
+- **API (strict zod):**
+  - `POST /purchases/payments/:id/remittance` (`vendor_payments.create`, empty body; 202; 404 cross-tenant; 409 unless RECORDED);
+  - `GET /purchases/payments/:id/remittance` (`vendor_payments.view`: `none | pending | ready | failed` with a download link);
+  - `GET /purchases/payments/:id/remittance/emails` (`vendor_payments.view`);
+  - `POST /purchases/payments/:id/remittance/email` (`vendor_payments.create`: `to?`, `subject?` 1–200, `message?` ≤ 4,000; 202).
+- **Web:** a "Remittance advice" panel on the payment detail page: generate, pending (polling), download, failed with "Try again", the email form with the vendor's address offered, the email history with "Send again", and a voided payment that keeps its existing advice with no new controls.
+- **Audit events:** `vendor_payment.remittance_requested`, `…remittance_generated`, `…remittance_email_requested` and `…remittance_emailed`.
+- **Tests:**
+  - API `test/remittance-output.test.ts` (21, serial): the renderer (one bill, several, partial, advance-only, foreign currency, determinism, 497 bills across pages, Thaana and mixed script); generation and legal hold; multi-bill, partial and advance content; prepayment-only; later applications and refunds excluded; FX without base or FX; a batch payment's own advice; draft and voided payments; a failed PDF job retried under the next key; email (sent with attachment, audit without addresses, prefilled and typed recipients, validation, explicit duplicate sends, a failed send retried, a dead job, a payment voided after the request); permissions, job permission re-check and tenant isolation; the database guards (set-once, recorded-only, composite tenant keys, immutable email rows, no truncate or delete, RLS); and the debit-note regression (render, download, legal hold, email, void).
+  - API `test/pdf-renderer.test.ts` (3): the invoice, credit-note and debit-note renders are byte-identical to hashes captured from the renderer before the branch existed (`test/pdf-fixtures.ts`).
+  - Web `test/remittance.test.tsx` (8). Pin: `0039` in `s2-fixes`.
+- **Verification (2026-10-07):**
+
+  | Check                            | Result                                    |
+  | -------------------------------- | ----------------------------------------- |
+  | API, two full runs               | 63 files / 795 tests, both runs all green |
+  | Web                              | 19 files / 172 tests                      |
+  | Typecheck, lint, Prettier, build | clean                                     |
+  | Migrations 0001–0039             | 39/39 checksums, LF; 0001–0038 untouched  |
+
+  Integrity audit: no unbalanced journals; every recorded or void payment's base equals its journal; AP I-1 holds in every organization with refunds or batches (the remaining I-1 mismatches are the known legacy fixtures that change balances by raw SQL, with no payments, refunds, batches or allocations); remittance output exists only on RECORDED or VOID payments, every PDF has its snapshot, is under legal hold and is linked as `vendor_payment`; the new table has RLS, no truncate and no DELETE grant.
+
+- **Owner and member browser E2E (2026-10-07, dev organization):**
+
+  | Step                                     | Result                                                                                                                                                                                   |
+  | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | PAY-00011 (multi-bill, partial, advance) | generated from the panel (pending, then ready by polling); PDF downloads (`PAY-00011-remittance.pdf`); BILL-00002 100.00 of 500.00 and BILL-00006 150.00 of 300.00, advance 20.00        |
+  | PAY-00004 (FX), PAY-00005, PAY-00010     | USD 100.00 against BILL-00003 with no base or FX in the content; advance-only 400.00 with no refund shown; the batch payment's own advice (5.00 USD)                                     |
+  | Content                                  | the frozen content has only the payer, vendor, lines and totals (no base, FX, account or bank keys); the payment versions are not changed by generation                                  |
+  | Email through the mock                   | the vendor has no email: a blank address is refused; a typed address is sent (queued, then sent in the history), attached PDF = the stored one                                           |
+  | Failure and retry                        | worker disabled; a request stays queued; attempt 1 with a failing provider leaves the row queued, the job waiting and the PDF downloadable; attempt 2 sends it (job attempts 2, one PDF) |
+  | Audit                                    | requested, generated, email requested and emailed events; no address in any audit metadata                                                                                               |
+  | Void restrictions                        | PAY-00012 voided after its advice: the PDF stays downloadable, no controls, generation and email 409; PAY-00009 (voided, none): refused, "no new advice" shown                           |
+  | Accounting                               | events and allocations unchanged; the only new journal is the PAY-00012 void's reversal; AP ledger 1,665.50 = bills 2,835.50 − credits 120.00 − prepayments 1,050.00; AR unchanged       |
+  | Regression                               | DN-00001 still downloads and shows its sent email; Payments, Batches, Refunds, Reports, Sales and Accounting pages clean; no server errors                                               |
+  | Member                                   | sees the panel and email history and downloads the advice; no buttons or form; both POSTs 403; a foreign tenant's payment is 404 on reads                                                |
+
+  Dev setup made for it: PAY-00011 (270.00 MVR to E2E Island Supplies: BILL-00002 100.00, BILL-00006 150.00, advance 20.00) and PAY-00012 (10.00 prepayment, then voided); advices for PAY-00004, 00005, 00010, 00011 and 00012; emails for PAY-00011.
+
+- **Deviations (documented, no frozen decision changed):**
+  - The audit text proposed dispatching on a document type inside the 4B-1 job handlers. The implementation uses its own job types (`purchases.remittance_pdf`, `purchases.remittance_email`), so the frozen debit-note path is not touched at all.
+  - A request that can never be sent (the requester lost `vendor_payments.create`, or the payment was voided after the request) is marked `failed` and sent nothing, rather than left `queued`. D12 (a job that dies after its retries may leave its row queued) is otherwise preserved.
+  - The E2E failure was injected by processing the job with the real services and a provider that throws, because the dev mock provider has no failure mode; no product code was changed for it.
+- **Known limitations:**
+  - The remittance layout reuses the existing document helpers and is covered structurally (page counts, determinism, embedded fonts, the byte-identity pins), but its appearance was not inspected by the implementer: no PDF rasterizer was available in the environment. Sample PDFs were handed over for a visual check.
+  - The byte-identity hashes depend on the pinned PDFKit and font files.
+  - A dead email job may leave its row `queued` (D12). A send that succeeds but fails to record its completion would be retried and sent again (the Sales and 4B-1 behaviour).
+  - Each explicit send is a new request (D13); there is no de-duplication.
+  - A payment's frozen content (about 3 KB, up to about 125 KB for 497 bills) is part of the payment row, so it is read with the payment.
+  - Validation messages on the email form show the shared generic headline (as on the other Purchases forms).
+  - A caller without `vendor_payments.create` gets 403 before any lookup, so a foreign id answers 403 to them; users with the permission get 404.
+- **Not implemented (later stages):** exports and search (4B-8); direct expenses (4B-9); the revaluation workflow (4B-10); UI completion beyond this panel (4B-11); the permission backfill (4B-12); seed and documentation (4B-13); a batch "email all" action (D11); vendor bank details and payment files (P4-43); a production email provider (U18).
+
+- **Thaana review (4B-7 follow-up):** a visual review of the Thaana sample found the combining marks right but the word order of multi-word Thaana and mixed-script lines wrong. Checked against what the PDF draws (glyph outlines from its embedded font subsets, placed from the content stream) and against Chrome/HarfBuzz, not against text extraction.
+  - **Cause:** PDFKit shapes text word by word (splitting at spaces) and appends the chunks in logical order. Each word is right-to-left with its marks attached, but the first of several words lands on the left. Noto Sans Thaana also has no `-` or `/` glyph.
+  - **Fix (remittance advice only):** `rtlLine` in `pdf-renderer.ts` cuts a line holding Thaana into atoms (a Thaana word, a space, a Latin run, a `-` or `/`), places them in reverse, draws each with its own `text()` call, and draws `-` and `/` in the Latin font. Lines without Thaana go through the unchanged `line()`, so the Latin-only remittance samples are byte-identical before and after.
+  - **Tests:** `test/pdf-renderer.test.ts` pins the Sales invoice, credit note and debit note by SHA-256 (captured from the renderer at `6ca38f3`) and, with the new `test/pdf-text.ts` reader, checks the drawn glyph order and positions of the remittance advice: first word at the right, each mark directly before its base, Latin against Thaana in both logical orders, hyphen and slash in the Latin font, and plain Latin left to right. The word-order and hyphen tests fail against the old drawing.
+  - **Open, for the architects:** the shared `line()` has the same word-order defect for multi-word Thaana in the Sales invoice, credit note and debit note. It was left alone to keep those outputs byte-identical; fixing it changes their hashes and needs its own decision.
+  - **Limitation:** brackets are not mirrored in right-to-left text.

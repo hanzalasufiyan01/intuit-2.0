@@ -20,6 +20,7 @@ import { orNull, StatusBadge, useOrgKey } from '../sales/shared';
 import type { Page } from '../sales/types';
 import { PurchasesNav } from './PurchasesSection';
 import { RefundHistory, useRefundsOf } from './RefundPages';
+import { RemittancePanel } from './RemittancePanel';
 import type {
   AllocationView,
   OpenBill,
@@ -1152,6 +1153,11 @@ export function PaymentDetailPage() {
           sourceId={id}
           canRefund={p.status === 'RECORDED' && can.edit && Number(p.amountUnallocated ?? 0) > 0}
         />
+      ) : null}
+
+      {/* Phase 4B-7: the vendor's remittance advice (view with the page; create to generate and email). */}
+      {p.status === 'RECORDED' || p.status === 'VOID' ? (
+        <RemittancePanel paymentId={id} vendorId={p.vendorId} status={p.status} />
       ) : null}
 
       {p.status === 'RECORDED' && can.void && activeRefunds > 0 ? (

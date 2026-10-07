@@ -277,6 +277,24 @@ export const purchasesDocumentEmails = pgTable('purchases_document_emails', {
   sentAt: timestamptz('sent_at'),
 });
 
+/** Phase 4B-7: one row per explicit remittance-advice email request (migration 0039; D8, D13). */
+export const purchasesRemittanceEmails = pgTable('purchases_remittance_emails', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: uuid('organization_id').notNull(),
+  paymentId: uuid('payment_id').notNull(),
+  recipient: text('recipient').notNull(),
+  subject: text('subject').notNull(),
+  message: text('message').notNull().default(''),
+  status: text('status', { enum: ['queued', 'sent', 'failed'] })
+    .notNull()
+    .default('queued'),
+  jobId: uuid('job_id'),
+  fileId: uuid('file_id'),
+  requestedByUserId: uuid('requested_by_user_id').notNull(),
+  requestedAt: timestamptz('requested_at').notNull(),
+  sentAt: timestamptz('sent_at'),
+});
+
 /** Phase 4B-2: vendor payments, planned and settled allocations (migration 0036; ADR 0004). */
 export const paymentStatuses = ['DRAFT', 'PENDING_APPROVAL', 'RECORDED', 'VOID'] as const;
 export type PaymentStatus = (typeof paymentStatuses)[number];
@@ -322,6 +340,12 @@ export const purchasesPayments = pgTable('purchases_payments', {
   updatedAt: timestamptz('updated_at').notNull(),
   /** Phase 4B-4: the Pay-bills batch that recorded the payment; set once (migration 0038). */
   paymentBatchId: uuid('payment_batch_id'),
+  /**
+   * Phase 4B-7 (migration 0039): the remittance advice's frozen content, taken on the first
+   * request, and its stored PDF. Each is set at most once and only while the payment is RECORDED.
+   */
+  renderSnapshot: jsonb('render_snapshot').$type<Record<string, unknown>>(),
+  remittancePdfFileId: uuid('remittance_pdf_file_id'),
 });
 
 export const purchasesPaymentPlannedAllocations = pgTable('purchases_payment_planned_allocations', {

@@ -53,6 +53,32 @@ export async function enqueueJob(
   return { job: existing!, created: false };
 }
 
+/**
+ * The newest job of a type whose payload names a record (Phase 4B-7: the state of a payment's
+ * remittance PDF). Read-only; `field` is a fixed identifier chosen by the caller, never user input.
+ */
+export async function findLatestJobForRecord(
+  tx: Transaction,
+  organizationId: string,
+  type: string,
+  field: string,
+  value: string,
+): Promise<JobRecord | undefined> {
+  const [row] = await tx
+    .select()
+    .from(jobs)
+    .where(
+      and(
+        eq(jobs.organizationId, organizationId),
+        eq(jobs.type, type),
+        sql`${jobs.payload} ->> ${field} = ${value}`,
+      ),
+    )
+    .orderBy(sql`${jobs.createdAt} DESC`, sql`${jobs.id} DESC`)
+    .limit(1);
+  return row;
+}
+
 export async function getJob(
   tx: Transaction,
   organizationId: string,
