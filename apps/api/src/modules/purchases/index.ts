@@ -23,6 +23,7 @@ export {
   paymentStatuses,
   refundStatuses,
   purchaseDocumentTypes,
+  vendorCreditKinds,
   vendorCreditOrigins,
   vendorCreditStatuses,
 } from './schema.js';
@@ -33,6 +34,7 @@ export type {
   PaymentStatus,
   RefundStatus,
   PurchaseDocumentType,
+  VendorCreditKind,
   VendorCreditOrigin,
   VendorCreditStatus,
 } from './schema.js';

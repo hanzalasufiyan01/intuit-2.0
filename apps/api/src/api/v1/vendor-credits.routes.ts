@@ -3,7 +3,11 @@ import { z } from 'zod';
 import type { PurchasesOutputService } from '../../application/purchases-output-service.js';
 import type { VendorCreditService } from '../../application/vendor-credit-service.js';
 import { discountTypes } from '../../modules/documents/index.js';
-import { vendorCreditOrigins, vendorCreditStatuses } from '../../modules/purchases/index.js';
+import {
+  vendorCreditKinds,
+  vendorCreditOrigins,
+  vendorCreditStatuses,
+} from '../../modules/purchases/index.js';
 import { taxTreatments } from '../../modules/tax/index.js';
 import { idempotencyKey, markReplay } from '../http/idempotency.js';
 import { eventOrigin, requirePrincipal } from '../http/session.js';
@@ -44,6 +48,10 @@ const lineBody = z
   .strict();
 
 const draftShape = {
+  // P4-35: the explicit base carrying value of a foreign-currency opening credit (S8-06).
+  openingBaseTotal: decimalString(4, 'Enter the base carrying value with up to 4 decimals.')
+    .nullable()
+    .optional(),
   vendorId: fields.id,
   creditDate: isoDate,
   // An optional reference to a posted bill of the same vendor (not applied, decided 2026-10-03).
@@ -67,7 +75,14 @@ const draftShape = {
   // P4-50: at most 200 lines.
   lines: z.array(lineBody).min(1, 'Add at least one line.').max(200),
 };
-const createBody = z.object({ origin: z.enum(vendorCreditOrigins), ...draftShape }).strict();
+// `kind: 'opening'` (P4-35) is chosen when the draft is created and never changes.
+const createBody = z
+  .object({
+    origin: z.enum(vendorCreditOrigins),
+    kind: z.enum(vendorCreditKinds).optional(),
+    ...draftShape,
+  })
+  .strict();
 const updateBody = z.object({ version: z.number().int().min(1), ...draftShape }).strict();
 const versionBody = z.object({ version: z.number().int().min(1) }).strict();
 const voidBody = z

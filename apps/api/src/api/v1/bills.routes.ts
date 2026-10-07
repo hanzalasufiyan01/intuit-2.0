@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { BillService } from '../../application/bill-service.js';
 import { discountTypes } from '../../modules/documents/index.js';
-import { billStatuses } from '../../modules/purchases/index.js';
+import { billKinds, billStatuses } from '../../modules/purchases/index.js';
 import { taxTreatments } from '../../modules/tax/index.js';
 import { idempotencyKey, markReplay } from '../http/idempotency.js';
 import { eventOrigin, requirePrincipal } from '../http/session.js';
@@ -44,6 +44,10 @@ const lineBody = z
 
 const draftShape = {
   vendorId: fields.id,
+  // P4-35: the explicit base carrying value of a foreign-currency opening bill (S8-06).
+  openingBaseTotal: decimalString(4, 'Enter the base carrying value with up to 4 decimals.')
+    .nullable()
+    .optional(),
   billDate: isoDate,
   dueDate: isoDate.nullable().optional(),
   paymentTermsDays: z.number().int().min(0).max(365).nullable().optional(),
@@ -67,7 +71,8 @@ const draftShape = {
   // P4-50: at most 200 lines.
   lines: z.array(lineBody).min(1, 'Add at least one line.').max(200),
 };
-const createBody = z.object(draftShape).strict();
+// `kind: 'opening'` (P4-35) is chosen when the draft is created and never changes.
+const createBody = z.object({ kind: z.enum(billKinds).optional(), ...draftShape }).strict();
 const updateBody = z.object({ version: z.number().int().min(1), ...draftShape }).strict();
 const versionBody = z.object({ version: z.number().int().min(1) }).strict();
 const postBody = z

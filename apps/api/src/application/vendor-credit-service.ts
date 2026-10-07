@@ -35,6 +35,7 @@ import {
   type PurchasesSettings,
   type VendorCredit,
   type VendorCreditLine,
+  type VendorCreditKind,
   type VendorCreditOrigin,
   type VendorCreditStatus,
 } from '../modules/purchases/index.js';
@@ -58,6 +59,12 @@ import {
   type ResolvedPurchaseDocument,
 } from './purchase-documents.js';
 import type { PurchasesOutputService } from './purchases-output-service.js';
+import {
+  openingCarryingValue,
+  openingDocumentIssues,
+  openingPurchasePosting,
+  openingSystemJournal,
+} from './purchase-opening.js';
 import {
   assertOpenPeriod,
   assertRequiredDimensions,
@@ -85,6 +92,10 @@ export const VENDOR_CREDIT_POSTED_EVENT = 'purchases.vendor_credit_posted';
 const RESOURCE = 'purchases_vendor_credit';
 
 export interface VendorCreditDraftInput {
+  /** Opening credits (P4-35) bring a conversion-date credit into AP; set at creation. */
+  kind?: VendorCreditKind | undefined;
+  /** The explicit base carrying value of a foreign-currency opening credit (S8-06). */
+  openingBaseTotal?: string | null | undefined;
   vendorId: string;
   creditDate: string;
   billId?: string | null | undefined;
@@ -106,6 +117,7 @@ type ResolvedCredit = ResolvedPurchaseDocument & {
     vendorReference: string | null;
     rateOverride: string | null;
     rateOverrideReason: string | null;
+    openingBaseTotal: string | null;
   };
   bill: Bill | null;
 };
@@ -167,7 +179,11 @@ export class VendorCreditService {
       approverPermission: VendorCreditPermissions.Approve,
       decisionRequiresReauth: false,
       // P4-37: the AP line's base at the credit's rate; the transaction type is the origin.
-      conditions: { amount: true, transactionTypes: ['supplier_credit_note', 'debit_note'] },
+      // `opening` (P4-35) extends the frozen list for opening vendor credits.
+      conditions: {
+        amount: true,
+        transactionTypes: ['supplier_credit_note', 'debit_note', 'opening'],
+      },
       onApproved: async (tx, { request, authz, now, origin }) => {
         // Approval authorizes; the credit stays pending until someone posts it.
         await this.audit(tx, authz, 'vendor_credit.approved', request.subjectId, now, origin, {
@@ -264,6 +280,35 @@ export class VendorCreditService {
     input: VendorCreditDraftInput,
     existing?: { credit: VendorCredit; lines: readonly VendorCreditLine[] },
   ): Promise<ResolvedCredit> {
+    const kind: VendorCreditKind = existing?.credit.kind ?? input.kind ?? 'standard';
+    const opening = kind === 'opening';
+    if (opening) {
+      // P4-35: a supplier credit at conversion: dated on or before the opening date, without tax,
+      // a bill link or a manual rate.
+      openingDocumentIssues(accounting, {
+        date: input.creditDate,
+        dateName: 'creditDate',
+        taxTreatment: input.taxTreatment,
+        noun: 'vendor credits',
+      });
+      const issues: ValidationIssue[] = [];
+      if (origin !== 'supplier_credit_note') {
+        issues.push({
+          path: 'kind',
+          message: 'Only a supplier credit note can be an opening credit.',
+        });
+      }
+      if (input.billId) {
+        issues.push({ path: 'billId', message: 'An opening credit is not linked to a bill.' });
+      }
+      if (input.rateOverride) {
+        issues.push({
+          path: 'rateOverride',
+          message: 'Opening credits have no manual rate; enter the base carrying value instead.',
+        });
+      }
+      if (issues.length) throw new ValidationError(issues);
+    }
     const link = await this.linkedBill(tx, organizationId, input.billId, input.vendorId);
     if (link.issues.length) throw new ValidationError(link.issues);
     const resolved = await resolvePurchaseDocument(
@@ -276,6 +321,12 @@ export class VendorCreditService {
         date: input.creditDate,
         // A credit for a bill is in the bill's currency.
         currencyCode: input.currencyCode ?? link.bill?.currencyCode,
+        ...(opening
+          ? {
+              taxTreatment: 'no_tax' as const,
+              lines: input.lines.map((l) => ({ ...l, taxCodeId: null })),
+            }
+          : {}),
       },
       {
         datePath: 'creditDate',
@@ -341,6 +392,14 @@ export class VendorCreditService {
         vendorReference: origin === 'debit_note' ? null : vendorReference,
         rateOverride: rateOverride === null ? null : decimal(rateOverride).toFixed(10),
         rateOverrideReason: rateOverride === null ? null : rateOverrideReason,
+        openingBaseTotal: opening
+          ? openingCarryingValue(
+              accounting,
+              resolved.header.currencyCode,
+              input.openingBaseTotal,
+              'credit',
+            )
+          : null,
       },
     };
   }
@@ -371,6 +430,8 @@ export class VendorCreditService {
     lines: readonly VendorCreditLine[],
   ): VendorCreditDraftInput {
     return {
+      kind: credit.kind,
+      openingBaseTotal: credit.openingBaseTotal,
       vendorId: credit.vendorId,
       creditDate: credit.creditDate,
       billId: credit.billId,
@@ -396,6 +457,24 @@ export class VendorCreditService {
     credit: VendorCredit,
     lines: readonly VendorCreditLine[],
   ) {
+    if (credit.kind === 'opening') {
+      // P4-35: Dr AP / Cr Opening Balance Equity for the total, at the carrying value or the rate.
+      return openingPurchasePosting(
+        tx,
+        organizationId,
+        accounting,
+        purchases?.apAccountId ?? null,
+        {
+          direction: 'vendor_credit',
+          label: `Opening vendor credit ${credit.number ?? '(draft)'}`,
+          total: credit.total,
+          currencyCode: credit.currencyCode,
+          date: credit.creditDate,
+          openingBaseTotal: credit.openingBaseTotal,
+          dimensionValueIds: credit.dimensionValueIds,
+        },
+      );
+    }
     const bill = credit.billId ? await getBill(tx, organizationId, credit.billId) : undefined;
     return purchaseDocumentPosting(
       tx,
@@ -454,6 +533,7 @@ export class VendorCreditService {
     return {
       id: credit.id,
       origin: credit.origin,
+      kind: credit.kind,
       status: credit.status,
       number: credit.number,
       vendorId: credit.vendorId,
@@ -523,6 +603,7 @@ export class VendorCreditService {
       tableRate: credit.tableRate,
       rateOverride: credit.rateOverride,
       rateOverrideReason: credit.rateOverrideReason,
+      openingBaseTotal: credit.openingBaseTotal,
       taxTreatment: credit.taxTreatment,
       discount: credit.discountType
         ? { type: credit.discountType, value: decimal(credit.discountValue!).toFixed() }
@@ -648,6 +729,7 @@ export class VendorCreditService {
               ...resolved.header,
               organizationId: ctx.organizationId,
               origin: input.origin,
+              kind: input.kind ?? 'standard',
               createdByUserId: ctx.userId,
               createdAt: now,
               updatedByUserId: ctx.userId,
@@ -959,7 +1041,11 @@ export class VendorCreditService {
       issues.push({ path: 'lines', message: 'The credit total must be greater than zero.' });
     }
     // The supplier's credit-note number is required to post a supplier credit note.
-    if (credit.origin === 'supplier_credit_note' && !resolved.header.vendorReference) {
+    if (
+      credit.origin === 'supplier_credit_note' &&
+      credit.kind !== 'opening' &&
+      !resolved.header.vendorReference
+    ) {
       issues.push({
         path: 'vendorReference',
         message: "Enter the supplier's credit-note number before posting.",
@@ -972,7 +1058,7 @@ export class VendorCreditService {
       });
     }
     resolved.lines.forEach((l, i) => {
-      if (!l.accountId) {
+      if (credit.kind !== 'opening' && !l.accountId) {
         issues.push({
           path: `lines.${i}.accountId`,
           message: 'Choose an account or set a default expense account.',
@@ -1017,6 +1103,14 @@ export class VendorCreditService {
         'EXCHANGE_RATE_REQUIRED',
         409,
         `An exchange rate from ${snapshot.currencyCode} to ${accounting.baseCurrency} is required for ${snapshot.creditDate}.`,
+      );
+    }
+
+    if (snapshot.kind === 'opening' && !posting.journal.lines[1]!.accountId) {
+      throw new AppError(
+        'DESIGNATION_REQUIRED',
+        409,
+        'Designate the Opening Balance Equity account under Accounting before posting opening vendor credits.',
       );
     }
 
@@ -1068,21 +1162,39 @@ export class VendorCreditService {
     }
     const foreign = snapshot.currencyCode !== accounting.baseCurrency;
     const reference = snapshot.vendorReference ? ` (${snapshot.vendorReference})` : '';
-    const journalInput = {
-      entryDate: snapshot.creditDate,
-      description: `${NOUN[credit.origin]} ${number} — ${party!.displayName}${reference}`.slice(
-        0,
-        500,
-      ),
-      reference: number,
-      currency: snapshot.currencyCode,
-      exchangeRate: foreign ? posting.rate.toFixed(10) : null,
-      ...(foreign
-        ? { exchangeRateSource: posting.rateSource === 'manual' ? 'manual' : ('table' as const) }
-        : {}),
-      sourceRef: { module: 'purchases', type: 'vendor_credit', id },
-      lines: posting.journal.lines.map((l) => journalLine(l, number, posting.typeOf)),
-    };
+    // P4-35: opening credits post a system journal (allowlisted `opening_balance` type, E1) with
+    // explicit base amounts, so a carrying value lands exactly on AP.
+    const journalInput =
+      snapshot.kind === 'opening'
+        ? openingSystemJournal({
+            id,
+            entryDate: snapshot.creditDate,
+            description: `Opening vendor credit ${number} — ${party!.displayName}`,
+            reference: number,
+            currencyCode: snapshot.currencyCode,
+            baseCurrency: accounting.baseCurrency,
+            rate: posting.rate,
+            rateSource: posting.rateSource as 'base' | 'table' | 'carrying',
+            lines: posting.journal.lines,
+            typeOf: posting.typeOf,
+            number,
+          })
+        : {
+            entryDate: snapshot.creditDate,
+            description:
+              `${NOUN[credit.origin]} ${number} — ${party!.displayName}${reference}`.slice(0, 500),
+            reference: number,
+            currency: snapshot.currencyCode,
+            exchangeRate: foreign ? posting.rate.toFixed(10) : null,
+            ...(foreign
+              ? {
+                  exchangeRateSource:
+                    posting.rateSource === 'manual' ? 'manual' : ('table' as const),
+                }
+              : {}),
+            sourceRef: { module: 'purchases', type: 'vendor_credit', id },
+            lines: posting.journal.lines.map((l) => journalLine(l, number, posting.typeOf)),
+          };
     const event = await this.journals.receiveEventInTransaction(tx, {
       organizationId: ctx.organizationId,
       sourceModule: 'purchases',

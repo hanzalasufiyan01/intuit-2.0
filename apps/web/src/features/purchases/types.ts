@@ -98,7 +98,7 @@ export type BillStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'POSTED' | 'VOID';
 
 export interface BillSummary {
   id: string;
-  kind: 'standard';
+  kind: 'standard' | 'opening';
   status: BillStatus;
   number: string | null;
   vendorId: string;
@@ -144,9 +144,11 @@ export interface BillLine {
 }
 
 export interface BillDetail extends BillSummary {
+  /** Opening bills: the explicit base carrying value of a foreign-currency balance (S8-06). */
+  openingBaseTotal: string | null;
   paymentTermsDays: number | null;
   exchangeRate: string | null;
-  exchangeRateSource: 'base' | 'table' | 'manual' | null;
+  exchangeRateSource: 'base' | 'table' | 'manual' | 'carrying' | null;
   tableRate: string | null;
   rateOverride: string | null;
   rateOverrideReason: string | null;
@@ -235,6 +237,7 @@ export type VendorCreditStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'POSTED' | 'VOID
 export interface VendorCreditSummary {
   id: string;
   origin: VendorCreditOrigin;
+  kind: 'standard' | 'opening';
   status: VendorCreditStatus;
   number: string | null;
   vendorId: string;
@@ -257,9 +260,10 @@ export interface VendorCreditSummary {
 }
 
 export interface VendorCreditDetail extends VendorCreditSummary {
+  openingBaseTotal: string | null;
   billNumber: string | null;
   exchangeRate: string | null;
-  exchangeRateSource: 'base' | 'table' | 'manual' | 'bill' | null;
+  exchangeRateSource: 'base' | 'table' | 'manual' | 'bill' | 'carrying' | null;
   tableRate: string | null;
   rateOverride: string | null;
   rateOverrideReason: string | null;

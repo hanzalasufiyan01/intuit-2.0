@@ -235,6 +235,35 @@ describe('bill editor', () => {
     });
     expect(await screen.findByRole('heading', { name: 'Draft bill' })).toBeTruthy();
   });
+
+  it('creates an opening bill when the opening box is ticked (P4-35): no tax or manual rate', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi({
+      ...common(ALL_BILLS),
+      'GET /vendors': ok({ items: [vendor], nextCursor: null }),
+      'GET /sales/items': ok({ items: [], nextCursor: null }),
+      'GET /accounting/setup': ok({ settings: { baseCurrency: 'MVR' } }),
+      'POST /purchases/bills': created(bill({ kind: 'opening' })),
+      'GET /purchases/bills/bill-1': ok(bill({ kind: 'opening' })),
+    });
+    renderAt('/purchases/bills/new');
+    await user.selectOptions(await screen.findByLabelText('Vendor'), 'ven-1');
+    await user.click(
+      screen.getByLabelText(/Opening bill \(a balance owed at the conversion date\)/),
+    );
+    await user.type(screen.getByLabelText('Line 1 description'), 'Balance at conversion');
+    await user.type(screen.getByLabelText('Line 1 unit price'), '1200');
+    await user.click(screen.getByRole('button', { name: 'Save draft' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true));
+    const body = calls.find((c) => c.method === 'POST')!.body as Record<string, unknown>;
+    expect(body).toMatchObject({
+      kind: 'opening',
+      vendorId: 'ven-1',
+      rateOverride: null,
+      openingBaseTotal: null,
+    });
+    expect(body).not.toHaveProperty('taxTreatment');
+  });
 });
 
 describe('bill detail', () => {

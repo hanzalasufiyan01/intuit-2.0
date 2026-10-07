@@ -97,7 +97,7 @@ export async function purchaseLines(
     SELECT 'vendor_credit', c.id, c.number, c.origin, c.vendor_id,
            c.credit_date::text, c.currency_code, c.exchange_rate::text, c.dimension_value_ids
       FROM purchases_vendor_credits c
-     WHERE c.organization_id = ${input.organizationId} AND c.status = 'POSTED'
+     WHERE c.organization_id = ${input.organizationId} AND c.status = 'POSTED' AND c.kind = 'standard'
        AND c.credit_date BETWEEN ${input.from}::date AND ${input.to}::date ${vendor('c.vendor_id')}
      ORDER BY date, number`);
   if (docs.rows.length === 0) return { lines: [], documents: [] };

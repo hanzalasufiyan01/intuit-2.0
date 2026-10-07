@@ -33,6 +33,7 @@ import {
   takeNextPurchaseNumber,
   updateBill,
   type Bill,
+  type BillKind,
   type BillLine,
   type BillStatus,
   type PurchasesSettings,
@@ -46,6 +47,12 @@ import type { AppDependencies } from './dependencies.js';
 import type { IdempotencyService } from './idempotency-service.js';
 import type { JournalService } from './journal-service.js';
 import { withOrganization } from './organization-service.js';
+import {
+  openingCarryingValue,
+  openingDocumentIssues,
+  openingPurchasePosting,
+  openingSystemJournal,
+} from './purchase-opening.js';
 import {
   inputTaxCheck,
   purchaseDocumentPosting,
@@ -82,6 +89,10 @@ export const BILL_POSTED_EVENT = 'purchases.bill_posted';
 const RESOURCE = 'purchases_bill';
 
 export interface BillDraftInput {
+  /** Opening bills (P4-35) bring a conversion-date balance into AP; set when the draft is created. */
+  kind?: BillKind | undefined;
+  /** The explicit base carrying value of a foreign-currency opening bill (S8-06). */
+  openingBaseTotal?: string | null | undefined;
   vendorId: string;
   billDate: string;
   dueDate?: string | null | undefined;
@@ -106,6 +117,7 @@ type ResolvedBill = ResolvedPurchaseDocument & {
     vendorReference: string | null;
     rateOverride: string | null;
     rateOverrideReason: string | null;
+    openingBaseTotal: string | null;
   };
 };
 
@@ -236,12 +248,38 @@ export class BillService {
     input: BillDraftInput,
     existing?: { bill: Bill; lines: readonly BillLine[] },
   ): Promise<ResolvedBill> {
+    const kind: BillKind = existing?.bill.kind ?? input.kind ?? 'standard';
+    const opening = kind === 'opening';
+    if (opening) {
+      // P4-35: dated on or before the opening date, without tax; no manual rate.
+      openingDocumentIssues(accounting, {
+        date: input.billDate,
+        dateName: 'billDate',
+        taxTreatment: input.taxTreatment,
+        noun: 'bills',
+      });
+      if (input.rateOverride) {
+        throw new ValidationError([
+          {
+            path: 'rateOverride',
+            message: 'Opening bills have no manual rate; enter the base carrying value instead.',
+          },
+        ]);
+      }
+    }
     const resolved = await resolvePurchaseDocument(
       tx,
       organizationId,
       accounting,
       purchases,
-      { ...input, date: input.billDate },
+      opening
+        ? {
+            ...input,
+            date: input.billDate,
+            taxTreatment: 'no_tax',
+            lines: input.lines.map((l) => ({ ...l, taxCodeId: null })),
+          }
+        : { ...input, date: input.billDate },
       {
         datePath: 'billDate',
         noun: 'bills',
@@ -309,6 +347,14 @@ export class BillService {
         vendorReference,
         rateOverride: rateOverride === null ? null : decimal(rateOverride).toFixed(10),
         rateOverrideReason: rateOverride === null ? null : rateOverrideReason,
+        openingBaseTotal: opening
+          ? openingCarryingValue(
+              accounting,
+              resolved.header.currencyCode,
+              input.openingBaseTotal,
+              'bill',
+            )
+          : null,
       },
     };
   }
@@ -339,6 +385,8 @@ export class BillService {
 
   private inputOf(bill: Bill, lines: readonly BillLine[]): BillDraftInput {
     return {
+      kind: bill.kind,
+      openingBaseTotal: bill.openingBaseTotal,
       vendorId: bill.vendorId,
       billDate: bill.billDate,
       dueDate: bill.paymentTermsDays === null ? bill.dueDate : null,
@@ -363,6 +411,24 @@ export class BillService {
     bill: Bill,
     lines: readonly BillLine[],
   ) {
+    if (bill.kind === 'opening') {
+      // P4-35: Dr Opening Balance Equity / Cr AP for the total, at the carrying value or the rate.
+      return openingPurchasePosting(
+        tx,
+        organizationId,
+        accounting,
+        purchases?.apAccountId ?? null,
+        {
+          direction: 'bill',
+          label: `Opening bill ${bill.number ?? '(draft)'}`,
+          total: bill.total,
+          currencyCode: bill.currencyCode,
+          date: bill.billDate,
+          openingBaseTotal: bill.openingBaseTotal,
+          dimensionValueIds: bill.dimensionValueIds,
+        },
+      );
+    }
     return purchaseDocumentPosting(
       tx,
       organizationId,
@@ -498,6 +564,7 @@ export class BillService {
       tableRate: bill.tableRate,
       rateOverride: bill.rateOverride,
       rateOverrideReason: bill.rateOverrideReason,
+      openingBaseTotal: bill.openingBaseTotal,
       taxTreatment: bill.taxTreatment,
       discount: bill.discountType
         ? { type: bill.discountType, value: decimal(bill.discountValue!).toFixed() }
@@ -618,7 +685,7 @@ export class BillService {
             const bill = await insertBill(tx, {
               ...resolved.header,
               organizationId: ctx.organizationId,
-              kind: 'standard',
+              kind: input.kind ?? 'standard',
               createdByUserId: ctx.userId,
               createdAt: now,
               updatedByUserId: ctx.userId,
@@ -906,8 +973,8 @@ export class BillService {
     if (decimal(resolved.header.total).lte(0)) {
       issues.push({ path: 'lines', message: 'The bill total must be greater than zero.' });
     }
-    // 3. P4-17: the supplier reference is required to post a standard bill.
-    if (!resolved.header.vendorReference) {
+    // 3. P4-17: the supplier reference is required to post a standard bill (not an opening one).
+    if (bill.kind !== 'opening' && !resolved.header.vendorReference) {
       issues.push({
         path: 'vendorReference',
         message: "Enter the supplier's invoice number before posting.",
@@ -921,7 +988,7 @@ export class BillService {
       });
     }
     resolved.lines.forEach((l, i) => {
-      if (!l.accountId) {
+      if (bill.kind !== 'opening' && !l.accountId) {
         issues.push({
           path: `lines.${i}.accountId`,
           message: 'Choose an account or set a default expense account.',
@@ -970,6 +1037,14 @@ export class BillService {
       );
     }
 
+    if (snapshot.kind === 'opening' && !posting.journal.lines[1]!.accountId) {
+      throw new AppError(
+        'DESIGNATION_REQUIRED',
+        409,
+        'Designate the Opening Balance Equity account under Accounting before posting opening bills.',
+      );
+    }
+
     // 5. Approval, re-checked against the recomputed facts (S10-06).
     const approval = await documentApprovalState(
       this.approvals,
@@ -996,13 +1071,23 @@ export class BillService {
     await assertRequiredDimensions(tx, ctx.organizationId, posting.journal.lines, posting.typeOf);
 
     // 7. P4-18: duplicate supplier reference, under an advisory lock for this vendor and key.
-    await lockDuplicateCheck(tx, ctx.organizationId, snapshot.vendorId, snapshot.vendorReference!);
-    const duplicates = await findDuplicateReferences(tx, {
-      organizationId: ctx.organizationId,
-      vendorId: snapshot.vendorId,
-      vendorReference: snapshot.vendorReference!,
-      exceptId: id,
-    });
+    const checkDuplicates = snapshot.kind !== 'opening' && snapshot.vendorReference !== null;
+    if (checkDuplicates) {
+      await lockDuplicateCheck(
+        tx,
+        ctx.organizationId,
+        snapshot.vendorId,
+        snapshot.vendorReference!,
+      );
+    }
+    const duplicates = checkDuplicates
+      ? await findDuplicateReferences(tx, {
+          organizationId: ctx.organizationId,
+          vendorId: snapshot.vendorId,
+          vendorReference: snapshot.vendorReference!,
+          exceptId: id,
+        })
+      : [];
     const duplicateReason = input.duplicateReason?.trim() || null;
     if (duplicates.length && !duplicateReason) {
       const first = duplicates[0]!;
@@ -1040,21 +1125,39 @@ export class BillService {
       );
     }
     const foreign = snapshot.currencyCode !== accounting.baseCurrency;
-    const journalInput = {
-      entryDate: snapshot.billDate,
-      description: `Bill ${number} — ${party!.displayName} (${snapshot.vendorReference})`.slice(
-        0,
-        500,
-      ),
-      reference: number,
-      currency: snapshot.currencyCode,
-      exchangeRate: foreign ? posting.rate.toFixed(10) : null,
-      ...(foreign
-        ? { exchangeRateSource: posting.rateSource === 'manual' ? 'manual' : ('table' as const) }
-        : {}),
-      sourceRef: { module: 'purchases', type: 'bill', id },
-      lines: posting.journal.lines.map((l) => journalLine(l, number, posting.typeOf)),
-    };
+    // P4-35: opening bills post a system journal (allowlisted `opening_balance` type, E1) with
+    // explicit base amounts, so a carrying value lands exactly on AP.
+    const journalInput =
+      snapshot.kind === 'opening'
+        ? openingSystemJournal({
+            id,
+            entryDate: snapshot.billDate,
+            description: `Opening bill ${number} — ${party!.displayName}`,
+            reference: number,
+            currencyCode: snapshot.currencyCode,
+            baseCurrency: accounting.baseCurrency,
+            rate: posting.rate,
+            rateSource: posting.rateSource as 'base' | 'table' | 'carrying',
+            lines: posting.journal.lines,
+            typeOf: posting.typeOf,
+            number,
+          })
+        : {
+            entryDate: snapshot.billDate,
+            description:
+              `Bill ${number} — ${party!.displayName} (${snapshot.vendorReference})`.slice(0, 500),
+            reference: number,
+            currency: snapshot.currencyCode,
+            exchangeRate: foreign ? posting.rate.toFixed(10) : null,
+            ...(foreign
+              ? {
+                  exchangeRateSource:
+                    posting.rateSource === 'manual' ? 'manual' : ('table' as const),
+                }
+              : {}),
+            sourceRef: { module: 'purchases', type: 'bill', id },
+            lines: posting.journal.lines.map((l) => journalLine(l, number, posting.typeOf)),
+          };
     const event = await this.journals.receiveEventInTransaction(tx, {
       organizationId: ctx.organizationId,
       sourceModule: 'purchases',
@@ -1083,7 +1186,7 @@ export class BillService {
         number,
         exchangeRate: posting.rate.toFixed(10),
         // Bills never pass a fixed rate, so the source is base, table or manual.
-        exchangeRateSource: posting.rateSource as 'base' | 'table' | 'manual',
+        exchangeRateSource: posting.rateSource as 'base' | 'table' | 'manual' | 'carrying',
         tableRate: posting.tableRate ? posting.tableRate.toFixed(10) : null,
         baseTotal: baseTotal.toFixed(4),
         amountDue: snapshot.total,

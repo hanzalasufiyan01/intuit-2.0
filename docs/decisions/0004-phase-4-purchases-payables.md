@@ -1301,3 +1301,23 @@ Authorized under the 2026-10-07 execution authorization; built strictly on the f
 - **Tests:** `test/revaluation-workflow.test.ts` (9): preview writes nothing; direct post with an idempotent retry and the duplicate-date refusal; re-authentication on post and cancel; cancel with a reason and a repost; the approval round trip including self-approval and the stale-calculation refusal; the below-threshold case where nothing is left behind; rejection and withdrawal freeing the date; the AP document exposure; permissions and tenant isolation. Web: `test/revaluation.test.tsx` (5).
 - **Accounting impact:** none beyond the S9 journals themselves; the workflow posts through `postSystemJournal` and the dedicated reversal path only. Dimensions on revaluation lines stay as S9 froze them (none).
 - **Not in 4B-10:** manual closing rates, scheduled runs, an unrealized-FX report, and an `ADJUSTING` method (all still outside the frozen S9 scope).
+
+### Opening AP — opening bills and opening vendor credits (P4-35, P4-36, P4-37), 2026-10-07
+
+Authorized under the 2026-10-07 execution authorization; it mirrors the Sales opening invoice (Phase 3B D5, Decision 69), and no frozen decision changes except one additive extension noted below.
+
+- **Migration `0042_opening_ap_documents`:**
+  - `purchases_bills` gains the `opening` kind and `opening_base_total`; `purchases_vendor_credits` gains `kind` (`standard` or `opening`) and `opening_base_total`.
+  - `carrying` joins the exchange-rate sources of both.
+  - A posted bill needs a supplier reference only when it is not an opening bill, and a posted supplier credit likewise.
+  - Constraints: an opening bill has no manual rate; an opening credit is a supplier credit note without a bill link or a manual rate.
+  - The posted-document guards (`purchases_guard_bill`, `purchases_guard_vendor_credit`) are replaced with the same bodies plus the carrying value (and the credit kind) as immutable.
+- **Opening bill:** dated on or before the S8 opening date (conversion date − 1), no tax and no manual rate; Dr Opening Balance Equity / Cr AP control for the total. The supplier reference is optional and the duplicate check does not apply.
+- **Opening vendor credit:** the reverse, Dr AP control / Cr Opening Balance Equity. Only a supplier credit note can be an opening credit.
+- **Base amount:** the table rate on the document date, or an explicit base carrying value for a foreign-currency document (S8-06; the rate shown is implied, source `carrying`). Without a rate the post is refused (`EXCHANGE_RATE_REQUIRED`); without a designated Opening Balance Equity account it is refused (`DESIGNATION_REQUIRED`).
+- **Journal path:** document → `purchases.bill_posted` / `purchases.vendor_credit_posted` event → an allowlisted `opening_balance` system journal with source `purchases/opening_balance/<id>` and explicit base amounts. The source-document registry resolves it back to the bill or credit. The generic reversal refuses it (E2); the document void reverses it through Purchases. Voiding follows the usual rules (a part-paid bill, or an applied credit, cannot be voided).
+- **Approval:** bills already carried the `opening` type (P4-37). **Extension:** `purchases.vendor_credit.post` now also accepts the transaction type `opening`, so opening vendor credits can be approved on the same action (the frozen list named only the two credit origins).
+- **AP invariant and reports:** an opening document is an ordinary AP document, so aging, statements, payments, credit application, refunds, reconciliation and the revaluation provider treat it like any other. The purchases spend reports (by vendor, item and account) exclude opening documents, which are balances brought forward, not purchases of the period.
+- **API/UI:** `kind: 'opening'` and `openingBaseTotal` on the create calls (`kind` cannot be changed or sent on edit); the bill and vendor-credit editors have an "opening" box for new documents and a carrying-value field for foreign currency.
+- **Tests:** `test/opening-ap.test.ts` (7): conversion date, dating, tax, manual-rate and carrying-value rules; the journal shape and source document; reconciliation; the AP aging and the spend reports; refusal of the generic reversal; void; a foreign balance at a carrying value; settlement of an opening bill by a payment; credits (the reverse journal, the origin rules, a foreign carrying value); database immutability of the carrying value. The bills and vendor-credits suites are unchanged and green. Web: one test in `bills.test.tsx`.
+- **Not in this unit:** the opening-bill CSV import (P4-47) and opening-credit import, which follow in the purchase-imports unit.

@@ -351,6 +351,9 @@ function BillEditor({
   const [rateOverrideReason, setRateOverrideReason] = useState(existing?.rateOverrideReason ?? '');
   const [taxTreatment, setTaxTreatment] = useState(existing?.taxTreatment ?? '');
   const [memo, setMemo] = useState(existing?.memo ?? '');
+  // P4-35: an opening bill is chosen when the draft is created and never changes.
+  const [opening, setOpening] = useState(existing?.kind === 'opening');
+  const [openingBaseTotal, setOpeningBaseTotal] = useState(existing?.openingBaseTotal ?? '');
   const [dims, setDims] = useState<Record<string, string>>({});
   const [dimsLoaded, setDimsLoaded] = useState(false);
   const [lines, setLines] = useState<LineDraft[]>(
@@ -397,14 +400,16 @@ function BillEditor({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     onSave({
+      ...(existing === null && opening ? { kind: 'opening' } : {}),
+      ...(opening ? { openingBaseTotal: orNull(openingBaseTotal) } : {}),
       vendorId,
       billDate,
       dueDate: dueDate || null,
       vendorReference: orNull(vendorReference),
       ...(currencyCode ? { currencyCode } : {}),
-      rateOverride: orNull(rateOverride),
-      rateOverrideReason: orNull(rateOverrideReason),
-      ...(taxTreatment ? { taxTreatment } : {}),
+      rateOverride: opening ? null : orNull(rateOverride),
+      rateOverrideReason: opening ? null : orNull(rateOverrideReason),
+      ...(taxTreatment && !opening ? { taxTreatment } : {}),
       memo: memo.trim(),
       dimensionValueIds: Object.values(dims).filter(Boolean),
       lines: lines.map((l) => ({
@@ -429,6 +434,19 @@ function BillEditor({
     <form className="form" onSubmit={submit}>
       <ErrorAlert error={error} />
       <Card title={t('purchases.bills.details')}>
+        {existing === null ? (
+          <div className="field">
+            <label>
+              <input
+                type="checkbox"
+                checked={opening}
+                onChange={(e) => setOpening(e.target.checked)}
+              />{' '}
+              {t('purchases.bills.opening')}
+            </label>
+          </div>
+        ) : null}
+        {opening ? <p className="muted">{t('purchases.bills.openingHint')}</p> : null}
         <div className="form-grid">
           <div className="field">
             <label htmlFor="bill-vendor">{t('purchases.bills.vendor')}</label>
@@ -500,7 +518,17 @@ function BillEditor({
               <option value="no_tax">{t('sales.treatment.no_tax')}</option>
             </select>
           </div>
-          {foreign && canPost ? (
+          {opening && foreign ? (
+            <TextField
+              label={t('purchases.bills.openingBase')}
+              inputMode="decimal"
+              hint={t('purchases.bills.openingBaseHint')}
+              value={openingBaseTotal}
+              error={issue('openingBaseTotal')}
+              onChange={(e) => setOpeningBaseTotal(e.target.value)}
+            />
+          ) : null}
+          {foreign && canPost && !opening ? (
             <>
               <TextField
                 label={t('purchases.bills.rateOverride')}
@@ -875,6 +903,12 @@ export function BillDetailPage() {
           <dd>
             <Link to={`/purchases/vendors/${b.vendorId}`}>{b.vendorName}</Link>
           </dd>
+          {b.kind === 'opening' ? (
+            <>
+              <dt>{t('purchases.field.status')}</dt>
+              <dd>{t('purchases.bills.openingLabel')}</dd>
+            </>
+          ) : null}
           <dt>{t('purchases.field.vendorReference')}</dt>
           <dd>{b.vendorReference ?? t('purchases.bills.noReference')}</dd>
           <dt>{t('purchases.field.billDate')}</dt>

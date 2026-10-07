@@ -103,6 +103,13 @@ export const en = {
   'purchases.bills.description':
     'Supplier bills: enter drafts, get them approved where a policy applies, then post them to accounts payable.',
   'purchases.bills.new': 'New bill',
+  'purchases.bills.opening': 'Opening bill (a balance owed at the conversion date)',
+  'purchases.bills.openingHint':
+    'Dated on or before the opening date, with no tax. It posts against Opening Balance Equity.',
+  'purchases.bills.openingBase': 'Base carrying value',
+  'purchases.bills.openingBaseHint':
+    'Optional for a foreign-currency balance: the amount carried in the base currency. Blank uses the exchange-rate table.',
+  'purchases.bills.openingLabel': 'Opening bill',
   'purchases.bills.export': 'Export bills',
   'purchases.bills.none': 'No bills found.',
   'purchases.bills.searchHint': 'Bill number, supplier invoice number or vendor',
@@ -181,6 +188,10 @@ export const en = {
   'purchases.credits.description':
     "Credit notes received from suppliers and debit notes you raise. Both reduce what you owe and stay available to settle the vendor's bills.",
   'purchases.credits.new': 'New vendor credit',
+  'purchases.credits.opening': 'Opening credit (a credit held at the conversion date)',
+  'purchases.credits.openingHint':
+    'A supplier credit note dated on or before the opening date, with no tax and no bill link.',
+  'purchases.credits.openingLabel': 'Opening vendor credit',
   'purchases.credits.export': 'Export credits and debit notes',
   'purchases.credits.none': 'No vendor credits found.',
   'purchases.credits.searchHint': 'Number, supplier credit-note number or vendor',

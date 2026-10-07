@@ -141,6 +141,24 @@ export function createSourceDocumentRegistry(): SourceDocumentRegistry {
       : null;
   });
   registry.register('purchases', 'vendor_credit', purchasesVendorCredit);
+  // Phase 4B (opening AP, P4-35): an opening bill or an opening vendor credit.
+  registry.register('purchases', 'opening_balance', async (tx, organizationId, id) => {
+    const bill = await getBill(tx, organizationId, id);
+    if (bill) {
+      return doc('purchases', 'bill', id, bill.number, 'Opening bill', `/purchases/bills/${id}`);
+    }
+    const credit = await getVendorCredit(tx, organizationId, id);
+    return credit
+      ? doc(
+          'purchases',
+          'vendor_credit',
+          id,
+          credit.number,
+          'Opening vendor credit',
+          `/purchases/vendor-credits/${id}`,
+        )
+      : null;
+  });
   registry.register('purchases', 'payment', purchasesPayment);
   registry.register('purchases', 'credit_application', purchasesApplication);
   registry.register('purchases', 'refund', purchasesRefund);

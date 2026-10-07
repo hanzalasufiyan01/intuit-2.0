@@ -74,7 +74,8 @@ export const purchasesNumberSequences = pgTable(
 
 export const billStatuses = ['DRAFT', 'PENDING_APPROVAL', 'POSTED', 'VOID'] as const;
 export type BillStatus = (typeof billStatuses)[number];
-export const billKinds = ['standard'] as const;
+// Phase 4B (opening AP): an opening bill brings a conversion-date balance into AP (P4-35).
+export const billKinds = ['standard', 'opening'] as const;
 export type BillKind = (typeof billKinds)[number];
 
 const money = (name: string) => numeric(name, { precision: 28, scale: 4 });
@@ -101,7 +102,9 @@ export const purchasesBills = pgTable('purchases_bills', {
   rateOverride: numeric('rate_override', { precision: 28, scale: 10 }),
   rateOverrideReason: text('rate_override_reason'),
   exchangeRate: numeric('exchange_rate', { precision: 28, scale: 10 }),
-  exchangeRateSource: text('exchange_rate_source', { enum: ['base', 'table', 'manual'] }),
+  exchangeRateSource: text('exchange_rate_source', {
+    enum: ['base', 'table', 'manual', 'carrying'],
+  }),
   tableRate: numeric('table_rate', { precision: 28, scale: 10 }),
   taxTreatment: text('tax_treatment', { enum: ['exclusive', 'inclusive', 'no_tax'] }).notNull(),
   discountType: text('discount_type', { enum: ['percent', 'amount'] }),
@@ -116,6 +119,8 @@ export const purchasesBills = pgTable('purchases_bills', {
   baseTotal: money('base_total'),
   amountDue: money('amount_due'),
   baseDue: money('base_due'),
+  /** Opening bills: an explicit base carrying value for a foreign-currency balance (S8-06). */
+  openingBaseTotal: money('opening_base_total'),
   duplicateConfirmedReason: text('duplicate_confirmed_reason'),
   approvalRequestId: uuid('approval_request_id'),
   submittedByUserId: uuid('submitted_by_user_id'),
@@ -172,6 +177,8 @@ export const purchasesBillLines = pgTable('purchases_bill_lines', {
 
 export const vendorCreditOrigins = ['supplier_credit_note', 'debit_note'] as const;
 export type VendorCreditOrigin = (typeof vendorCreditOrigins)[number];
+export const vendorCreditKinds = ['standard', 'opening'] as const;
+export type VendorCreditKind = (typeof vendorCreditKinds)[number];
 export const vendorCreditStatuses = ['DRAFT', 'PENDING_APPROVAL', 'POSTED', 'VOID'] as const;
 export type VendorCreditStatus = (typeof vendorCreditStatuses)[number];
 
@@ -179,6 +186,9 @@ export const purchasesVendorCredits = pgTable('purchases_vendor_credits', {
   id: uuid('id').primaryKey().defaultRandom(),
   organizationId: uuid('organization_id').notNull(),
   origin: text('origin', { enum: vendorCreditOrigins }).notNull(),
+  /** `opening`: a vendor credit at conversion (P4-35), a supplier credit note without a bill link. */
+  kind: text('kind', { enum: vendorCreditKinds }).notNull().default('standard'),
+  openingBaseTotal: money('opening_base_total'),
   status: text('status', { enum: vendorCreditStatuses }).notNull().default('DRAFT'),
   vendorId: uuid('vendor_id').notNull(),
   /** An optional reference to a posted bill; not applied here (decided 2026-10-03). */
@@ -195,7 +205,9 @@ export const purchasesVendorCredits = pgTable('purchases_vendor_credits', {
   rateOverride: numeric('rate_override', { precision: 28, scale: 10 }),
   rateOverrideReason: text('rate_override_reason'),
   exchangeRate: numeric('exchange_rate', { precision: 28, scale: 10 }),
-  exchangeRateSource: text('exchange_rate_source', { enum: ['base', 'table', 'manual', 'bill'] }),
+  exchangeRateSource: text('exchange_rate_source', {
+    enum: ['base', 'table', 'manual', 'bill', 'carrying'],
+  }),
   tableRate: numeric('table_rate', { precision: 28, scale: 10 }),
   taxTreatment: text('tax_treatment', { enum: ['exclusive', 'inclusive', 'no_tax'] }).notNull(),
   discountType: text('discount_type', { enum: ['percent', 'amount'] }),

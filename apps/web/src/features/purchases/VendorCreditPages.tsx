@@ -382,6 +382,9 @@ function CreditEditor({
   const [rateOverrideReason, setRateOverrideReason] = useState(existing?.rateOverrideReason ?? '');
   const [taxTreatment, setTaxTreatment] = useState(existing?.taxTreatment ?? '');
   const [memo, setMemo] = useState(existing?.memo ?? '');
+  // P4-35: an opening credit is chosen when the draft is created and never changes.
+  const [opening, setOpening] = useState(existing?.kind === 'opening');
+  const [openingBaseTotal, setOpeningBaseTotal] = useState(existing?.openingBaseTotal ?? '');
   const [dims, setDims] = useState<Record<string, string>>({});
   const [dimsLoaded, setDimsLoaded] = useState(false);
   const [lines, setLines] = useState<LineDraft[]>(
@@ -435,15 +438,17 @@ function CreditEditor({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     onSave({
-      ...(existing ? {} : { origin }),
+      ...(existing ? {} : { origin: opening ? 'supplier_credit_note' : origin }),
+      ...(existing === null && opening ? { kind: 'opening' } : {}),
+      ...(opening ? { openingBaseTotal: orNull(openingBaseTotal) } : {}),
       vendorId,
       creditDate,
-      billId: billId || null,
+      billId: opening ? null : billId || null,
       vendorReference: origin === 'debit_note' ? null : orNull(vendorReference),
       ...(currencyCode ? { currencyCode } : {}),
-      rateOverride: billId ? null : orNull(rateOverride),
-      rateOverrideReason: billId ? null : orNull(rateOverrideReason),
-      ...(taxTreatment ? { taxTreatment } : {}),
+      rateOverride: billId || opening ? null : orNull(rateOverride),
+      rateOverrideReason: billId || opening ? null : orNull(rateOverrideReason),
+      ...(taxTreatment && !opening ? { taxTreatment } : {}),
       memo: memo.trim(),
       dimensionValueIds: Object.values(dims).filter(Boolean),
       lines: lines.map((l) => ({
@@ -467,6 +472,19 @@ function CreditEditor({
     <form className="form" onSubmit={submit}>
       <ErrorAlert error={error} />
       <Card title={t('purchases.credits.details')}>
+        {existing === null ? (
+          <div className="field">
+            <label>
+              <input
+                type="checkbox"
+                checked={opening}
+                onChange={(e) => setOpening(e.target.checked)}
+              />{' '}
+              {t('purchases.credits.opening')}
+            </label>
+          </div>
+        ) : null}
+        {opening ? <p className="muted">{t('purchases.credits.openingHint')}</p> : null}
         <div className="form-grid">
           <div className="field">
             <label htmlFor="credit-type">{t('purchases.credits.origin')}</label>
@@ -574,7 +592,17 @@ function CreditEditor({
               <option value="no_tax">{t('sales.treatment.no_tax')}</option>
             </select>
           </div>
-          {foreign && canPost && !billId ? (
+          {opening && foreign ? (
+            <TextField
+              label={t('purchases.bills.openingBase')}
+              inputMode="decimal"
+              hint={t('purchases.bills.openingBaseHint')}
+              value={openingBaseTotal}
+              error={issue('openingBaseTotal')}
+              onChange={(e) => setOpeningBaseTotal(e.target.value)}
+            />
+          ) : null}
+          {foreign && canPost && !billId && !opening ? (
             <>
               <TextField
                 label={t('purchases.bills.rateOverride')}
@@ -1024,7 +1052,9 @@ export function VendorCreditDetailPage() {
       <Card title={t('purchases.bills.summary')} actions={<CreditStatusBadge status={c.status} />}>
         <dl className="facts">
           <dt>{t('purchases.credits.origin')}</dt>
-          <dd>{t(ORIGIN_LABEL[c.origin])}</dd>
+          <dd>
+            {c.kind === 'opening' ? t('purchases.credits.openingLabel') : t(ORIGIN_LABEL[c.origin])}
+          </dd>
           <dt>{t('purchases.bills.vendor')}</dt>
           <dd>
             <Link to={`/purchases/vendors/${c.vendorId}`}>{c.vendorName}</Link>
