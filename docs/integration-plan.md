@@ -19,7 +19,8 @@ Migrations are strictly sequential (no reserved gaps). Before creating one, a st
 | 0047   | `purchase_orders`               | B / PO           | committed (`f25b305`, local) |
 | 0048   | `fixed_assets`                  | C / Fixed assets | committed (`8099887`, local) |
 | 0049   | `expense_claims`                | D / Claims       | committed (local)            |
-| 0050   | (next free: claim before use)   | —                |                              |
+| 0050   | `customer_refunds`              | E / Refunds      | committed (local)            |
+| 0051   | (next free: claim before use)   | —                |                              |
 
 ## Collision files
 

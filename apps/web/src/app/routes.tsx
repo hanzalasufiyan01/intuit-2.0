@@ -64,6 +64,11 @@ import {
 } from '../features/purchases/PaymentPages';
 import { RecordRefundPage, RefundDetailPage, RefundsPage } from '../features/purchases/RefundPages';
 import {
+  CustomerRefundDetailPage,
+  CustomerRefundsPage,
+  RecordCustomerRefundPage,
+} from '../features/sales/RefundPages';
+import {
   PayBillsPage,
   PaymentBatchDetailPage,
   PaymentBatchesPage,
@@ -457,6 +462,18 @@ export const routes: RouteObject[] = [
                     <RecordReceiptPage key="new-receipt" />,
                   ],
                   ['receipts/:id', Permission.ReceiptsView, <ReceiptDetailPage key="receipt" />],
+                  // Customer refunds from unallocated receipts and unapplied credit notes.
+                  ['refunds', Permission.ReceiptsView, <CustomerRefundsPage key="refunds" />],
+                  [
+                    'refunds/new',
+                    Permission.ReceiptsCreate,
+                    <RecordCustomerRefundPage key="new-refund" />,
+                  ],
+                  [
+                    'refunds/:id',
+                    Permission.ReceiptsView,
+                    <CustomerRefundDetailPage key="refund" />,
+                  ],
                   [
                     'customer-credit/apply',
                     Permission.ReceiptsCreate,

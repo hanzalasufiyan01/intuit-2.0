@@ -11,7 +11,12 @@ import {
   getVendorCredit,
   listPurchasesAllocations,
 } from '../modules/purchases/index.js';
-import { getCreditNote, getInvoice, getReceipt } from '../modules/sales/index.js';
+import {
+  getCreditNote,
+  getCustomerRefund,
+  getInvoice,
+  getReceipt,
+} from '../modules/sales/index.js';
 
 /**
  * Source-document registry (ADR 0004 P4-10, minimal per 4B-2 decision A5). Journals already carry
@@ -293,8 +298,21 @@ export function createSourceDocumentRegistry(): SourceDocumentRegistry {
       : null;
   };
   registry.register('sales', 'receipt', salesReceipt);
+  const salesRefund = async (tx: Transaction, organizationId: string, id: string) => {
+    const refund = await getCustomerRefund(tx, organizationId, id);
+    return refund
+      ? doc('sales', 'refund', id, refund.number, 'Refund', `/sales/refunds/${id}`)
+      : null;
+  };
+  registry.register('sales', 'refund', salesRefund);
   // Sales credit applications are not stored as documents (Phase 3B); only a receipt's own
   // realized-FX journal resolves.
-  registry.register('sales', 'realized_fx', salesReceipt);
+  // A refund's realized-FX journal is the refund's own.
+  registry.register(
+    'sales',
+    'realized_fx',
+    async (tx, organizationId, id) =>
+      (await salesReceipt(tx, organizationId, id)) ?? (await salesRefund(tx, organizationId, id)),
+  );
   return registry;
 }

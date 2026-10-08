@@ -13,6 +13,7 @@ import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
 import { AttachmentsCard } from '../files/AttachmentsCard';
+import { CustomerRefundHistory } from './RefundPages';
 import { DocumentEditor } from './DocumentEditor';
 import { ApprovalPanel, LinesTable, OutputPanel, TotalsTable } from './DocumentParts';
 import { issueHint, SalesNav, StatusBadge, useOrgKey } from './shared';
@@ -371,6 +372,13 @@ export function CreditNoteDetailPage() {
       ) : null}
       {n.status === 'ISSUED' ? (
         <OutputPanel path="credit-notes" id={id} canSend={can.issue} />
+      ) : null}
+      {n.status === 'ISSUED' ? (
+        <CustomerRefundHistory
+          sourceType="credit_note"
+          sourceId={id}
+          canRefund={can.apply && Number(n.amountUnapplied) > 0}
+        />
       ) : null}
       <AttachmentsCard
         linkType="credit_note"

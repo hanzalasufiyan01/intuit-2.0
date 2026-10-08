@@ -188,7 +188,7 @@ export function paymentAccountProblem(
  * from bank, cash or credit-card accounts (P4-26); vendor refunds go to bank or cash accounts only
  * (4B-3 amendment: no credit-card refunds).
  */
-export type SettlementAccountContext = 'payment' | 'refund';
+export type SettlementAccountContext = 'payment' | 'refund' | 'customer_refund';
 
 const SETTLEMENT_ACCOUNTS: Record<
   SettlementAccountContext,
@@ -202,6 +202,11 @@ const SETTLEMENT_ACCOUNTS: Record<
   refund: {
     eligible: (subtype) => isBankOrCash(subtype),
     refusal: 'Choose a bank or cash account; vendor refunds cannot go to a credit card account.',
+    noun: 'refund account',
+  },
+  customer_refund: {
+    eligible: (subtype) => isBankOrCash(subtype),
+    refusal: 'Choose a bank or cash account; customer refunds are paid from bank or cash.',
     noun: 'refund account',
   },
 };

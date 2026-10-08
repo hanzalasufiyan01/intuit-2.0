@@ -25,6 +25,7 @@ import { BankingService } from './application/banking-service.js';
 import { ExpenseService } from './application/expense-service.js';
 import { VendorCreditService } from './application/vendor-credit-service.js';
 import { VendorPaymentService } from './application/vendor-payment-service.js';
+import { CustomerRefundService } from './application/customer-refund-service.js';
 import { VendorRefundService } from './application/vendor-refund-service.js';
 import { PaymentBatchService } from './application/payment-batch-service.js';
 import { createSourceDocumentRegistry } from './application/source-documents.js';
@@ -138,6 +139,7 @@ export interface BuiltApp {
     vendorCredits: VendorCreditService;
     vendorPayments: VendorPaymentService;
     vendorRefunds: VendorRefundService;
+    customerRefunds: CustomerRefundService;
     paymentBatches: PaymentBatchService;
     purchasesOutput: PurchasesOutputService;
     remittance: RemittanceService;
@@ -193,6 +195,8 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   // Phase 3B (Decision 23): reusable request idempotency for Sales create/issue and receipts.
   const idempotency = new IdempotencyService(deps);
   const receipts = new ReceiptService(deps, journals, idempotency);
+  // Customer refunds from unallocated receipts and unapplied credit notes (mirrors vendor refunds).
+  const customerRefunds = new CustomerRefundService(deps, journals, idempotency);
   const salesOutput = new SalesOutputService(deps, files, jobs, new PdfkitRenderer());
   // S8: opening balances are an accounting process posting through the system-journal path.
   const openingBalances = new OpeningBalanceService(deps, approvals, journals, files);
@@ -311,6 +315,7 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     vendorCredits,
     vendorPayments,
     vendorRefunds,
+    customerRefunds,
     paymentBatches,
     // Phase 4B-5: AP aging, statements and reconciliation.
     apReports,

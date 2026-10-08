@@ -16,6 +16,7 @@ import { TextField } from '../../shared/ui/TextField';
 import { useAccounts } from '../accounting/shared';
 import { ExportButton } from '../data-exchange/ExportButton';
 import { AttachmentsCard } from '../files/AttachmentsCard';
+import { CustomerRefundHistory } from './RefundPages';
 import { issueHint, orNull, SalesNav, StatusBadge, useCustomerOptions, useOrgKey } from './shared';
 import type { InvoiceSummary, Page, ReceiptDetail, ReceiptSummary } from './types';
 
@@ -533,6 +534,13 @@ export function ReceiptDetailPage() {
             </Button>
           </form>
         </Card>
+      ) : null}
+      {r.status === 'RECORDED' || r.status === 'VOID' ? (
+        <CustomerRefundHistory
+          sourceType="receipt"
+          sourceId={id}
+          canRefund={r.status === 'RECORDED' && canCreate && Number(r.amountUnallocated) > 0}
+        />
       ) : null}
       <AttachmentsCard
         linkType="receipt"

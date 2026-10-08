@@ -32,6 +32,9 @@ export function SalesNav() {
       <Can permission={Permission.ReceiptsView}>
         <NavLink to="/sales/receipts">{t('sales.nav.receipts')}</NavLink>
       </Can>
+      <Can permission={Permission.ReceiptsView}>
+        <NavLink to="/sales/refunds">Refunds</NavLink>
+      </Can>
       <Can permission={Permission.CustomersView}>
         <NavLink to="/sales/customers">{t('sales.nav.customers')}</NavLink>
       </Can>

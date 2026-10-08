@@ -368,6 +368,7 @@ describe('Decision 90 — additive dimension permission backfill (migration 0008
       '0047_purchase_orders', // Purchase orders, goods receiving, three-way matching
       '0048_fixed_assets', // Fixed assets: register, depreciation, disposal, transfers
       '0049_expense_claims', // Employee expense claims posted as bills from the employee
+      '0050_customer_refunds', // Customer refunds from unallocated receipts and unapplied credit notes
     ]);
     const { rows } = await owner.query(
       `SELECT version FROM schema_migrations WHERE version = '0008_dimension_permission_backfill'`,

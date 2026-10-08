@@ -5,7 +5,7 @@ import type { Transaction } from '../../database/client.js';
  * Open AR positions as of a date (Phase 3B step 16; Decision 45: derived from issued documents,
  * no second source of truth). An invoice's open balance is its total less the allocations dated on
  * or before the date; customer credit is a receipt's or credit note's amount less what was applied
- * by then. Voided documents drop out entirely, like their reversed journals (dated on the original
+ * or refunded by then. Voided documents drop out entirely, like their reversed journals (dated on the original
  * date). Bases are historical: what the AR control account carries for each document.
  */
 
@@ -101,27 +101,39 @@ export async function openCreditsAsOf(
     SELECT * FROM (
       SELECT 'receipt' AS type, r.id, r.number, r.customer_id, r.currency_code,
              r.receipt_date::text AS date,
-             (r.amount - coalesce(sum(a.amount), 0))::text AS open_amount,
-             (r.base_amount - coalesce(sum(a.source_base), 0))::text AS open_base
+             (r.amount - coalesce(al.amount, 0) - coalesce(rf.amount, 0))::text AS open_amount,
+             (r.base_amount - coalesce(al.base, 0) - coalesce(rf.base, 0))::text AS open_base
         FROM sales_receipts r
-        LEFT JOIN sales_allocations a
-          ON a.receipt_id = r.id AND a.organization_id = r.organization_id
-         AND a.allocation_date <= ${input.asOf}::date
+        LEFT JOIN LATERAL (
+          SELECT sum(a.amount) AS amount, sum(a.source_base) AS base
+            FROM sales_allocations a
+           WHERE a.receipt_id = r.id AND a.organization_id = r.organization_id
+             AND a.allocation_date <= ${input.asOf}::date) al ON true
+        LEFT JOIN LATERAL (
+          SELECT sum(f.amount) AS amount, sum(f.base_released) AS base
+            FROM sales_refunds f
+           WHERE f.receipt_id = r.id AND f.organization_id = r.organization_id
+             AND f.status = 'RECORDED' AND f.refund_date <= ${input.asOf}::date) rf ON true
        WHERE r.organization_id = ${input.organizationId} AND r.status = 'RECORDED'
          AND r.receipt_date <= ${input.asOf}::date
-       GROUP BY r.id
       UNION ALL
       SELECT 'credit_note' AS type, n.id, n.number, n.customer_id, n.currency_code,
              n.credit_date::text AS date,
-             (n.total - coalesce(sum(a.amount), 0))::text AS open_amount,
-             (n.base_total - coalesce(sum(a.source_base), 0))::text AS open_base
+             (n.total - coalesce(al.amount, 0) - coalesce(rf.amount, 0))::text AS open_amount,
+             (n.base_total - coalesce(al.base, 0) - coalesce(rf.base, 0))::text AS open_base
         FROM sales_credit_notes n
-        LEFT JOIN sales_allocations a
-          ON a.credit_note_id = n.id AND a.organization_id = n.organization_id
-         AND a.allocation_date <= ${input.asOf}::date
+        LEFT JOIN LATERAL (
+          SELECT sum(a.amount) AS amount, sum(a.source_base) AS base
+            FROM sales_allocations a
+           WHERE a.credit_note_id = n.id AND a.organization_id = n.organization_id
+             AND a.allocation_date <= ${input.asOf}::date) al ON true
+        LEFT JOIN LATERAL (
+          SELECT sum(f.amount) AS amount, sum(f.base_released) AS base
+            FROM sales_refunds f
+           WHERE f.credit_note_id = n.id AND f.organization_id = n.organization_id
+             AND f.status = 'RECORDED' AND f.refund_date <= ${input.asOf}::date) rf ON true
        WHERE n.organization_id = ${input.organizationId} AND n.status = 'ISSUED'
          AND n.credit_date <= ${input.asOf}::date
-       GROUP BY n.id
     ) credits
     WHERE (open_amount::numeric <> 0 OR open_base::numeric <> 0) ${customer}
     ORDER BY date, number`);
@@ -143,7 +155,7 @@ export async function customerActivity(
   input: { organizationId: string; customerId: string; to: string },
 ) {
   const result = await tx.execute<{
-    type: 'invoice' | 'credit_note' | 'receipt';
+    type: 'invoice' | 'credit_note' | 'receipt' | 'refund';
     id: string;
     number: string;
     date: string;
@@ -166,6 +178,11 @@ export async function customerActivity(
       FROM sales_receipts
      WHERE organization_id = ${input.organizationId} AND customer_id = ${input.customerId}
        AND status = 'RECORDED' AND receipt_date <= ${input.to}::date
+    UNION ALL
+    SELECT 'refund', id, number, refund_date::text, currency_code, amount::text, reference
+      FROM sales_refunds
+     WHERE organization_id = ${input.organizationId} AND customer_id = ${input.customerId}
+       AND status = 'RECORDED' AND refund_date <= ${input.to}::date
      ORDER BY date, type, number`);
   return result.rows.map((r) => ({
     type: r.type,

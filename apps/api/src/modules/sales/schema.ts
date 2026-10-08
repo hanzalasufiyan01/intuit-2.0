@@ -244,3 +244,54 @@ export const salesDocumentEmails = pgTable('sales_document_emails', {
   requestedAt: timestamptz('requested_at').notNull(),
   sentAt: timestamptz('sent_at'),
 });
+
+/** Customer refunds (migration 0050): money paid back from a receipt or credit note with open credit. */
+export const customerRefundStatuses = ['RECORDED', 'VOID'] as const;
+export type CustomerRefundStatus = (typeof customerRefundStatuses)[number];
+
+export const salesRefundNumberSequences = pgTable('sales_refund_number_sequences', {
+  organizationId: uuid('organization_id').notNull(),
+  documentType: text('document_type', { enum: ['refund'] }).notNull(),
+  prefix: text('prefix').notNull().default(''),
+  minDigits: integer('min_digits').notNull().default(5),
+  nextNumber: numeric('next_number', { precision: 20, scale: 0 }).notNull().default('1'),
+});
+
+export const salesRefunds = pgTable('sales_refunds', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: uuid('organization_id').notNull(),
+  status: text('status', { enum: customerRefundStatuses }).notNull().default('RECORDED'),
+  number: text('number').notNull(),
+  customerId: uuid('customer_id').notNull(),
+  sourceType: text('source_type', { enum: ['receipt', 'credit_note'] }).notNull(),
+  receiptId: uuid('receipt_id'),
+  creditNoteId: uuid('credit_note_id'),
+  refundDate: date('refund_date', { mode: 'string' }).notNull(),
+  currencyCode: char('currency_code', { length: 3 }).notNull(),
+  amount: numeric('amount', { precision: 28, scale: 4 }).notNull(),
+  refundAccountId: uuid('refund_account_id').notNull(),
+  refundAccountOverridden: boolean('refund_account_overridden').notNull(),
+  exchangeRate: numeric('exchange_rate', { precision: 28, scale: 10 }).notNull(),
+  exchangeRateSource: text('exchange_rate_source', { enum: ['base', 'table', 'manual'] }).notNull(),
+  tableRate: numeric('table_rate', { precision: 28, scale: 10 }),
+  rateOverrideReason: text('rate_override_reason'),
+  /** Base paid out at the refund rate. */
+  baseAmount: numeric('base_amount', { precision: 28, scale: 4 }).notNull(),
+  /** The source historical base released from AR. */
+  baseReleased: numeric('base_released', { precision: 28, scale: 4 }).notNull(),
+  /** base_released minus base_amount (positive = gain). */
+  fxDifference: numeric('fx_difference', { precision: 28, scale: 4 }).notNull(),
+  reference: text('reference'),
+  memo: text('memo').notNull().default(''),
+  journalId: uuid('journal_id').notNull(),
+  accountingEventId: uuid('accounting_event_id').notNull(),
+  voidedByUserId: uuid('voided_by_user_id'),
+  voidedAt: timestamptz('voided_at'),
+  voidReason: text('void_reason'),
+  voidJournalId: uuid('void_journal_id'),
+  version: integer('version').notNull().default(1),
+  createdByUserId: uuid('created_by_user_id').notNull(),
+  createdAt: timestamptz('created_at').notNull(),
+  updatedByUserId: uuid('updated_by_user_id'),
+  updatedAt: timestamptz('updated_at').notNull(),
+});

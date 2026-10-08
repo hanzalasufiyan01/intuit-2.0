@@ -10,6 +10,7 @@ export * from './document-output.js';
 export * from './invoices.js';
 export * from './permissions.js';
 export * from './receipts.js';
+export * from './refunds.js';
 export * from './sales-reports.js';
 export * from './settings.js';
 export {

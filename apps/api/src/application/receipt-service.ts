@@ -31,6 +31,7 @@ import { getParty } from '../modules/parties/index.js';
 import {
   adjustCreditNoteBalance,
   adjustInvoiceBalance,
+  countActiveCustomerRefunds,
   getCreditNote,
   getReceipt,
   getSalesSettings,
@@ -1125,6 +1126,9 @@ export class ReceiptService {
           );
         }
         if (receipt.status !== 'RECORDED') throw invalidState('The receipt is already void.');
+        if ((await countActiveCustomerRefunds(tx, ctx.organizationId, { receiptId: id })) > 0) {
+          throw invalidState('The receipt has recorded refunds; void them before the receipt.');
+        }
         const reason = input.reason.trim();
         const open = unreversed(await listAllocations(tx, ctx.organizationId, { receiptId: id }));
         await lockInvoices(
