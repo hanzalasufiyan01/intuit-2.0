@@ -51,6 +51,12 @@ const envSchema = z.object({
   OUTBOX_POLL_INTERVAL_MS: positiveInt.default(2000),
   OUTBOX_BATCH_SIZE: positiveInt.default(20),
 
+  // Public API rate limits (ADR 0011 section 4): numbers are configurable, the response contract is not.
+  PUBLIC_API_READ_PER_MINUTE: positiveInt.default(600),
+  PUBLIC_API_WRITE_PER_MINUTE: positiveInt.default(120),
+  PUBLIC_API_ORGANIZATION_PER_MINUTE: positiveInt.default(3000),
+  PUBLIC_API_FAILED_AUTH_PER_MINUTE_PER_IP: positiveInt.default(20),
+
   // Phase 3A S5: file storage (Decisions 6, 29, 61, 75, 76; S5-02, S5-08, S5-13)
   STORAGE_PROVIDER: z.enum(['local']).default('local'),
   STORAGE_LOCAL_ROOT: z.string().min(1).default('.data/storage'),
@@ -131,6 +137,12 @@ export interface AppConfig {
   };
   invitations: { expiryMs: number };
   outbox: { pollIntervalMs: number; batchSize: number };
+  publicApi: {
+    readPerMinute: number;
+    writePerMinute: number;
+    organizationPerMinute: number;
+    failedAuthPerMinutePerIp: number;
+  };
   storage: {
     provider: 'local';
     /** Absolute path of the local provider root. */
@@ -235,6 +247,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     invitations: { expiryMs: e.INVITATION_EXPIRY_HOURS * 60 * MINUTE },
     outbox: { pollIntervalMs: e.OUTBOX_POLL_INTERVAL_MS, batchSize: e.OUTBOX_BATCH_SIZE },
+    publicApi: {
+      readPerMinute: e.PUBLIC_API_READ_PER_MINUTE,
+      writePerMinute: e.PUBLIC_API_WRITE_PER_MINUTE,
+      organizationPerMinute: e.PUBLIC_API_ORGANIZATION_PER_MINUTE,
+      failedAuthPerMinutePerIp: e.PUBLIC_API_FAILED_AUTH_PER_MINUTE_PER_IP,
+    },
     storage: {
       provider: e.STORAGE_PROVIDER,
       // Relative roots resolve against the repository root (like .env), not the process cwd.

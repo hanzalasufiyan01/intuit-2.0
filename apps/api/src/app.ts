@@ -14,7 +14,10 @@ import { CustomerService } from './application/customer-service.js';
 import { VendorService } from './application/vendor-service.js';
 import { PurchasesSettingsService } from './application/purchases-settings-service.js';
 import { ItemService } from './application/item-service.js';
+import { publicApi } from './api/public/index.js';
 import { ApiIntegrationService } from './application/api-integration-service.js';
+import { PublicApiReadService } from './application/public-api-read-service.js';
+import { PostgresRateLimiter } from './application/rate-limiter.js';
 import { IntegrationAuthService } from './application/integration-auth-service.js';
 import { ExpenseClaimService } from './application/expense-claim-service.js';
 import { FixedAssetService } from './application/fixed-asset-service.js';
@@ -235,6 +238,9 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   // Public API foundations (ADR 0011): organization-owned integrations and their authentication.
   const apiIntegrations = new ApiIntegrationService(deps);
   const integrationAuth = new IntegrationAuthService(deps);
+  // Public API (read-only in step 3): its own queries, DTOs and PostgreSQL rate limiter.
+  const publicReads = new PublicApiReadService();
+  const rateLimiter = new PostgresRateLimiter(deps.db, deps.clock);
   // Phase 4B-1: vendor credits and debit notes, with debit-note PDFs and email (P4-23, P4-46).
   const purchasesOutput = new PurchasesOutputService(deps, files, jobs, new PdfkitRenderer());
   // Phase 4B-7: vendor remittance advice PDF and email (P4-46), output only.
@@ -395,6 +401,12 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
       await api.register(apiV1(deps, services));
     },
     { prefix: '/api/v1' },
+  );
+
+  // The Public API: bearer-token only, its own error contract; it shares nothing with /api/v1.
+  await app.register(
+    publicApi({ config, integrationAuth, reads: publicReads, limiter: rateLimiter }),
+    { prefix: '/public/v1' },
   );
 
   return { app, services, worker, routes };

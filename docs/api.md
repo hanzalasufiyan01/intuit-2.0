@@ -342,3 +342,7 @@ Import limits are the Decision 61 maxima for both formats (25 MB, 25,000 rows, 2
 | POST       | `/api-integrations/:id/reassign`                   | `{ version, responsibleMembershipId }`; the new person must be allowed to manage tokens                                           |
 | GET, POST  | `/api-integrations/:id/tokens`                     | list (never a secret) / create `{ name, expiresInDays? }` (1 to 365, default 90); the credential is returned once                 |
 | POST       | `/api-tokens/:id/rotate`, `/api-tokens/:id/revoke` | rotate creates a replacement token; revoke needs `{ reason }`                                                                     |
+
+## Public API v1 (`/public/v1`, ADR 0011)
+
+Read-only, bearer-token only (`Authorization: Bearer itk_…`); cookies are never accepted. The contract is `docs/openapi/public-v1.json` (also served at `GET /public/v1/openapi.json`). Resources: `customers`, `vendors`, `items`, `invoices`, `bills`, `accounts`, each as a list and `/:id`. Lists use `limit` (1–100) and an opaque `cursor`; responses are `{ data, page: { next_cursor, has_more } }`; errors are `{ error: { type, code, message, request_id, details? } }`; rate limits are reported in `RateLimit-*` headers with `429` and `Retry-After`.

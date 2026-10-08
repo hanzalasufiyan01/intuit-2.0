@@ -26,7 +26,8 @@ Migrations are strictly sequential (no reserved gaps). Before creating one, a st
 | 0054   | `audit_api_token_actor`         | G / Public API 1 | committed (local)            |
 | 0055   | `public_api_permissions`        | G / Public API 2 | committed (local)            |
 | 0056   | `api_integrations`              | G / Public API 2 | committed (local)            |
-| 0057   | (next free: claim before use)   | —                |                              |
+| 0057   | `api_rate_windows`              | G / Public API 3 | committed (local)            |
+| 0058   | (next free: claim before use)   | —                |                              |
 
 ## Collision files
 
