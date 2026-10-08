@@ -4,6 +4,10 @@ import {
   type RoleTemplateDefinition,
 } from '../modules/access-control/index.js';
 import { AccountingPermissions, accountingViewPermissions } from '../modules/accounting/index.js';
+import {
+  ApiIntegrationPermissions,
+  apiIntegrationViewPermissions,
+} from '../modules/api-integrations/index.js';
 import { ApprovalPermissions } from '../modules/approvals/index.js';
 import { AuditPermissions } from '../modules/audit/index.js';
 import { BankingPermissions, bankingViewPermissions } from '../modules/banking/index.js';
@@ -95,6 +99,8 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       ...Object.values(FixedAssetPermissions),
       // Expense claims: all permissions.
       ...Object.values(ExpenseClaimPermissions),
+      // Public API (ADR 0011): integrations, tokens and webhooks.
+      ...Object.values(ApiIntegrationPermissions),
     ],
   },
   {
@@ -135,6 +141,8 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       ...fixedAssetViewPermissions,
       // Expense claims: view only.
       ...expenseClaimViewPermissions,
+      // Public API: view only (Member never manages integrations).
+      ...apiIntegrationViewPermissions,
     ],
   },
 ];

@@ -100,6 +100,8 @@ describe('permission catalog', () => {
       'accounting.periods.view',
       'accounting.reports.view', // Phase 3A S3 (Decision 65, S3-01)
       'accounting.setup',
+      'api_tokens.manage', // Public API (ADR 0011)
+      'api_tokens.view', // Public API (ADR 0011)
       'approvals.manage',
       'audit.read',
       'banking.accounts.manage',
@@ -193,6 +195,8 @@ describe('permission catalog', () => {
       'vendors.create',
       'vendors.update',
       'vendors.view',
+      'webhooks.manage', // Public API (ADR 0011)
+      'webhooks.view', // Public API (ADR 0011)
     ]);
     const templates = Object.fromEntries(roleTemplateDefinitions.map((t) => [t.key, t]));
     expect(templates.owner?.permissions).toBe('all');
@@ -206,6 +210,7 @@ describe('permission catalog', () => {
       'accounting.ledger.view',
       'accounting.periods.view',
       'accounting.reports.view', // Phase 3A S3 (Decision 65, S3-01)
+      'api_tokens.view', // Public API (ADR 0011)
       'banking.transactions.view', // Banking (view only)
       'bills.view', // Phase 4A-5 (ADR 0004 P4-40)
       'credit_notes.view', // Phase 3B (D14): Sales view-only
@@ -225,6 +230,7 @@ describe('permission catalog', () => {
       'vendor_credits.view', // Phase 4B-1 (P4-40)
       'vendor_payments.view', // Phase 4B-2 (P4-40)
       'vendors.view', // Phase 4 (ADR 0004 P4-40)
+      'webhooks.view', // Public API (ADR 0011)
     ]);
   });
 });

@@ -43,10 +43,6 @@ export interface AuditEventInput {
    * principal is never taken from the caller: it is always 'api_token' (see recordAuditEvent).
    */
   actorType?: AuditActorType;
-  /** Required for a service principal: the integration it belongs to (ADR 0011, section 19.5). */
-  actorIntegrationId?: string | null;
-  /** The token used, when known; never changes the actor type. */
-  actorTokenId?: string | null;
   action: string;
   resourceType: string;
   resourceId: string | null;
@@ -54,47 +50,75 @@ export interface AuditEventInput {
   origin: EventOrigin;
 }
 
-// The kind of a user never changes (migration 0053), so it is cached for the transaction.
-const userKinds = new WeakMap<object, Map<string, string>>();
+interface ActorIdentity {
+  kind: string;
+  /** For a service principal: the integration it belongs to (ADR 0011). */
+  integrationId: string | null;
+}
 
-async function userKindOf(tx: Transaction, userId: string): Promise<string> {
-  let known = userKinds.get(tx);
+// The kind of a user and the integration of a service principal never change (migrations 0053,
+// 0056: one-to-one, immutable), so the identity is cached for the transaction.
+const identities = new WeakMap<object, Map<string, ActorIdentity>>();
+// The token behind the current Public API request, bound once by the integration authentication.
+const apiTokens = new WeakMap<object, string>();
+
+/**
+ * Binds the token of the authenticated Public API request to the transaction, so audit events
+ * written during it can name the token. Called by the integration authentication only; callers of
+ * recordAuditEvent never construct integration or token identities themselves.
+ */
+export function bindAuditApiToken(tx: Transaction, tokenId: string): void {
+  apiTokens.set(tx, tokenId);
+}
+
+async function actorIdentity(tx: Transaction, userId: string): Promise<ActorIdentity> {
+  let known = identities.get(tx);
   if (!known) {
     known = new Map();
-    userKinds.set(tx, known);
+    identities.set(tx, known);
   }
   const cached = known.get(userId);
   if (cached) return cached;
-  const result = await tx.execute<{ kind: string }>(
-    sql`SELECT kind FROM users WHERE id = ${userId}`,
-  );
-  const kind = result.rows[0]?.kind ?? 'human';
-  known.set(userId, kind);
-  return kind;
+  const result = await tx.execute<{ kind: string; integration_id: string | null }>(sql`
+    SELECT u.kind,
+           (SELECT i.id FROM api_integrations i WHERE i.service_user_id = u.id) AS integration_id
+      FROM users u WHERE u.id = ${userId}`);
+  const row = result.rows[0];
+  const identity = { kind: row?.kind ?? 'human', integrationId: row?.integration_id ?? null };
+  known.set(userId, identity);
+  return identity;
 }
 
 /**
  * The canonical audit insertion. The actor is derived from the identity, never trusted from the
- * caller: a service principal (a non-human user, ADR 0011) is always recorded as 'api_token' and
- * must name its integration (it fails closed otherwise). Everything else keeps its meaning
- * ('user' for a person, 'system', 'anonymous'). The database separately verifies the attribution
- * and rejects, for example, a service principal recorded as a user.
+ * caller: a service principal (a non-human user, ADR 0011) is always recorded as 'api_token' with
+ * its integration (resolved here from the principal) and, when the request was authenticated by a
+ * token, that token. It fails closed when a service principal has no integration. Everything else
+ * keeps its meaning ('user' for a person, 'system', 'anonymous'). The database separately
+ * verifies the attribution and rejects, for example, a service principal recorded as a user.
  */
 export async function recordAuditEvent(tx: Transaction, input: AuditEventInput): Promise<void> {
   let actorType: AuditActorType = input.actorType ?? (input.actorUserId ? 'user' : 'anonymous');
-  if (input.actorUserId && (await userKindOf(tx, input.actorUserId)) === 'service') {
-    if (!input.actorIntegrationId) {
-      throw new Error('An audit event by a service principal must name its integration.');
+  let integrationId: string | null = null;
+  let tokenId: string | null = null;
+  if (input.actorUserId) {
+    const identity = await actorIdentity(tx, input.actorUserId);
+    if (identity.kind === 'service') {
+      if (!identity.integrationId) {
+        throw new Error('An audit event by a service principal needs its integration.');
+      }
+      integrationId = identity.integrationId;
+      tokenId = apiTokens.get(tx) ?? null;
+      if (actorType === 'user') actorType = 'api_token';
     }
-    if (actorType === 'user') actorType = 'api_token';
   }
   await tx.insert(auditEvents).values({
     occurredAt: input.occurredAt,
     organizationId: input.organizationId,
     actorType,
     actorUserId: input.actorUserId,
-    actorIntegrationId: input.actorIntegrationId ?? null,
-    actorTokenId: input.actorTokenId ?? null,
+    actorIntegrationId: integrationId,
+    actorTokenId: tokenId,
     action: input.action,
     resourceType: input.resourceType,
     resourceId: input.resourceId,

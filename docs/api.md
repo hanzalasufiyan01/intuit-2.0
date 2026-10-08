@@ -329,3 +329,16 @@ Receipts are uploaded to `/files` with `linkType=expense_claim&linkId=<claim id>
 | GET    | `/exports/:id`, `/exports/:id/download-url`                                    | permissions re-checked on every access                                                                                       |
 
 Import limits are the Decision 61 maxima for both formats (25 MB, 25,000 rows, 200 columns); a workbook that is macro-enabled, declares a DTD, or unpacks suspiciously (zip bomb) is refused with `400`.
+
+## API integrations (ADR 0011, management by administrators)
+
+| Method     | Path                                               | Notes                                                                                                                             |
+| ---------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| GET        | `/api-integrations/scopes`                         | `api_tokens.view`; the v1 scope catalog                                                                                           |
+| GET, POST  | `/api-integrations`                                | view / `api_tokens.manage` + re-auth (+ MFA step-up where it applies); `{ name, description?, scopes, responsibleMembershipId? }` |
+| GET, PATCH | `/api-integrations/:id`                            | `{ version, name?, description?, scopes? }`; only scopes the actor holds can be added                                             |
+| POST       | `/api-integrations/:id/disable`, `/enable`         | `{ version, reason? }`                                                                                                            |
+| POST       | `/api-integrations/:id/revoke`                     | `{ version, reason }`; terminal; revokes its tokens                                                                               |
+| POST       | `/api-integrations/:id/reassign`                   | `{ version, responsibleMembershipId }`; the new person must be allowed to manage tokens                                           |
+| GET, POST  | `/api-integrations/:id/tokens`                     | list (never a secret) / create `{ name, expiresInDays? }` (1 to 365, default 90); the credential is returned once                 |
+| POST       | `/api-tokens/:id/rotate`, `/api-tokens/:id/revoke` | rotate creates a replacement token; revoke needs `{ reason }`                                                                     |

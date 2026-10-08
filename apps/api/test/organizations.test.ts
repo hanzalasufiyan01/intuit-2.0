@@ -61,7 +61,7 @@ describe('organizations and ownership', () => {
     // Phase 4 adds 4 vendors.* keys (ADR 0004 P4-39); 4A-4 adds catalog.items.manage and
     // purchases.settings.manage (P4-06, P4-39); 4A-5 adds the 7 bills.* keys; 4B-1 the 5 vendor_credits.* keys;
     // 4B-2 the 4 vendor_payments.* keys; 4B-5 purchases.reports.view (PD3).
-    expect(ownerRole.permissionKeys).toHaveLength(113);
+    expect(ownerRole.permissionKeys).toHaveLength(117);
     const member = roles.body.data.find((r: { name: string }) => r.name === 'Member');
     expect(member.permissionKeys).toEqual([
       'accounting.accounts.view',
@@ -70,6 +70,7 @@ describe('organizations and ownership', () => {
       'accounting.ledger.view',
       'accounting.periods.view',
       'accounting.reports.view', // Phase 3A S3 (Decision 65, S3-01)
+      'api_tokens.view', // Public API (ADR 0011)
       'banking.transactions.view', // Banking template grant
       'bills.view', // Phase 4A-5 (ADR 0004 P4-40)
       'credit_notes.view', // Phase 3B (D14): Sales view-only
@@ -89,6 +90,7 @@ describe('organizations and ownership', () => {
       'vendor_credits.view', // Phase 4B-1 (P4-40)
       'vendor_payments.view', // Phase 4B-2 (P4-40)
       'vendors.view', // Phase 4 (ADR 0004 P4-40)
+      'webhooks.view', // Public API (ADR 0011)
     ]);
 
     const members = await owner.get('/organizations/current/members');
@@ -160,6 +162,7 @@ describe('invitations', () => {
       'accounting.ledger.view',
       'accounting.periods.view',
       'accounting.reports.view', // Phase 3A S3 (Decision 65, S3-01)
+      'api_tokens.view', // Public API (ADR 0011)
       'banking.transactions.view', // Banking template grant
       'bills.view', // Phase 4A-5 (ADR 0004 P4-40)
       'credit_notes.view', // Phase 3B (D14): Sales view-only
@@ -179,6 +182,7 @@ describe('invitations', () => {
       'vendor_credits.view', // Phase 4B-1 (P4-40)
       'vendor_payments.view', // Phase 4B-2 (P4-40)
       'vendors.view', // Phase 4 (ADR 0004 P4-40)
+      'webhooks.view', // Public API (ADR 0011)
     ]);
     expect((await invitee.get('/organizations/current')).body.data.name).toBe('Invite Org');
 
@@ -579,6 +583,7 @@ describe('cross-organization isolation', () => {
       'accounting.ledger.view',
       'accounting.periods.view',
       'accounting.reports.view', // Phase 3A S3 (Decision 65, S3-01)
+      'api_tokens.view', // Public API (ADR 0011)
       'banking.transactions.view', // Banking template grant
       'bills.view', // Phase 4A-5 (ADR 0004 P4-40)
       'credit_notes.view', // Phase 3B (D14): Sales view-only
@@ -598,6 +603,7 @@ describe('cross-organization isolation', () => {
       'vendor_credits.view', // Phase 4B-1 (P4-40)
       'vendor_payments.view', // Phase 4B-2 (P4-40)
       'vendors.view', // Phase 4 (ADR 0004 P4-40)
+      'webhooks.view', // Public API (ADR 0011)
     ]);
   });
 });

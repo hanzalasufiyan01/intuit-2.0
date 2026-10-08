@@ -33,23 +33,42 @@ export interface IdempotentResult<T> {
  * running again; the same key with another request, or from another user, is refused. Nothing is
  * stored when `work` fails, because the claim rolls back with the transaction.
  */
+/** `public.i<12 hex of the integration id>.<scope>`; scopes are at most 100 characters. */
+export function integrationScope(integrationId: string, scope: string): string {
+  const scoped = `public.i${integrationId.replaceAll('-', '').slice(0, 12)}.${scope}`;
+  if (scoped.length > 100) throw new Error('The idempotency scope is too long.');
+  return scoped;
+}
+
 export class IdempotencyService {
   constructor(private readonly deps: AppDependencies) {}
 
   async run<T>(
     tx: Transaction,
-    actor: { organizationId: string; userId: string },
-    input: IdempotencyInput,
+    actor: {
+      organizationId: string;
+      userId: string;
+      /** Present for a Public API request (the AuthorizationContext carries it). */
+      integration?: { integrationId: string } | undefined;
+    },
+    rawInput: IdempotencyInput,
     work: () => Promise<T>,
   ): Promise<IdempotentResult<T>> {
-    if (input.key === null) return { value: await work(), replayed: false };
+    if (rawInput.key === null) return { value: await work(), replayed: false };
+    const key: string = rawInput.key;
+    // A Public API request is owned by its integration (its service principal, the same across
+    // token rotation) and lives in the integration's own scope namespace, so one integration can
+    // never collide with or probe another's keys. Browser requests are unchanged.
+    const input = actor.integration
+      ? { ...rawInput, scope: integrationScope(actor.integration.integrationId, rawInput.scope) }
+      : rawInput;
     const now = this.deps.clock.now();
     const requestHash = requestFingerprint({ scope: input.scope, request: input.request });
     const claimed = await claimIdempotencyKey(tx, {
       organizationId: actor.organizationId,
       userId: actor.userId,
       scope: input.scope,
-      key: input.key,
+      key,
       requestHash,
       now,
       expiresAt: new Date(now.getTime() + IDEMPOTENCY_RETENTION_MS),
@@ -61,7 +80,7 @@ export class IdempotencyService {
       await completeIdempotencyKey(tx, claimed.id, stored, now);
       return { value: stored, replayed: false };
     }
-    const existing = await findIdempotencyKey(tx, actor.organizationId, input.scope, input.key);
+    const existing = await findIdempotencyKey(tx, actor.organizationId, input.scope, key);
     if (
       !existing ||
       existing.userId !== actor.userId ||

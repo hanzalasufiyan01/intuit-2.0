@@ -522,3 +522,15 @@ Each step is a separate local commit with its own tests; nothing is pushed.
 7. **Hardening.** Documentation, OpenAPI diff in CI, load test of fan-out, security review, known-limitations list.
 
 **Safe to implement together:** (1a) service principal + audit actor; (3) rate limiter + DTO/pagination framework + read endpoints; (6) endpoints + subscriptions + secrets + transport. **Must not be combined:** event emission hooks (5) with any posting-service change; step 1 with anything else.
+
+## 20. Implementation notes — Step 2 (2026-10-08)
+
+Implemented: the four permission keys (migration 0055), organization-owned integrations, scopes and tokens (migration 0056), the integration authentication context, integration-scoped idempotency and automatic audit resolution of the integration and token. Not implemented (later steps): Public API routes, drafts, rate limiter, DTOs, OpenAPI, webhooks, event emission.
+
+- **Effective permission** = the integration's granted scopes ∩ the fixed platform policy (`modules/api-integrations/scopes.ts`; unknown scopes grant nothing) ∩ the organization permission boundary. Interpretation to confirm: the "organization permission boundary" is the existing permission catalog (a key must be a real organization permission); the actor-held-permission rule applies when scopes are granted, not at runtime.
+- **Scope catalog in this step:** `customers:read|write`, `items:write`, `vendors:read`, `invoices:read|write` (drafts only), `bills:read`, `accounts:read`. Deferred and additive: `items:read` (the catalog has no separate view permission, so a read scope would widen into invoice or bill access), `payments:read`. No scope maps to an issue, post, record, void, approve or settings permission (tested).
+- **Per-token IP allow-list** (optional in D7) is not part of Step 2 and can be added additively.
+- **Rotation** creates a replacement token of the same integration (recording what it replaces); the old token works until revoked or expired, so the integration identity, scopes and idempotency namespace never change.
+- **Audit:** `recordAuditEvent` no longer accepts integration or token identities from callers. It resolves the integration from the service principal and the token from the authenticated request, and fails closed when a service principal has no integration. The Step 1 database verification trigger is unchanged.
+- **Idempotency:** a request whose context carries an integration is stored under `public.i<12 hex of the integration id>.<scope>` with the service principal as owner; browser requests are unchanged.
+- **Management routes** (`/api/v1/api-integrations…`, cookie-authenticated, for administrators) exist for people to manage integrations; they are not the Public API.

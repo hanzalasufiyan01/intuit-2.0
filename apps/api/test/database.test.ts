@@ -228,13 +228,14 @@ describe('phase 2 migration', () => {
         // + 4 vendors.* (Phase 4, ADR 0004 P4-39); + catalog.items.manage and
         // purchases.settings.manage (Phase 4A-4, P4-06, P4-39); + 7 bills.* keys (4A-5); + 5 vendor_credits.* keys (4B-1);
         // + 4 vendor_payments.* keys (4B-2); + purchases.reports.view (4B-5, PD3); + 4 expenses.* keys (4B-9).
-        expect(keys.Administrator).toHaveLength(113);
+        expect(keys.Administrator).toHaveLength(117);
         expect(keys.Member).toEqual([
           'accounting.accounts.view',
           // No accounting.dimensions.view: 0003 grants Phase 2 keys only (Phase 3A keys: 0017).
           'accounting.journals.view',
           'accounting.ledger.view',
           'accounting.periods.view',
+          'api_tokens.view', // Public API (ADR 0011)
           'audit.read', // customization preserved: additive only
           'banking.transactions.view', // Banking template grant
           'bills.view', // Phase 4A-5 template grant (P4-40)
@@ -256,9 +257,10 @@ describe('phase 2 migration', () => {
           'vendor_credits.view', // Phase 4B-1 template grant (P4-40)
           'vendor_payments.view', // Phase 4B-2 template grant (P4-40)
           'vendors.view', // Phase 4 template grant (P4-40)
+          'webhooks.view', // Public API (ADR 0011)
         ]);
         expect(keys['Custom viewer']).toEqual(['organization.read']);
-        expect(keys.Owner).toHaveLength(113);
+        expect(keys.Owner).toHaveLength(117);
 
         const audit = await owner.query(
           `SELECT metadata FROM audit_events WHERE organization_id = $1 AND action = 'role.permissions_backfilled'`,

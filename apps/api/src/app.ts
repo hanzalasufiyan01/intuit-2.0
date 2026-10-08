@@ -14,6 +14,8 @@ import { CustomerService } from './application/customer-service.js';
 import { VendorService } from './application/vendor-service.js';
 import { PurchasesSettingsService } from './application/purchases-settings-service.js';
 import { ItemService } from './application/item-service.js';
+import { ApiIntegrationService } from './application/api-integration-service.js';
+import { IntegrationAuthService } from './application/integration-auth-service.js';
 import { ExpenseClaimService } from './application/expense-claim-service.js';
 import { FixedAssetService } from './application/fixed-asset-service.js';
 import { InventoryService } from './application/inventory-service.js';
@@ -135,6 +137,8 @@ export interface BuiltApp {
     inventory: InventoryService;
     fixedAssets: FixedAssetService;
     expenseClaims: ExpenseClaimService;
+    apiIntegrations: ApiIntegrationService;
+    integrationAuth: IntegrationAuthService;
     purchaseOrders: PurchaseOrderService;
     vendorCredits: VendorCreditService;
     vendorPayments: VendorPaymentService;
@@ -228,6 +232,9 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   const bankingPosting = new BankingPostingService(deps, journals, idempotency);
   // Employee expense claims (ADR 0009): posted as a bill from the employee as a vendor.
   const expenseClaims = new ExpenseClaimService(deps, approvals, idempotency, bills, vendors);
+  // Public API foundations (ADR 0011): organization-owned integrations and their authentication.
+  const apiIntegrations = new ApiIntegrationService(deps);
+  const integrationAuth = new IntegrationAuthService(deps);
   // Phase 4B-1: vendor credits and debit notes, with debit-note PDFs and email (P4-23, P4-46).
   const purchasesOutput = new PurchasesOutputService(deps, files, jobs, new PdfkitRenderer());
   // Phase 4B-7: vendor remittance advice PDF and email (P4-46), output only.
@@ -311,6 +318,8 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     inventory,
     fixedAssets,
     expenseClaims,
+    apiIntegrations,
+    integrationAuth,
     purchaseOrders,
     vendorCredits,
     vendorPayments,

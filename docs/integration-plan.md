@@ -24,7 +24,9 @@ Migrations are strictly sequential (no reserved gaps). Before creating one, a st
 | 0052   | `xlsx_format`                   | F / XLSX         | committed (local)            |
 | 0053   | `service_principals`            | G / Public API 1 | committed (local)            |
 | 0054   | `audit_api_token_actor`         | G / Public API 1 | committed (local)            |
-| 0055   | (next free: claim before use)   | —                |                              |
+| 0055   | `public_api_permissions`        | G / Public API 2 | committed (local)            |
+| 0056   | `api_integrations`              | G / Public API 2 | committed (local)            |
+| 0057   | (next free: claim before use)   | —                |                              |
 
 ## Collision files
 

@@ -8,6 +8,7 @@ import { approvalPermissionDefinitions } from '../modules/approvals/index.js';
 import { auditPermissionDefinitions } from '../modules/audit/index.js';
 import { bankingPermissionDefinitions } from '../modules/banking/index.js';
 import { catalogPermissionDefinitions } from '../modules/catalog/index.js';
+import { apiIntegrationPermissionDefinitions } from '../modules/api-integrations/index.js';
 import { expenseClaimPermissionDefinitions } from '../modules/expense-claims/index.js';
 import { fixedAssetPermissionDefinitions } from '../modules/fixed-assets/index.js';
 import { inventoryPermissionDefinitions } from '../modules/inventory/index.js';
@@ -55,4 +56,6 @@ export const permissionCatalog: readonly PermissionDefinition[] = validatePermis
   ...fixedAssetPermissionDefinitions,
   // Employee expense claims.
   ...expenseClaimPermissionDefinitions,
+  // Public API (ADR 0011): integrations, tokens and webhooks.
+  ...apiIntegrationPermissionDefinitions,
 ]);

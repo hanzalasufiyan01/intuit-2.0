@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { inTransaction } from '../src/application/unit-of-work.js';
-import { recordAuditEvent } from '../src/modules/audit/index.js';
+import { bindAuditApiToken, recordAuditEvent } from '../src/modules/audit/index.js';
 import {
   createServicePrincipal,
   findServicePrincipal,
@@ -39,9 +39,11 @@ interface Fixture {
   humanId: string;
   serviceId: string;
   serviceMembershipId: string;
+  /** The integration of the service principal (null when the fixture leaves it out). */
+  integrationId: string | null;
 }
 
-async function fixture(): Promise<Fixture> {
+async function fixture(options: { integration?: boolean } = {}): Promise<Fixture> {
   const org = await setUpAccountingOrg(ctx);
   const session = (await org.owner.get('/auth/session')).body.data;
   const principal = await inTransaction(ctx.database.db, {}, (tx) =>
@@ -51,11 +53,23 @@ async function fixture(): Promise<Fixture> {
     `INSERT INTO memberships (organization_id, user_id) VALUES ($1, $2) RETURNING id`,
     [org.organizationId, principal.id],
   );
+  const humanId = session.user.id as string;
+  let integrationId: string | null = null;
+  if (options.integration !== false) {
+    const integration = await owner.query(
+      `INSERT INTO api_integrations (organization_id, name, service_user_id, service_membership_id,
+                                     responsible_membership_id, created_by_user_id, created_at, updated_at)
+       VALUES ($1, 'Payroll sync', $2, $3, $4, $5, now(), now()) RETURNING id`,
+      [org.organizationId, principal.id, membership.rows[0].id, org.ownerMembershipId, humanId],
+    );
+    integrationId = integration.rows[0].id as string;
+  }
   return {
     org,
-    humanId: session.user.id as string,
+    humanId,
     serviceId: principal.id,
     serviceMembershipId: membership.rows[0].id as string,
+    integrationId,
   };
 }
 
@@ -492,21 +506,28 @@ describe('a service principal can never act as a human', () => {
 describe('audit actors', () => {
   const record = (
     f: Fixture,
-    input: Partial<Parameters<typeof recordAuditEvent>[1]> & { actorUserId: string | null },
+    input: Partial<Parameters<typeof recordAuditEvent>[1]> & {
+      actorUserId: string | null;
+      /** The token of an authenticated Public API request (bound by the authentication). */
+      boundToken?: string;
+    },
   ) =>
     inTransaction(
       ctx.database.db,
       { userId: f.humanId, organizationId: f.org.organizationId },
-      (tx) =>
-        recordAuditEvent(tx, {
+      (tx) => {
+        const { boundToken, ...event } = input;
+        if (boundToken) bindAuditApiToken(tx, boundToken);
+        return recordAuditEvent(tx, {
           occurredAt: new Date(),
           organizationId: f.org.organizationId,
           action: 'test.actor_checked',
           resourceType: 'test',
           resourceId: null,
           origin,
-          ...input,
-        }),
+          ...event,
+        });
+      },
     );
 
   const lastEvent = async (f: Fixture, marker: string) =>
@@ -541,14 +562,9 @@ describe('audit actors', () => {
 
   it('records a service principal as api_token with its integration and token', async () => {
     const f = await fixture();
-    const integration = randomUUID();
+    const integration = f.integrationId;
     const token = randomUUID();
-    await record(f, {
-      actorUserId: f.serviceId,
-      actorIntegrationId: integration,
-      actorTokenId: token,
-      resourceId: 'api',
-    });
+    await record(f, { actorUserId: f.serviceId, boundToken: token, resourceId: 'api' });
     expect(await lastEvent(f, 'api')).toMatchObject({
       actor_type: 'api_token',
       actor_user_id: f.serviceId,
@@ -556,11 +572,7 @@ describe('audit actors', () => {
       actor_token_id: token,
     });
     // The token is optional supplementary data.
-    await record(f, {
-      actorUserId: f.serviceId,
-      actorIntegrationId: integration,
-      resourceId: 'api2',
-    });
+    await record(f, { actorUserId: f.serviceId, resourceId: 'api2' });
     expect(await lastEvent(f, 'api2')).toMatchObject({
       actor_type: 'api_token',
       actor_token_id: null,
@@ -569,20 +581,18 @@ describe('audit actors', () => {
 
   it('derives the actor from the identity: a service principal cannot masquerade as a user', async () => {
     const f = await fixture();
-    const integration = randomUUID();
-    // Even when the caller says 'user', the identity decides.
-    await record(f, {
-      actorUserId: f.serviceId,
-      actorType: 'user',
-      actorIntegrationId: integration,
-      resourceId: 'masquerade',
+    // Even when the caller says 'user', the identity decides; the integration is resolved, never given.
+    await record(f, { actorUserId: f.serviceId, actorType: 'user', resourceId: 'masquerade' });
+    expect(await lastEvent(f, 'masquerade')).toMatchObject({
+      actor_type: 'api_token',
+      actor_integration_id: f.integrationId,
     });
-    expect(await lastEvent(f, 'masquerade')).toMatchObject({ actor_type: 'api_token' });
     // A service principal without an integration fails closed.
-    await expect(record(f, { actorUserId: f.serviceId, resourceId: 'noint' })).rejects.toThrow(
-      /must name its integration/,
-    );
-    expect(await lastEvent(f, 'noint')).toBeUndefined();
+    const orphan = await fixture({ integration: false });
+    await expect(
+      record(orphan, { actorUserId: orphan.serviceId, resourceId: 'noint' }),
+    ).rejects.toThrow(/needs its integration/);
+    expect(await lastEvent(orphan, 'noint')).toBeUndefined();
   });
 
   it('rejects inconsistent actor combinations in the database', async () => {
@@ -631,7 +641,6 @@ describe('audit actors', () => {
     const failure = await record(f, {
       actorUserId: f.humanId,
       actorType: 'api_token',
-      actorIntegrationId: randomUUID(),
       resourceId: 'human-as-token',
     }).then(
       () => null,
@@ -646,11 +655,7 @@ describe('audit actors', () => {
 
   it('keeps audit history append-only and visible only inside its organization', async () => {
     const f = await fixture();
-    await record(f, {
-      actorUserId: f.serviceId,
-      actorIntegrationId: randomUUID(),
-      resourceId: 'visible',
-    });
+    await record(f, { actorUserId: f.serviceId, resourceId: 'visible' });
     const id = (await sql(`SELECT id FROM audit_events WHERE resource_id = 'visible'`)).rows[0].id;
     await expect(
       sql(`UPDATE audit_events SET actor_type = 'user' WHERE id = $1`, [id]),

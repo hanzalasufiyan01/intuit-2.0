@@ -32,6 +32,12 @@ export interface AuthorizationContext {
   isOwner: boolean;
   roleIds: string[];
   permissions: ReadonlySet<string>;
+  /**
+   * Set only for a Public API request (ADR 0011): the integration and token behind the service
+   * principal in `userId`. Absent for people. Audit and idempotency read it from here, so domain
+   * services never pass integration identities themselves.
+   */
+  integration?: { integrationId: string; tokenId: string };
 }
 
 export class NoActiveOrganizationError extends AppError {
