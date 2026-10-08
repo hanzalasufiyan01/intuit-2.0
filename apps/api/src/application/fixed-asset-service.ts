@@ -18,10 +18,12 @@ import {
 import { recordAuditEvent, type EventOrigin } from '../modules/audit/index.js';
 import {
   assetNumberExists,
+  capitalizingBills,
   categoryHasAssets,
   FixedAssetPermissions,
   findCategoryByName,
   getAsset,
+  lockBillForAssets,
   getAssetSettings,
   getCategories,
   getCategory,
@@ -121,6 +123,10 @@ export interface AssetInput {
   creditAccountId?: string | undefined;
   /** The cost is already in the ledger (for example from a bill): register only, post nothing. */
   alreadyInLedger?: boolean | undefined;
+  /** The posted bill that capitalized the cost (needs `alreadyInLedger`): a hard link, checked. */
+  sourceBillId?: string | undefined;
+  /** Confirms that a likely matching bill is not this asset (audited); needs a reason. */
+  duplicateOverrideReason?: string | undefined;
   location?: string | undefined;
   custodian?: string | undefined;
   serialNumber?: string | undefined;
@@ -576,6 +582,7 @@ export class FixedAssetService {
       custodian: a.custodian,
       serialNumber: a.serialNumber,
       inLedger: a.inLedger,
+      sourceBillId: a.sourceBillId,
       acquisitionJournalId: a.acquisitionJournalId,
       version: a.version,
     };
@@ -760,7 +767,15 @@ export class FixedAssetService {
         }
       }
     }
+    if (input.sourceBillId && !input.alreadyInLedger) {
+      issues.push({
+        path: 'sourceBillId',
+        message:
+          'An asset bought on a bill is already in the ledger; mark it as already in the ledger instead of posting it again.',
+      });
+    }
     if (issues.length) throw new ValidationError(issues);
+    const overrideReason = await this.guardDuplicateCapitalization(tx, ctx, input, category!, cost);
     if (!input.alreadyInLedger)
       await assertOpenPeriod(tx, ctx.organizationId, input.acquisitionDate);
     const now = this.now;
@@ -806,6 +821,7 @@ export class FixedAssetService {
       serialNumber: input.serialNumber?.trim() ?? '',
       acquisitionJournalId: journalId,
       inLedger: Boolean(input.alreadyInLedger),
+      sourceBillId: input.sourceBillId ?? null,
       createdByUserId: ctx.userId,
       createdAt: now,
       updatedAt: now,
@@ -832,8 +848,81 @@ export class FixedAssetService {
       lifeMonths: asset.lifeMonths,
       journalId,
       alreadyInLedger: asset.inLedger,
+      sourceBillId: asset.sourceBillId,
     });
+    if (overrideReason) {
+      await this.audit(
+        tx,
+        ctx,
+        'fixed_asset.duplicate_capitalization_confirmed',
+        ASSET_RESOURCE,
+        id,
+        origin,
+        {
+          number,
+          reason: overrideReason,
+        },
+      );
+    }
     return this.assetView(tx, ctx.organizationId, asset, scale);
+  }
+
+  /**
+   * Double-capitalization guard. A bill that debited the category cost account has already
+   * capitalized the purchase:
+   * - with `sourceBillId` the bill must be posted, have debited that account, and still have at
+   *   least the asset cost unlinked (checked under a lock on the bill);
+   * - without a link and without `alreadyInLedger`, a posted bill dated within 31 days that
+   *   debited the same account and has at least the cost unlinked blocks the registration unless
+   *   a reason confirms it is a different purchase.
+   * Returns the confirmation reason, if one was needed.
+   */
+  private async guardDuplicateCapitalization(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    input: AssetInput,
+    category: { costAccountId: string },
+    cost: Decimal,
+  ): Promise<string | null> {
+    if (input.sourceBillId) {
+      await lockBillForAssets(tx, ctx.organizationId, input.sourceBillId);
+      const [bill] = await capitalizingBills(tx, {
+        organizationId: ctx.organizationId,
+        costAccountId: category.costAccountId,
+        billId: input.sourceBillId,
+      });
+      if (!bill) {
+        throw new ValidationError([
+          {
+            path: 'sourceBillId',
+            message:
+              'Choose a posted bill that debited this category asset account (it was not found).',
+          },
+        ]);
+      }
+      const left = decimal(bill.capitalized).minus(bill.linked);
+      if (cost.gt(left)) {
+        throw new ConflictError(
+          'DUPLICATE_CAPITALIZATION',
+          `Bill ${bill.number ?? ''} capitalized ${decimal(bill.capitalized).toFixed(2)}, of which ${decimal(bill.linked).toFixed(2)} is already registered; only ${left.toFixed(2)} is left to link.`,
+        );
+      }
+      return null;
+    }
+    if (input.alreadyInLedger) return null;
+    const near = await capitalizingBills(tx, {
+      organizationId: ctx.organizationId,
+      costAccountId: category.costAccountId,
+      near: { date: input.acquisitionDate, days: 31 },
+    });
+    const matches = near.filter((b) => decimal(b.capitalized).minus(b.linked).gte(cost));
+    if (matches.length === 0) return null;
+    const reason = input.duplicateOverrideReason?.trim() ?? '';
+    if (reason.length >= 3) return reason;
+    throw new ConflictError(
+      'DUPLICATE_CAPITALIZATION',
+      `Bill ${matches.map((b) => b.number ?? b.id).join(', ')} already debited this asset account for at least ${cost.toFixed(2)}. Register the asset as already in the ledger and link the bill, or confirm it is a different purchase with a reason.`,
+    );
   }
 
   private async nextNumber(tx: Transaction, organizationId: string, type: 'asset' | 'run') {

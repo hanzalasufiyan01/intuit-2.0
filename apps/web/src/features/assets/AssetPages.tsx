@@ -132,6 +132,7 @@ export function AssetsPage() {
   const queryClient = useQueryClient();
   const canManage = usePermission(Permission.FixedAssetsManage);
   const canSeeAccounts = usePermission(Permission.AccountsView);
+  const canBills = usePermission(Permission.BillsView);
   const accounts = useAccounts(canManage && canSeeAccounts);
   const [status, setStatus] = useState('');
   const list = useQuery({
@@ -153,6 +154,16 @@ export function AssetsPage() {
     salvageValue: '',
     lifeMonths: '',
     creditAccountId: '',
+    sourceBillId: '',
+    duplicateOverrideReason: '',
+  });
+  const bills = useQuery({
+    queryKey: ['asset-source-bills', org],
+    queryFn: () =>
+      api.get<{
+        items: { id: string; number: string | null; vendorName: string | null; total: string }[];
+      }>('/purchases/bills?status=POSTED&limit=100'),
+    enabled: canBills,
   });
   const create = useApiMutation(() =>
     api.post<Asset>(
@@ -164,7 +175,13 @@ export function AssetsPage() {
         cost: form.cost.trim(),
         ...(form.salvageValue.trim() ? { salvageValue: form.salvageValue.trim() } : {}),
         ...(form.lifeMonths.trim() ? { lifeMonths: Number(form.lifeMonths) } : {}),
-        creditAccountId: form.creditAccountId,
+        // A bill-capitalized asset is registered as already in the ledger (nothing is posted).
+        ...(form.sourceBillId
+          ? { alreadyInLedger: true, sourceBillId: form.sourceBillId }
+          : { creditAccountId: form.creditAccountId }),
+        ...(form.duplicateOverrideReason.trim()
+          ? { duplicateOverrideReason: form.duplicateOverrideReason.trim() }
+          : {}),
       },
       { idempotencyKey: crypto.randomUUID() },
     ),
@@ -304,7 +321,8 @@ export function AssetsPage() {
               <select
                 id="asset-credit"
                 value={form.creditAccountId}
-                required
+                required={!form.sourceBillId}
+                disabled={Boolean(form.sourceBillId)}
                 onChange={(e) => setForm({ ...form, creditAccountId: e.target.value })}
               >
                 <option value="">Choose…</option>
@@ -320,6 +338,40 @@ export function AssetsPage() {
                 </small>
               ) : null}
             </div>
+            {canBills ? (
+              <div className="field">
+                <label htmlFor="asset-bill">Capitalized by a bill</label>
+                <select
+                  id="asset-bill"
+                  value={form.sourceBillId}
+                  onChange={(e) => setForm({ ...form, sourceBillId: e.target.value })}
+                >
+                  <option value="">No bill: post the acquisition</option>
+                  {(bills.data?.items ?? []).map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.number} · {b.vendorName} · {b.total}
+                    </option>
+                  ))}
+                </select>
+                <small className="field__hint">
+                  Choose the bill that already debited the asset account so the cost is not posted
+                  twice.
+                </small>
+                {error?.fieldError('sourceBillId') ? (
+                  <small className="field__error" role="alert">
+                    {error.fieldError('sourceBillId')}
+                  </small>
+                ) : null}
+              </div>
+            ) : null}
+            {error?.code === 'DUPLICATE_CAPITALIZATION' && !form.sourceBillId ? (
+              <TextField
+                label="Different purchase? Say why"
+                value={form.duplicateOverrideReason}
+                hint="A matching bill exists. Only confirm if this is a separate purchase."
+                onChange={(e) => setForm({ ...form, duplicateOverrideReason: e.target.value })}
+              />
+            ) : null}
             <div>
               <Button type="submit" busy={create.isPending}>
                 Register asset

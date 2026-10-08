@@ -15,6 +15,7 @@ import {
 import { getApprovalRequest } from '../modules/approvals/index.js';
 import { recordAuditEvent, type EventOrigin } from '../modules/audit/index.js';
 import { dueDateFor, type Discount } from '../modules/documents/index.js';
+import { countAssetsOfBill } from '../modules/fixed-assets/index.js';
 import { getParty, partyIdsMatching } from '../modules/parties/index.js';
 import {
   BillPermissions,
@@ -1323,6 +1324,11 @@ export class BillService {
         if (bill.amountDue !== bill.total || bill.baseDue !== bill.baseTotal) {
           throw invalidState(
             'The bill has payments or credits applied. Void those first, or record a vendor credit.',
+          );
+        }
+        if ((await countAssetsOfBill(tx, ctx.organizationId, id)) > 0) {
+          throw invalidState(
+            'Fixed assets are registered against this bill; it cannot be voided while they exist.',
           );
         }
         const reason = input.reason.trim();

@@ -420,7 +420,7 @@ describe('fixed assets and bills', () => {
     await expectLedgerSound(o.organizationId);
   });
 
-  it('shows a double posting in the reconciliation when an asset is also acquired through the register', async () => {
+  it('refuses to capitalize twice, and shows a deliberately confirmed double posting in the reconciliation', async () => {
     const o = await stockOrg();
     const category = await o.owner.post('/fixed-assets/categories', {
       name: 'Equipment',
@@ -448,7 +448,19 @@ describe('fixed assets and bills', () => {
       lifeMonths: 60,
       creditAccountId: o.accounts['1120'],
     });
-    expect(asset.status, JSON.stringify(asset.body)).toBe(201);
+    expect(asset.status).toBe(409);
+    expect(asset.body.error.code).toBe('DUPLICATE_CAPITALIZATION');
+    // Only an explicit, audited confirmation posts it; the reconciliation then exposes the gap.
+    const confirmed = await o.owner.post('/fixed-assets/assets', {
+      name: 'Compressor',
+      categoryId: category.body.data.id,
+      acquisitionDate: '2026-01-15',
+      cost: '12000.00',
+      lifeMonths: 60,
+      creditAccountId: o.accounts['1120'],
+      duplicateOverrideReason: 'Test of the reconciliation',
+    });
+    expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(201);
     const reconciliation = (
       await o.owner.get('/fixed-assets/reports/reconciliation?asOf=2026-03-31')
     ).body.data;

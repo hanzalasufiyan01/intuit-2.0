@@ -61,7 +61,9 @@ export type ErrorCode =
   // Phase 4A-5 (ADR 0004 P4-18): a bill's supplier reference is already used by the vendor.
   | 'DUPLICATE_VENDOR_REFERENCE'
   // Inventory: an issue would take the stock below zero while negative stock is blocked.
-  | 'INSUFFICIENT_STOCK';
+  | 'INSUFFICIENT_STOCK'
+  // Fixed assets: the cost is already capitalized by a posted bill.
+  | 'DUPLICATE_CAPITALIZATION';
 
 export interface ValidationIssue {
   path: string;

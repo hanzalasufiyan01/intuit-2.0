@@ -56,6 +56,8 @@ const assetBody = z
     lifeMonths: z.number().int().min(1).max(1200).optional(),
     creditAccountId: fields.id.optional(),
     alreadyInLedger: z.boolean().optional(),
+    sourceBillId: fields.id.optional(),
+    duplicateOverrideReason: z.string().trim().min(3).max(500).optional(),
     location: z.string().trim().max(200).optional(),
     custodian: z.string().trim().max(200).optional(),
     serialNumber: z.string().trim().max(100).optional(),

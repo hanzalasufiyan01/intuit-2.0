@@ -69,6 +69,7 @@ export const fixedAssets = pgTable('fixed_assets', {
   serialNumber: text('serial_number').notNull().default(''),
   acquisitionJournalId: uuid('acquisition_journal_id'),
   inLedger: boolean('in_ledger').notNull().default(false),
+  sourceBillId: uuid('source_bill_id'),
   version: integer('version').notNull().default(1),
   createdByUserId: uuid('created_by_user_id').notNull(),
   createdAt: timestamptz('created_at').notNull(),

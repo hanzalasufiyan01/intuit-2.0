@@ -608,3 +608,87 @@ export async function listTransfers(
     )
     .orderBy(asc(fixedAssetTransfers.transferDate), asc(fixedAssetTransfers.createdAt));
 }
+
+// ---------------------------------------------------------------------------
+// Bill capitalization (migration 0051)
+// ---------------------------------------------------------------------------
+
+export interface CapitalizingBill {
+  id: string;
+  number: string | null;
+  billDate: string;
+  /** Base debited to the category cost account by the bill journal. */
+  capitalized: string;
+  /** Cost of the assets already linked to the bill. */
+  linked: string;
+}
+
+/**
+ * Posted bills whose journal debited a cost account, with what is still unlinked. Optionally one
+ * bill, and only those dated within `windowDays` of a date (duplicate detection).
+ */
+export async function capitalizingBills(
+  tx: Transaction,
+  input: {
+    organizationId: string;
+    costAccountId: string;
+    billId?: string;
+    near?: { date: string; days: number };
+  },
+): Promise<CapitalizingBill[]> {
+  const result = await tx.execute<{
+    id: string;
+    number: string | null;
+    bill_date: string;
+    capitalized: string;
+    linked: string;
+  }>(sql`
+    SELECT b.id, b.number, b.bill_date::text AS bill_date,
+           sum(coalesce(l.base_debit, 0) - coalesce(l.base_credit, 0))::text AS capitalized,
+           coalesce((SELECT sum(a.cost) FROM fixed_assets a
+                      WHERE a.organization_id = b.organization_id AND a.source_bill_id = b.id), 0)::text AS linked
+      FROM purchases_bills b
+      JOIN accounting_journal_lines l
+        ON l.journal_id = b.journal_id AND l.organization_id = b.organization_id
+     WHERE b.organization_id = ${input.organizationId} AND b.status = 'POSTED'
+       AND l.account_id = ${input.costAccountId}
+       ${input.billId ? sql`AND b.id = ${input.billId}` : sql``}
+       ${
+         input.near
+           ? sql`AND b.bill_date BETWEEN (${input.near.date}::date - ${input.near.days}::int)
+                                     AND (${input.near.date}::date + ${input.near.days}::int)`
+           : sql``
+       }
+     GROUP BY b.id
+    HAVING sum(coalesce(l.base_debit, 0) - coalesce(l.base_credit, 0)) > 0
+     ORDER BY b.bill_date, b.number`);
+  return result.rows.map((r) => ({
+    id: r.id,
+    number: r.number,
+    billDate: r.bill_date,
+    capitalized: r.capitalized,
+    linked: r.linked,
+  }));
+}
+
+/** Assets registered against a bill (a bill with any cannot be voided). */
+export async function countAssetsOfBill(
+  tx: Transaction,
+  organizationId: string,
+  billId: string,
+): Promise<number> {
+  const [row] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(fixedAssets)
+    .where(
+      and(eq(fixedAssets.organizationId, organizationId), eq(fixedAssets.sourceBillId, billId)),
+    );
+  return row?.n ?? 0;
+}
+
+/** Serializes concurrent links to one bill. */
+export async function lockBillForAssets(tx: Transaction, organizationId: string, billId: string) {
+  await tx.execute(
+    sql`SELECT id FROM purchases_bills WHERE organization_id = ${organizationId} AND id = ${billId} FOR UPDATE`,
+  );
+}
