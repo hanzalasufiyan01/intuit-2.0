@@ -102,14 +102,6 @@ const VENDOR: Omit<ListSpec, 'where'> = {
   from: sql`vendors v JOIN parties p ON p.id = v.party_id AND p.organization_id = v.organization_id`,
 };
 
-const ITEM: Omit<ListSpec, 'where'> = {
-  alias: 'i',
-  columns: sql`i.id, i.sku, i.name, i.item_type, i.description, i.unit_price, i.is_sold,
-    i.is_purchased, i.purchase_description, i.purchase_unit_cost, i.status, i.version,
-    ${sql.raw(ts('i.created_at'))}, ${sql.raw(ts('i.updated_at'))}`,
-  from: sql`sales_items i`,
-};
-
 const INVOICE: Omit<ListSpec, 'where'> = {
   alias: 'n',
   columns: sql`n.id, n.number, n.status, n.customer_id, n.invoice_date::text AS invoice_date, n.due_date::text AS due_date, n.currency_code,
@@ -163,22 +155,6 @@ export class PublicApiReadService {
   }
   getVendor(tx: Transaction, org: string, id: string) {
     return one(tx, { ...VENDOR, where: [] }, org, id);
-  }
-
-  // items ---------------------------------------------------------------------------------
-  listItems(
-    tx: Transaction,
-    org: string,
-    f: CommonFilters & { itemType?: string | undefined },
-    after: CursorPosition | null,
-    limit: number,
-  ) {
-    const where = common('i', f);
-    if (f.itemType) where.push(sql`i.item_type = ${f.itemType}`);
-    return list(tx, { ...ITEM, where }, org, after, limit);
-  }
-  getItem(tx: Transaction, org: string, id: string) {
-    return one(tx, { ...ITEM, where: [] }, org, id);
   }
 
   // invoices ------------------------------------------------------------------------------

@@ -21,7 +21,6 @@ import {
   toCustomer,
   toInvoice,
   toInvoiceSummary,
-  toItem,
   toVendor,
 } from './dto-v1.js';
 import { registerPublicErrors, rateLimitHeaders } from './errors.js';
@@ -61,13 +60,6 @@ const idParams = z.object({ id: uuid }).strict();
 const queries = {
   customers: z.object({ ...listBase, status: status2.optional() }).strict(),
   vendors: z.object({ ...listBase, status: status2.optional() }).strict(),
-  items: z
-    .object({
-      ...listBase,
-      status: status2.optional(),
-      item_type: z.enum(['service', 'product']).optional(),
-    })
-    .strict(),
   invoices: z
     .object({
       ...listBase,
@@ -95,16 +87,13 @@ const queries = {
     .strict(),
 };
 
-/** The permissions behind the scopes (ADR 0011, scopes.ts). Items follow the catalog's own rule. */
+/** The permissions behind the scopes (ADR 0011, scopes.ts). */
 const PERMISSIONS = {
   customers: ['customers.view'],
   vendors: ['vendors.view'],
   invoices: ['invoices.view'],
   bills: ['bills.view'],
   accounts: ['accounting.accounts.view'],
-  // The catalog has no item view permission: items are viewable by invoice, bill or catalog
-  // managers (ItemService). No `items:read` scope exists, and none is invented.
-  items: ['invoices.view', 'bills.view', 'catalog.items.manage'],
 } as const;
 
 function bearer(request: FastifyRequest): string | undefined {
@@ -301,20 +290,6 @@ export function publicApi(deps: PublicApiDeps) {
     member('/vendors/:id', 'vendors', async (tx, c, id) => {
       const row = await reads.getVendor(tx, c.organizationId, id);
       return row && toVendor(row);
-    });
-
-    collection(
-      '/items',
-      'items',
-      queries.items,
-      (q) => ({ ...base(q), item_type: q.item_type }),
-      (tx, c, q, after, take) =>
-        reads.listItems(tx, c.organizationId, { ...common(q), itemType: q.item_type }, after, take),
-      toItem,
-    );
-    member('/items/:id', 'items', async (tx, c, id) => {
-      const row = await reads.getItem(tx, c.organizationId, id);
-      return row && toItem(row);
     });
 
     collection(

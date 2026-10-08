@@ -47,26 +47,6 @@ export const VendorDto = CustomerDto.extend({ account_number: z.string().nullabl
   .strict()
   .meta({ id: 'Vendor' });
 
-export const ItemDto = z
-  .object({
-    id,
-    sku: z.string().nullable(),
-    name: z.string(),
-    item_type: z.enum(['service', 'product']),
-    description: z.string(),
-    unit_price: money.nullable(),
-    is_sold: z.boolean(),
-    is_purchased: z.boolean(),
-    purchase_description: z.string().nullable(),
-    purchase_unit_cost: money.nullable(),
-    status,
-    version: z.number().int(),
-    created_at: iso,
-    updated_at: iso,
-  })
-  .strict()
-  .meta({ id: 'Item' });
-
 const DocumentLine = {
   line_no: z.number().int(),
   item_id: id.nullable(),
@@ -218,25 +198,6 @@ export function toCustomer(r: Row) {
 
 export function toVendor(r: Row) {
   return VendorDto.parse({ ...toCustomer(r), account_number: text(r.account_number) });
-}
-
-export function toItem(r: Row) {
-  return ItemDto.parse({
-    id: r.id,
-    sku: text(r.sku),
-    name: r.name,
-    item_type: r.item_type,
-    description: r.description,
-    unit_price: r.unit_price === null ? null : plain(r.unit_price),
-    is_sold: r.is_sold,
-    is_purchased: r.is_purchased,
-    purchase_description: text(r.purchase_description),
-    purchase_unit_cost: r.purchase_unit_cost === null ? null : plain(r.purchase_unit_cost),
-    status: r.status,
-    version: r.version,
-    created_at: iso8601(r.created_at),
-    updated_at: iso8601(r.updated_at),
-  });
 }
 
 function toLine(r: Row, currency: string) {

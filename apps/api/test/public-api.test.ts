@@ -275,26 +275,45 @@ describe('public API authentication', () => {
 describe('public API authorization', () => {
   it('requires the scope of each resource', async () => {
     const w = await world({ customers: 1 });
-    const byScope: Record<string, string[]> = {
-      'customers:read': ['/customers'],
-      'vendors:read': ['/vendors'],
-      'invoices:read': ['/invoices', '/items'],
-      'bills:read': ['/bills', '/items'],
-      'accounts:read': ['/accounts'],
-      'items:write': ['/items'],
+    const byScope: Record<string, string> = {
+      'customers:read': '/customers',
+      'vendors:read': '/vendors',
+      'invoices:read': '/invoices',
+      'bills:read': '/bills',
+      'accounts:read': '/accounts',
     };
-    const everything = ['/customers', '/vendors', '/items', '/invoices', '/bills', '/accounts'];
+    const everything = Object.values(byScope);
     for (const [scope, allowed] of Object.entries(byScope)) {
       const { token } = await tokenFor(w.org.owner, [scope], scope.replace(':', '-'));
       for (const path of everything) {
         const res = await call(path, { token });
-        if (allowed.includes(path)) expect(res.status, `${scope} ${path}`).toBe(200);
+        if (path === allowed) expect(res.status, `${scope} ${path}`).toBe(200);
         else {
           expect(res.status, `${scope} ${path}`).toBe(403);
           expect(res.body.error).toMatchObject({ type: 'permission_error' });
         }
       }
-      // Revoke to stay under the organization's token cap.
+    }
+  });
+
+  it('gives a write scope no public read access, and exposes no item endpoint at all', async () => {
+    const w = await world({ customers: 1 });
+    const { token: writer } = await tokenFor(w.org.owner, ['items:write'], 'items-write');
+    const { token: reader } = await tokenFor(
+      w.org.owner,
+      ['invoices:read', 'bills:read'],
+      'docs-read',
+    );
+    for (const path of ['/customers', '/vendors', '/invoices', '/bills', '/accounts']) {
+      expect((await call(path, { token: writer })).status, path).toBe(403);
+    }
+    // Items are not a v1 public read resource: no scope reaches them.
+    for (const token of [writer, reader, w.token]) {
+      for (const path of ['/items', `/items/${w.itemIds[0]}`]) {
+        const res = await call(path, { token });
+        expect(res.status, path).toBe(404);
+        expect(res.body.error).toMatchObject({ type: 'not_found', code: 'resource_not_found' });
+      }
     }
   });
 
@@ -362,7 +381,6 @@ describe('public API tenant isolation', () => {
     const pairs: [string, string][] = [
       ['/customers', other.customerIds[0]!],
       ['/vendors', other.vendorIds[0]!],
-      ['/items', other.itemIds[0]!],
       ['/invoices', other.invoiceId],
       ['/bills', other.billId],
       ['/accounts', Object.values(other.org.accounts)[0]!],
@@ -458,36 +476,6 @@ describe('public API resources', () => {
       (await call(`/vendors/${shared.vendorIds[1]}`, { token: shared.token })).body.data.name,
     ).toBe('Vendor 1');
     expect(leaks([list.body, one.body, vendors.body])).toEqual([]);
-  });
-
-  it('lists items for holders of an item-viewing scope only', async () => {
-    const res = await call('/items', { token: shared.token });
-    expect(res.status).toBe(200);
-    expect(res.body.data.map((i: { name: string }) => i.name).sort()).toEqual(['Item 0', 'Item 1']);
-    expect(Object.keys(res.body.data[0]).sort()).toEqual(
-      [
-        'created_at',
-        'description',
-        'id',
-        'is_purchased',
-        'is_sold',
-        'item_type',
-        'name',
-        'purchase_description',
-        'purchase_unit_cost',
-        'sku',
-        'status',
-        'unit_price',
-        'updated_at',
-        'version',
-      ].sort(),
-    );
-    expect(res.body.data[0].unit_price).toBe('50');
-    const one = await call(`/items/${shared.itemIds[0]}`, { token: shared.token });
-    expect(one.body.data.id).toBe(shared.itemIds[0]);
-    expect(leaks(res.body)).toEqual([]);
-    const filtered = await call('/items?item_type=product', { token: shared.token });
-    expect(filtered.body.data).toEqual([]);
   });
 
   it('shows invoices with money in the document currency and lines only on the detail', async () => {
@@ -938,7 +926,7 @@ describe('public API audit policy', () => {
         w.org.organizationId,
       ])
     ).rows[0].n;
-    for (const path of ['/customers', '/vendors', '/items', '/invoices', '/bills', '/accounts']) {
+    for (const path of ['/customers', '/vendors', '/invoices', '/bills', '/accounts']) {
       expect((await call(path, { token: w.token })).status).toBe(200);
     }
     const after = (
@@ -971,8 +959,6 @@ describe('public API OpenAPI document', () => {
         '/customers/{id}',
         '/invoices',
         '/invoices/{id}',
-        '/items',
-        '/items/{id}',
         '/vendors',
         '/vendors/{id}',
       ].sort(),
@@ -989,7 +975,6 @@ describe('public API OpenAPI document', () => {
         'Error',
         'Invoice',
         'InvoiceSummary',
-        'Item',
         'Page',
         'Vendor',
       ].sort(),

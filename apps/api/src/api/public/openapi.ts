@@ -7,7 +7,6 @@ import {
   ErrorDto,
   InvoiceDto,
   InvoiceSummaryDto,
-  ItemDto,
   PageDto,
   VendorDto,
 } from './dto-v1.js';
@@ -158,8 +157,6 @@ function member(tag: string, scope: string, summary: string, item: string) {
   };
 }
 
-const ITEM_SCOPE = 'any of invoices:read, bills:read, items:write';
-
 export function buildOpenApiDocument() {
   return {
     openapi: '3.1.0',
@@ -171,7 +168,7 @@ export function buildOpenApiDocument() {
     },
     servers: [{ url: '/public/v1' }],
     security: [{ bearerAuth: [] }],
-    tags: ['customers', 'vendors', 'items', 'invoices', 'bills', 'accounts'].map((name) => ({
+    tags: ['customers', 'vendors', 'invoices', 'bills', 'accounts'].map((name) => ({
       name,
     })),
     paths: {
@@ -183,11 +180,6 @@ export function buildOpenApiDocument() {
         enumParam('status', ['ACTIVE', 'ARCHIVED']),
       ]),
       '/vendors/{id}': member('vendors', 'vendors:read', 'Get a vendor', 'Vendor'),
-      '/items': collection('items', ITEM_SCOPE, 'List items', 'Item', [
-        enumParam('status', ['ACTIVE', 'ARCHIVED']),
-        enumParam('item_type', ['service', 'product']),
-      ]),
-      '/items/{id}': member('items', ITEM_SCOPE, 'Get an item', 'Item'),
       '/invoices': collection('invoices', 'invoices:read', 'List invoices', 'InvoiceSummary', [
         enumParam('status', ['DRAFT', 'PENDING_APPROVAL', 'ISSUED', 'VOID']),
         uuidParam('customer_id'),
@@ -218,7 +210,6 @@ export function buildOpenApiDocument() {
       schemas: {
         Customer: schemaOf(CustomerDto),
         Vendor: schemaOf(VendorDto),
-        Item: schemaOf(ItemDto),
         InvoiceSummary: schemaOf(InvoiceSummaryDto),
         Invoice: schemaOf(InvoiceDto),
         BillSummary: schemaOf(BillSummaryDto),
