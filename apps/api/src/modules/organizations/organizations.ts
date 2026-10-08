@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import type { Transaction } from '../../database/client.js';
 import { memberships, organizations, type MembershipStatus } from './schema.js';
 
@@ -75,7 +75,14 @@ export async function findMembershipById(
   const [row] = await tx
     .select()
     .from(memberships)
-    .where(and(eq(memberships.organizationId, organizationId), eq(memberships.id, membershipId)))
+    .where(
+      and(
+        eq(memberships.organizationId, organizationId),
+        eq(memberships.id, membershipId),
+        // Member, role, approval and MFA flows are for people; service principals are not found.
+        sql`NOT EXISTS (SELECT 1 FROM users u WHERE u.id = ${memberships.userId} AND u.kind = 'service')`,
+      ),
+    )
     .limit(1);
   return row;
 }
@@ -84,10 +91,16 @@ export async function listOrganizationMemberships(
   tx: Transaction,
   organizationId: string,
 ): Promise<Membership[]> {
+  // Members are people: the non-human service principals of API integrations are not listed.
   return tx
     .select()
     .from(memberships)
-    .where(eq(memberships.organizationId, organizationId))
+    .where(
+      and(
+        eq(memberships.organizationId, organizationId),
+        sql`NOT EXISTS (SELECT 1 FROM users u WHERE u.id = ${memberships.userId} AND u.kind = 'service')`,
+      ),
+    )
     .orderBy(asc(memberships.createdAt));
 }
 

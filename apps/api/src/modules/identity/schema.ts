@@ -4,8 +4,18 @@ import { bytea, timestamptz } from '../../database/column-types.js';
 export const userStatuses = ['active', 'disabled'] as const;
 export type UserStatus = (typeof userStatuses)[number];
 
+export const userKinds = ['human', 'service'] as const;
+export type UserKind = (typeof userKinds)[number];
+
+/**
+ * Human users. The columns are nullable in the database only for service principals (migration
+ * 0053 requires all three for a human), and every helper that returns `User` selects humans only,
+ * so these properties are never null on a `User`. Service principals are read through
+ * `servicePrincipals` below and never through this table definition.
+ */
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
+  kind: text('kind', { enum: userKinds }).notNull().default('human'),
   email: text('email').notNull(),
   emailNormalized: text('email_normalized').notNull(),
   displayName: text('display_name').notNull(),
@@ -14,6 +24,20 @@ export const users = pgTable('users', {
   emailVerifiedAt: timestamptz('email_verified_at'),
   passwordChangedAt: timestamptz('password_changed_at').notNull(),
   disabledAt: timestamptz('disabled_at'),
+  createdAt: timestamptz('created_at').notNull().defaultNow(),
+  updatedAt: timestamptz('updated_at').notNull().defaultNow(),
+});
+
+/**
+ * Non-human service principals (ADR 0011): the same table, a projection without any credential
+ * or e-mail column. A service principal has no password, e-mail, session or MFA factor.
+ */
+export const servicePrincipals = pgTable('users', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  kind: text('kind', { enum: userKinds }).notNull().default('service'),
+  displayName: text('display_name').notNull(),
+  status: text('status', { enum: userStatuses }).notNull().default('active'),
+  passwordChangedAt: timestamptz('password_changed_at').notNull(),
   createdAt: timestamptz('created_at').notNull().defaultNow(),
   updatedAt: timestamptz('updated_at').notNull().defaultNow(),
 });

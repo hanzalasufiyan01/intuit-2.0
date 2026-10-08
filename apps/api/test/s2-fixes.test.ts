@@ -371,6 +371,8 @@ describe('Decision 90 — additive dimension permission backfill (migration 0008
       '0050_customer_refunds', // Customer refunds from unallocated receipts and unapplied credit notes
       '0051_fixed_asset_source_bill', // Fixed assets: link to the capitalizing bill, no double capitalization
       '0052_xlsx_format', // XLSX as an import and export format (Decision 62)
+      '0053_service_principals', // Non-human service principals (ADR 0011)
+      '0054_audit_api_token_actor', // The api_token audit actor (ADR 0011)
     ]);
     const { rows } = await owner.query(
       `SELECT version FROM schema_migrations WHERE version = '0008_dimension_permission_backfill'`,

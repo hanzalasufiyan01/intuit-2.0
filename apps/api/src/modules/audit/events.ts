@@ -1,6 +1,6 @@
 import { and, count, desc, eq, gte, lt, max, sql } from 'drizzle-orm';
 import type { Transaction } from '../../database/client.js';
-import { auditEvents, securityEvents, type EventMetadata } from './schema.js';
+import { auditEvents, securityEvents, type AuditActorType, type EventMetadata } from './schema.js';
 
 export type AuditEvent = typeof auditEvents.$inferSelect;
 export type SecurityEvent = typeof securityEvents.$inferSelect;
@@ -38,8 +38,15 @@ export interface AuditEventInput {
   occurredAt: Date;
   organizationId: string | null;
   actorUserId: string | null;
-  /** Defaults to 'user' when actorUserId is set, otherwise 'anonymous'. */
-  actorType?: 'user' | 'system' | 'anonymous';
+  /**
+   * Defaults to 'user' when actorUserId is set, otherwise 'anonymous'. The type of a service
+   * principal is never taken from the caller: it is always 'api_token' (see recordAuditEvent).
+   */
+  actorType?: AuditActorType;
+  /** Required for a service principal: the integration it belongs to (ADR 0011, section 19.5). */
+  actorIntegrationId?: string | null;
+  /** The token used, when known; never changes the actor type. */
+  actorTokenId?: string | null;
   action: string;
   resourceType: string;
   resourceId: string | null;
@@ -47,12 +54,47 @@ export interface AuditEventInput {
   origin: EventOrigin;
 }
 
+// The kind of a user never changes (migration 0053), so it is cached for the transaction.
+const userKinds = new WeakMap<object, Map<string, string>>();
+
+async function userKindOf(tx: Transaction, userId: string): Promise<string> {
+  let known = userKinds.get(tx);
+  if (!known) {
+    known = new Map();
+    userKinds.set(tx, known);
+  }
+  const cached = known.get(userId);
+  if (cached) return cached;
+  const result = await tx.execute<{ kind: string }>(
+    sql`SELECT kind FROM users WHERE id = ${userId}`,
+  );
+  const kind = result.rows[0]?.kind ?? 'human';
+  known.set(userId, kind);
+  return kind;
+}
+
+/**
+ * The canonical audit insertion. The actor is derived from the identity, never trusted from the
+ * caller: a service principal (a non-human user, ADR 0011) is always recorded as 'api_token' and
+ * must name its integration (it fails closed otherwise). Everything else keeps its meaning
+ * ('user' for a person, 'system', 'anonymous'). The database separately verifies the attribution
+ * and rejects, for example, a service principal recorded as a user.
+ */
 export async function recordAuditEvent(tx: Transaction, input: AuditEventInput): Promise<void> {
+  let actorType: AuditActorType = input.actorType ?? (input.actorUserId ? 'user' : 'anonymous');
+  if (input.actorUserId && (await userKindOf(tx, input.actorUserId)) === 'service') {
+    if (!input.actorIntegrationId) {
+      throw new Error('An audit event by a service principal must name its integration.');
+    }
+    if (actorType === 'user') actorType = 'api_token';
+  }
   await tx.insert(auditEvents).values({
     occurredAt: input.occurredAt,
     organizationId: input.organizationId,
-    actorType: input.actorType ?? (input.actorUserId ? 'user' : 'anonymous'),
+    actorType,
     actorUserId: input.actorUserId,
+    actorIntegrationId: input.actorIntegrationId ?? null,
+    actorTokenId: input.actorTokenId ?? null,
     action: input.action,
     resourceType: input.resourceType,
     resourceId: input.resourceId,

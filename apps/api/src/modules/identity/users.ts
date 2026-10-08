@@ -1,7 +1,7 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import type { Transaction } from '../../database/client.js';
 import { normalizeEmail } from '../../shared/email.js';
-import { users } from './schema.js';
+import { servicePrincipals, users } from './schema.js';
 
 export type User = typeof users.$inferSelect;
 
@@ -28,13 +28,17 @@ export async function findUserByEmail(tx: Transaction, email: string): Promise<U
   const [row] = await tx
     .select()
     .from(users)
-    .where(eq(users.emailNormalized, normalizeEmail(email)))
+    .where(and(eq(users.emailNormalized, normalizeEmail(email)), eq(users.kind, 'human')))
     .limit(1);
   return row;
 }
 
 export async function findUserById(tx: Transaction, id: string): Promise<User | undefined> {
-  const [row] = await tx.select().from(users).where(eq(users.id, id)).limit(1);
+  const [row] = await tx
+    .select()
+    .from(users)
+    .where(and(eq(users.id, id), eq(users.kind, 'human')))
+    .limit(1);
   return row;
 }
 
@@ -46,8 +50,42 @@ export async function getUserProfiles(
   const rows = await tx
     .select()
     .from(users)
-    .where(inArray(users.id, [...ids]));
+    .where(and(inArray(users.id, [...ids]), eq(users.kind, 'human')));
   return new Map(rows.map((row) => [row.id, toUserProfile(row)]));
+}
+
+export type ServicePrincipal = typeof servicePrincipals.$inferSelect;
+
+/**
+ * Creates the non-human identity of a future API integration (ADR 0011). It has no e-mail, no
+ * password and no way to sign in; the database refuses sessions, resets, MFA, roles, approver
+ * status and invitations for it. The caller gives it its single membership.
+ */
+export async function createServicePrincipal(
+  tx: Transaction,
+  input: { displayName: string; now: Date },
+): Promise<ServicePrincipal> {
+  const [row] = await tx
+    .insert(servicePrincipals)
+    .values({
+      kind: 'service',
+      displayName: input.displayName.trim(),
+      passwordChangedAt: input.now,
+    })
+    .returning();
+  return row!;
+}
+
+export async function findServicePrincipal(
+  tx: Transaction,
+  id: string,
+): Promise<ServicePrincipal | undefined> {
+  const [row] = await tx
+    .select()
+    .from(servicePrincipals)
+    .where(and(eq(servicePrincipals.id, id), eq(servicePrincipals.kind, 'service')))
+    .limit(1);
+  return row;
 }
 
 /** Returns undefined when the email is already registered. */

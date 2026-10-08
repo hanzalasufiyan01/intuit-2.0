@@ -22,7 +22,9 @@ Migrations are strictly sequential (no reserved gaps). Before creating one, a st
 | 0050   | `customer_refunds`              | E / Refunds      | committed (local)            |
 | 0051   | `fixed_asset_source_bill`       | C / FA guard     | committed (local)            |
 | 0052   | `xlsx_format`                   | F / XLSX         | committed (local)            |
-| 0053   | (next free: claim before use)   | —                |                              |
+| 0053   | `service_principals`            | G / Public API 1 | committed (local)            |
+| 0054   | `audit_api_token_actor`         | G / Public API 1 | committed (local)            |
+| 0055   | (next free: claim before use)   | —                |                              |
 
 ## Collision files
 
