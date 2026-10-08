@@ -27,6 +27,8 @@ Read more:
 - [Fixed asset decisions](docs/decisions/0008-fixed-assets.md)
 - [Expense claim decisions](docs/decisions/0009-expense-claims.md)
 - [Customer refund decisions](docs/decisions/0010-customer-refunds.md)
+- [Public API and webhooks — proposal for review](docs/decisions/0011-public-api-and-webhooks-proposal.md)
+- [Open points and recorded decisions](docs/open-points.md), [known flaky tests](docs/known-flaky-tests.md)
 - [Integration plan](docs/integration-plan.md) (migration numbers and shared-file ownership)
 
 ## Repository layout
