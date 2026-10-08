@@ -19,3 +19,12 @@ Status: implemented (migration 0049). Scope approved 2026-10-07: an Employee par
 - **No self-service.** Claims are entered by users with `expense_claims.create` for any employee; an "own claims only" scope is not implemented.
 - **Base currency, no tax.** Foreign-currency claims, tax and dimensions on claim lines are not supported in v1.
 - **Posting is several transactions** (claim, bill create, bill post, claim) made safe to repeat; the claim's own and the bill's approval are separate.
+
+## Checkpoint verification of the AP-control design (2026-10-08)
+
+Posting a claim as a bill from the employee-as-vendor is consistent with the architecture:
+
+- **Control ownership.** The journal is created by the Purchases bill event (`source_module = purchases`), so the AP control account is still written only by Purchases; `postingsOutsidePurchases` stays 0.00 in the AP reconciliation.
+- **Subledger.** The employee is a vendor, so the claim is an ordinary bill: it appears in the AP aging and vendor statement, AP control (GL) equals the sum of open bills less credits and unallocated payments, and reimbursement is a normal vendor payment (verified in `test/accounting-integrity.test.ts`).
+- **Reversal.** Voiding a claim voids its bill first; a reimbursed claim cannot be voided until the payment is.
+- **Caveat for payroll.** Employees appear among vendors in vendor lists and AP reports. A future payroll module should post wages and statutory deductions to its own liability accounts and must not reuse the AP control account; claim reimbursements may later be offset against payroll through a payment allocation without changing this design.
