@@ -1,6 +1,6 @@
 # ADR 0011 — Public API (`/public/v1`) and webhooks (decisions FROZEN; implementation not started)
 
-Status: **ADR 0011 IS FULLY FROZEN (2026-10-08): D1–D9, section 19 and the D2 policy wording are approved. Nothing is implemented, no migration exists and no code has been written.** Implementation starts only after the final pre-implementation audit (section 18) is approved. Sections marked _proposed_ below (section 18, and implementation sketches) are not decisions.
+Status: **ADR 0011 IS FULLY FROZEN (2026-10-08): D1–D9, section 19 and the D2 policy wording are approved. Nothing is implemented, no migration exists and no code has been written.** The final pre-implementation audit (sections 18 and 19) is approved, so implementation may begin in the order of section 19.10. Sections marked _proposed_ below (section 18, and implementation sketches) are not decisions.
 
 ### Decision outcome
 
