@@ -35,7 +35,11 @@ async function enqueue(eventType: string, maxAttempts?: number): Promise<string>
   );
 }
 
-/** Dispatches until no due events remain (the shared dev database may hold a backlog). */
+/**
+ * Dispatches until no due events of the dispatcher's types remain. Each test claims only its own
+ * event type: the shared dev database holds a backlog and concurrent producers, and an unrestricted
+ * drain would process (and time out on) other tests' events.
+ */
 async function drain(dispatcher: OutboxDispatcher): Promise<void> {
   for (let i = 0; i < 100; i += 1) {
     const result = await dispatcher.dispatchBatch();
@@ -95,6 +99,7 @@ describe('outbox', () => {
     const dispatcher = new OutboxDispatcher(ctx.database.db, {
       batchSize: 500,
       now: () => ctx.clock.now(),
+      eventTypes: [type],
     });
     dispatcher.subscribe(type, async (event) => {
       seen.push(event.id);
@@ -115,6 +120,7 @@ describe('outbox', () => {
       batchSize: 500,
       now: () => ctx.clock.now(),
       retryDelayMs: () => 30_000,
+      eventTypes: [type],
     });
     dispatcher.subscribe(type, async () => {
       throw new Error('downstream unavailable');
@@ -154,6 +160,7 @@ describe('outbox', () => {
     const dispatcher = new OutboxDispatcher(ctx.database.db, {
       batchSize: 500,
       now: () => ctx.clock.now(),
+      eventTypes: [type],
     });
     await drain(dispatcher);
     const event = await load(id);

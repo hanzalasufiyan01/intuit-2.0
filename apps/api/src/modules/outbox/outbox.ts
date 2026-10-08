@@ -50,6 +50,8 @@ export interface OutboxDispatcherOptions {
   /** Delay before retry n (1-based). Default: exponential, 5s base, capped at 15 minutes. */
   retryDelayMs?: (attempt: number) => number;
   now?: () => Date;
+  /** Claim only these event types (default: all). Lets a worker or a test own its events. */
+  eventTypes?: readonly string[];
   onError?: (event: OutboxEvent, error: unknown) => void;
 }
 
@@ -91,6 +93,13 @@ export class OutboxDispatcher {
     const lockTimeoutMs = this.options.lockTimeoutMs ?? 5 * 60_000;
     const staleBefore = new Date(now.getTime() - lockTimeoutMs);
 
+    const types = this.options.eventTypes;
+    const typeFilter = types
+      ? sql`AND event_type IN (${sql.join(
+          types.map((t) => sql`${t}`),
+          sql`, `,
+        )})`
+      : sql``;
     const claimed = await this.db.transaction(async (tx) => {
       const result = await tx.execute<{ id: string }>(sql`
         UPDATE outbox_events
@@ -98,8 +107,9 @@ export class OutboxDispatcher {
             attempts = attempts + 1
         WHERE id IN (
           SELECT id FROM outbox_events
-          WHERE (status = 'pending' AND available_at <= ${now})
-             OR (status = 'processing' AND locked_at < ${staleBefore})
+          WHERE ((status = 'pending' AND available_at <= ${now})
+             OR (status = 'processing' AND locked_at < ${staleBefore}))
+             ${typeFilter}
           ORDER BY available_at, created_at
           LIMIT ${this.options.batchSize}
           FOR UPDATE SKIP LOCKED
