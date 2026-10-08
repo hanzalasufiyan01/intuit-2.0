@@ -99,13 +99,14 @@ function UploadStep({
             Download the CSV template
           </a>{' '}
           for {batch.domainLabel.toLowerCase()}, fill it in (or use your own column names) and save
-          it as <strong>CSV UTF-8</strong>.
+          it as <strong>CSV UTF-8</strong> or <strong>Excel (.xlsx)</strong>. Formulas are not
+          calculated: the last saved value of a formula cell is imported.
         </p>
         <FileUpload
-          accept=".csv"
+          accept=".csv,.xlsx"
           maxBytes={MAX_IMPORT_BYTES}
-          label="CSV file"
-          hint="CSV (UTF-8), up to 25 MB and 25,000 rows."
+          label="CSV or Excel file"
+          hint="CSV (UTF-8) or Excel (.xlsx, first sheet, values only), up to 25 MB and 25,000 rows."
           upload={async (file, onProgress) => {
             await uploadFile({ linkType: 'import_batch', linkId: batch.id, file, onProgress });
             refresh();
@@ -356,8 +357,12 @@ function MappingStep({ batch, onDone }: { batch: ImportBatch; onDone: () => void
       {save.isSuccess ? <Alert tone="success">Mapping saved.</Alert> : null}
       <ErrorAlert error={save.error} />
       <p className="muted">
-        Columns you don't match are ignored. Delimiter detected:{' '}
-        {describeDelimiter(inspected.batch.options.delimiter)}.
+        Columns you don't match are ignored.
+        {inspected.batch.format === 'xlsx' ? (
+          ' The first sheet of the workbook is read.'
+        ) : (
+          <> Delimiter detected: {describeDelimiter(inspected.batch.options.delimiter)}.</>
+        )}
       </p>
     </Card>
   );

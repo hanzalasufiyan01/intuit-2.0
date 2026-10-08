@@ -317,3 +317,15 @@ Receipts are uploaded to `/files` with `linkType=expense_claim&linkId=<claim id>
   - period reopening: type `period_reopen`, with no amount.
 - A request keeps only the matching steps. With no matching step there is no request, and the action proceeds directly.
 - Journal detail adds `approvalFacts` and `approvalSteps`; `approvalRequiredForPosting` reflects the journal's facts. The opening-balance `approval` adds `facts` and `appliedSteps`.
+
+## Imports and exports (CSV and XLSX, Decision 62)
+
+| Method | Path                                                                           | Notes                                                                                                                        |
+| ------ | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/imports`                                                                     | `{ domain, options }`; the domain's create permission                                                                        |
+| POST   | `/files?linkType=import_batch&linkId=`                                         | upload one `.csv` or `.xlsx` (content-detected; 415 otherwise); the batch records its `format`                               |
+| POST   | `/imports/:id/inspect`, PUT `/imports/:id/mapping`, POST `/imports/:id/commit` | the same for both formats; a workbook has no delimiter, its first sheet is read, values only (formulas are never evaluated)  |
+| POST   | `/exports`                                                                     | `{ domain, params, format?: "csv" \| "xlsx" }` (default `csv`); the view reports `format`; workbooks are formula-neutralized |
+| GET    | `/exports/:id`, `/exports/:id/download-url`                                    | permissions re-checked on every access                                                                                       |
+
+Import limits are the Decision 61 maxima for both formats (25 MB, 25,000 rows, 200 columns); a workbook that is macro-enabled, declares a DTD, or unpacks suspiciously (zip bomb) is refused with `400`.

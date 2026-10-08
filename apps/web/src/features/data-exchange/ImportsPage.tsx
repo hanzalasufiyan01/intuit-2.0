@@ -106,8 +106,8 @@ export function ImportsPage() {
         )}
         <ErrorAlert error={create.error ?? catalog.error} />
         <p className="muted">
-          Files are CSV (UTF-8), up to 25 MB and 25,000 rows. Every row is checked before anything
-          is imported, and an import either completes fully or not at all.
+          Files are CSV (UTF-8) or Excel (.xlsx), up to 25 MB and 25,000 rows. Every row is checked
+          before anything is imported, and an import either completes fully or not at all.
         </p>
       </Card>
       <Card title="Recent imports">

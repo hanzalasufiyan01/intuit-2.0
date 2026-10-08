@@ -77,6 +77,8 @@ export interface ImportDomainInfo {
 
 export interface ImportBatch {
   id: string;
+  /** The uploaded file's format (csv until a file is stored). */
+  format?: 'csv' | 'xlsx';
   domain: ImportDomainKey;
   domainLabel: string;
   status: ImportStatus;

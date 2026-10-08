@@ -91,6 +91,7 @@ const saveMappingBody = z
 const createExportBody = z
   .object({
     domain: z.enum(exportDomainKeys),
+    format: z.enum(['csv', 'xlsx']).default('csv'),
     params: z.record(z.string().max(60), z.unknown()).default({}),
   })
   .strict();

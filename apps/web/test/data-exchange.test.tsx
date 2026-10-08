@@ -166,6 +166,40 @@ describe('import history and start', () => {
   });
 });
 
+describe('Excel files', () => {
+  it('accepts .xlsx uploads and explains that formulas are not calculated', async () => {
+    stubApi({
+      'GET /auth/session': ok(makeSession({ permissions: IMPORTER })),
+      'GET /imports/catalog': ok(catalog),
+      'GET /imports/b1': ok(batch()),
+    });
+    renderAt('/imports/b1');
+    expect(await screen.findByText('CSV or Excel file')).toBeTruthy();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input.getAttribute('accept')).toBe('.csv,.xlsx');
+    expect(screen.getByText(/last saved value of a formula cell/)).toBeTruthy();
+  });
+
+  it('does not show a delimiter for a workbook', async () => {
+    stubApi({
+      'GET /auth/session': ok(makeSession({ permissions: IMPORTER })),
+      'GET /imports/catalog': ok(catalog),
+      'GET /imports/b1': ok(batch({ status: 'ready', format: 'xlsx', fileName: 'coa.xlsx' })),
+      'POST /imports/b1/inspect': ok({
+        batch: batch({ status: 'ready', format: 'xlsx', version: 2 }),
+        columns: ['Code', 'Name', 'Type'],
+        sample: [['1150', 'Petty Cash', 'Asset']],
+        suggestedMapping: { code: 0, name: 1, type: 2 },
+        fields,
+      }),
+      'GET /import-mappings': ok([]),
+    });
+    renderAt('/imports/b1');
+    expect(await screen.findByText(/The first sheet of the workbook is read\./)).toBeTruthy();
+    expect(screen.queryByText(/Delimiter detected/)).toBeNull();
+  });
+});
+
 describe('mapping', () => {
   it('pre-fills the suggested mapping, requires the required fields and starts validation', async () => {
     const user = userEvent.setup();
@@ -425,10 +459,36 @@ describe('exports', () => {
     );
     expect(calls.find((c) => c.method === 'POST')!.body).toEqual({
       domain: 'trial_balance',
+      format: 'csv',
       params: { from: '2026-01-01', to: '2026-03-31' },
     });
     await user.click(download);
     await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/v1/files/content?token=t'));
+  });
+
+  it('exports the same filters as an Excel workbook', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi({
+      'GET /auth/session': ok(makeSession({ permissions: ['accounting.accounts.view'] })),
+      'GET /accounting/setup': ok({
+        isSetUp: true,
+        settings: { baseCurrency: 'MVR', coaTemplateKey: 'maldives', baseCurrencyLocked: false },
+        templates: [],
+      }),
+      'GET /accounting/accounts': ok([]),
+      'POST /exports': () => ({
+        status: 202,
+        body: { data: { export: { id: 'e3', status: 'queued' }, jobId: 'j' } },
+      }),
+      'GET /exports/e3': ok({ id: 'e3', status: 'ready', format: 'xlsx', rowCount: 4 }),
+    });
+    renderAt('/accounting/accounts');
+    await user.click(await screen.findByRole('button', { name: 'Export XLSX' }));
+    expect(await screen.findByRole('button', { name: 'Download 4 rows' })).toBeTruthy();
+    expect(calls.find((c) => c.method === 'POST')!.body).toMatchObject({
+      domain: 'chart_of_accounts',
+      format: 'xlsx',
+    });
   });
 
   it('shows a failed export with its reason', async () => {

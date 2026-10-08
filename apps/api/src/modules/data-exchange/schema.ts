@@ -97,7 +97,7 @@ export const importBatches = pgTable('import_batches', {
   id: uuid('id').primaryKey().defaultRandom(),
   organizationId: uuid('organization_id').notNull(),
   domain: text('domain', { enum: importDomainKeys }).notNull(),
-  format: text('format', { enum: ['csv'] })
+  format: text('format', { enum: ['csv', 'xlsx'] })
     .notNull()
     .default('csv'),
   status: text('status', { enum: importStatuses }).notNull().default('awaiting_file'),
@@ -159,7 +159,7 @@ export const dataExports = pgTable('exports', {
   id: uuid('id').primaryKey().defaultRandom(),
   organizationId: uuid('organization_id').notNull(),
   domain: text('domain', { enum: exportDomainKeys }).notNull(),
-  format: text('format', { enum: ['csv'] })
+  format: text('format', { enum: ['csv', 'xlsx'] })
     .notNull()
     .default('csv'),
   status: text('status', { enum: exportStatuses }).notNull().default('queued'),

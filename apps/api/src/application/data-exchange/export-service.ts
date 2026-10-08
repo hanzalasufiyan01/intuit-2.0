@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
@@ -17,6 +17,8 @@ import { recordAuditEvent } from '../../modules/audit/index.js';
 import {
   CSV_BOM,
   csvRecord,
+  XlsxTooLargeError,
+  XlsxWriter,
   getExport,
   insertExport,
   listExports,
@@ -154,7 +156,11 @@ export class ExportService {
 
   create(
     principal: Principal,
-    input: { domain: ExportDomainKey; params: Record<string, unknown> },
+    input: {
+      domain: ExportDomainKey;
+      params: Record<string, unknown>;
+      format?: 'csv' | 'xlsx' | undefined;
+    },
   ) {
     const domain = this.domain(input.domain);
     return withOrganization(this.deps, principal, {}, async (tx, ctx) => {
@@ -172,6 +178,7 @@ export class ExportService {
       const created = await insertExport(tx, {
         organizationId: ctx.organizationId,
         domain: domain.key,
+        format: input.format ?? 'csv',
         // Raw parameters: re-parsed (with the same schema) when the job runs.
         params: input.params,
         requiredPermission: permission,
@@ -244,7 +251,7 @@ export class ExportService {
       return (await updateExport(tx, job.organizationId, e.id, { status: 'running' }))!;
     });
     if (!started) return { skipped: true };
-    const temporary = path.join(tmpdir(), `intuit2-export-${randomUUID()}.csv`);
+    const temporary = path.join(tmpdir(), `intuit2-export-${randomUUID()}.${started.format}`);
     try {
       const domain = this.domain(started.domain);
       // 1. Generate in one consistent, read-only snapshot (statements: REPEATABLE READ).
@@ -254,7 +261,7 @@ export class ExportService {
         async (tx) => {
           const ctx = await resolveActingUserContext(tx, payload.userId, job.organizationId);
           await this.assertAccess(tx, ctx, started);
-          return this.writeFile(temporary, (write) =>
+          return this.writeFile(temporary, started.format, (write) =>
             domain.generate(
               { tx, ctx, services: this.services, now: this.now, write },
               this.parse(domain, started.params),
@@ -269,7 +276,7 @@ export class ExportService {
         const file = await this.files.storeGeneratedInTransaction(tx, ctx, {
           linkType: 'export',
           linkId: started.id,
-          fileName: domain.fileName(this.parse(domain, started.params), this.now),
+          fileName: this.fileNameFor(domain, started.params, started.format),
           sourcePath: temporary,
         });
         await updateExport(tx, job.organizationId, started.id, {
@@ -312,11 +319,45 @@ export class ExportService {
     }
   }
 
-  /** Streams records to a temporary file, enforcing the export size cap (S6-28, L-5). */
-  private async writeFile(
+  private fileNameFor(
+    domain: ExportDomain<never>,
+    params: Record<string, unknown>,
+    format: 'csv' | 'xlsx',
+  ) {
+    const name = domain.fileName(this.parse(domain, params), this.now);
+    return format === 'xlsx' ? name.replace(/\.csv$/i, '.xlsx') : name;
+  }
+
+  /**
+   * A workbook is built in memory (the uncompressed sheet is capped like a CSV export) and written
+   * once; formulas are never written and text is neutralized (Decision 24).
+   */
+  private async writeWorkbook(
     target: string,
     produce: (write: (cells: readonly ExportCell[]) => Promise<void>) => Promise<number>,
   ): Promise<number> {
+    const limit = this.deps.config.dataExchange.exportMaxBytes;
+    const writer = new XlsxWriter(limit);
+    let rows: number;
+    try {
+      rows = await produce(async (cells) => writer.addRow(cells));
+    } catch (error) {
+      if (error instanceof XlsxTooLargeError) throw new ExportTooLargeError(limit);
+      throw error;
+    }
+    const file = writer.finish();
+    if (file.length > limit) throw new ExportTooLargeError(limit);
+    await writeFile(target, file, { flag: 'wx' });
+    return rows;
+  }
+
+  /** Streams records to a temporary file, enforcing the export size cap (S6-28, L-5). */
+  private async writeFile(
+    target: string,
+    format: 'csv' | 'xlsx',
+    produce: (write: (cells: readonly ExportCell[]) => Promise<void>) => Promise<number>,
+  ): Promise<number> {
+    if (format === 'xlsx') return this.writeWorkbook(target, produce);
     const limit = this.deps.config.dataExchange.exportMaxBytes;
     const out = createWriteStream(target, { flags: 'wx' });
     // Failures surface through once(); after destroy() late write errors are expected.

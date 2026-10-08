@@ -6,6 +6,7 @@
  */
 export * from './batches.js';
 export * from './csv.js';
+export * from './xlsx.js';
 export * as normalize from './normalize.js';
 export {
   exportDomainKeys,

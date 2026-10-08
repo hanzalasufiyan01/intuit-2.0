@@ -554,10 +554,11 @@ describe('draft manual journals (S6-15..S6-17, L-8, L-9)', () => {
 });
 
 describe('file, state and limit rules', () => {
-  it('accepts one CSV file per import; XLSX waits for Decision 62 (L-3); exports take no uploads', async () => {
+  it('accepts one CSV or XLSX file per import (Decision 62); exports take no uploads', async () => {
     const created = await org.owner.post('/imports', { domain: 'chart_of_accounts' });
     const id = created.body.data.id;
-    const workbook = zip({ '[Content_Types].xml': '<Types/>', 'xl/workbook.xml': '<workbook/>' });
+    // A ZIP that is not a workbook is refused; real workbooks are covered by the XLSX tests.
+    const workbook = zip({ 'word/document.xml': '<w/>' });
     expect(
       (await org.owner.upload(`/files?linkType=import_batch&linkId=${id}`, workbook, 'coa.xlsx'))
         .status,

@@ -8,7 +8,7 @@ import { downloadExport, useExport, type ExportDomainKey, type ExportView } from
 
 /**
  * Export action for a list or report screen (S6-44): exports exactly the screen's current
- * filters as CSV in the background, then offers the download (S6-26).
+ * filters as CSV or an Excel workbook in the background, then offers the download (S6-26).
  */
 export function ExportButton({
   domain,
@@ -20,9 +20,10 @@ export function ExportButton({
   label?: string;
 }) {
   const [exportId, setExportId] = useState<string | null>(null);
-  const start = useApiMutation(() =>
-    api.post<{ export: ExportView; jobId: string }>('/exports', { domain, params }),
+  const start = useApiMutation((format: 'csv' | 'xlsx') =>
+    api.post<{ export: ExportView; jobId: string }>('/exports', { domain, params, format }),
   );
+  const xlsxLabel = label.includes('CSV') ? label.replace('CSV', 'XLSX') : 'Export XLSX';
   const current = useExport(exportId);
   const download = useApiMutation((id: string) => downloadExport(id));
   const status = current.data?.status;
@@ -39,15 +40,20 @@ export function ExportButton({
           Download {current.data!.rowCount ?? 0} rows
         </Button>
       ) : (
-        <Button
-          variant="secondary"
-          busy={working}
-          onClick={() =>
-            start.mutate(undefined, { onSuccess: (result) => setExportId(result.export.id) })
-          }
-        >
-          {working ? 'Preparing export…' : label}
-        </Button>
+        <>
+          {(['csv', 'xlsx'] as const).map((format) => (
+            <Button
+              key={format}
+              variant="secondary"
+              busy={working}
+              onClick={() =>
+                start.mutate(format, { onSuccess: (result) => setExportId(result.export.id) })
+              }
+            >
+              {working ? 'Preparing export…' : format === 'csv' ? label : xlsxLabel}
+            </Button>
+          ))}
+        </>
       )}
       {status === 'failed' ? (
         <span className="alert alert--error" role="alert">

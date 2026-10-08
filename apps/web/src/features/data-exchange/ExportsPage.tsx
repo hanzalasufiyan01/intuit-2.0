@@ -30,7 +30,7 @@ export function ExportsPage() {
     <>
       <PageHeader
         title="Exports"
-        description="CSV files you exported. Download links are private to you and files are removed after 7 days."
+        description="CSV and Excel files you exported. Download links are private to you and files are removed after 7 days."
       />
       <Card>
         {exportsList.isPending ? (
@@ -39,8 +39,8 @@ export function ExportsPage() {
           <ErrorAlert error={exportsList.error} />
         ) : exportsList.data.length === 0 ? (
           <p className="muted">
-            No exports yet. Use "Export CSV" on the chart of accounts, contacts, journals, ledger or
-            a financial statement.
+            No exports yet. Use "Export CSV" or "Export XLSX" on the chart of accounts, contacts,
+            journals, ledger or a financial statement.
           </p>
         ) : (
           <div className="table-scroll">

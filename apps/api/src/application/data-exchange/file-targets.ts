@@ -24,8 +24,8 @@ export const dataExchangeTargets: ReadonlyMap<FileLinkType, AttachmentTarget> = 
     'import_batch',
     {
       linkType: 'import_batch',
-      // L-3: CSV only until XLSX is approved under Decision 62.
-      allowedTypes: ['csv'],
+      // Decision 62: CSV and XLSX (read by the in-house workbook reader).
+      allowedTypes: ['csv', 'xlsx'],
       viewPermission: null,
       changePermission: null,
       async authorize(tx, ctx, linkId, access) {
@@ -58,6 +58,7 @@ export const dataExchangeTargets: ReadonlyMap<FileLinkType, AttachmentTarget> = 
         await updateBatch(tx, ctx.organizationId, batch.id, {
           fileId: file.id,
           fileSha256: file.sha256,
+          format: file.detectedType === 'xlsx' ? 'xlsx' : 'csv',
           status: 'ready',
           summary: { ...batch.summary, fileName: file.originalName },
         });

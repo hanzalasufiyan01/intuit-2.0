@@ -3,9 +3,13 @@ import { AppError, ConflictError, NotFoundError, ValidationError } from '../../d
 import type { Transaction } from '../../database/client.js';
 import { recordAuditEvent, type EventOrigin } from '../../modules/audit/index.js';
 import { journalsCreatedByImport } from '../../modules/accounting/index.js';
+import { MAX_FILE_BYTES } from '../../modules/files/index.js';
 import {
   countActiveBatches,
   CsvError,
+  DEFAULT_XLSX_LIMITS,
+  XlsxError,
+  readXlsx,
   csvRecord,
   CSV_BOM,
   detectDelimiter,
@@ -29,6 +33,7 @@ import {
   writeRecordIds,
   writeRowResults,
   type CsvDelimiter,
+  type CsvRecord,
   type ImportBatch,
   type ImportDomainKey,
   type ImportOptions,
@@ -443,13 +448,17 @@ export class ImportService {
       }
       const chosen =
         input.delimiter ?? (batch.options.delimiter === 'auto' ? null : batch.options.delimiter);
+      // A workbook has no delimiter.
       const delimiter =
-        chosen ?? (await this.detectFileDelimiter(tx, ctx.organizationId, batch.fileId));
+        batch.format === 'xlsx'
+          ? ','
+          : (chosen ?? (await this.detectFileDelimiter(tx, ctx.organizationId, batch.fileId)));
       const { columns, sample } = await this.readHead(
         tx,
         ctx.organizationId,
         batch.fileId,
         delimiter,
+        batch.format,
       );
       const suggested = suggestMapping(fields, columns);
       const updated = await updateBatch(tx, ctx.organizationId, batch.id, {
@@ -488,8 +497,49 @@ export class ImportService {
     };
   }
 
+  /**
+   * The records of an uploaded file: CSV is streamed; a workbook (bounded by the upload cap) is
+   * read whole and its first sheet yielded row by row, so the pipeline after this is the same.
+   */
+  private async *records(
+    stream: AsyncIterable<Buffer | string>,
+    format: 'csv' | 'xlsx',
+    delimiter: CsvDelimiter,
+  ): AsyncGenerator<CsvRecord> {
+    if (format === 'csv') {
+      yield* readCsv(stream, this.csvOptions(delimiter));
+      return;
+    }
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of stream) {
+      const buffer = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+      size += buffer.length;
+      if (size > MAX_FILE_BYTES) {
+        throw new AppError(
+          'VALIDATION_FAILED',
+          400,
+          'The workbook is larger than the upload limit.',
+        );
+      }
+      chunks.push(buffer);
+    }
+    yield* readXlsx(Buffer.concat(chunks), {
+      ...DEFAULT_XLSX_LIMITS,
+      maxColumns: IMPORT_LIMITS.maxColumns,
+      maxRecordChars: IMPORT_LIMITS.maxRecordChars,
+    });
+  }
+
+  /** A worksheet drops trailing empty cells; pad a data row to the header like a CSV row. */
+  private fitRow(cells: string[], columns: readonly string[], format: 'csv' | 'xlsx'): string[] {
+    return format === 'xlsx' && cells.length < columns.length
+      ? [...cells, ...Array.from({ length: columns.length - cells.length }, () => '')]
+      : cells;
+  }
+
   private fileError(error: unknown): string {
-    if (error instanceof CsvError) return error.message;
+    if (error instanceof CsvError || error instanceof XlsxError) return error.message;
     if (error instanceof AppError) return error.message;
     throw error;
   }
@@ -518,18 +568,19 @@ export class ImportService {
     organizationId: string,
     fileId: string,
     delimiter: CsvDelimiter,
+    format: 'csv' | 'xlsx',
   ) {
     const { stream } = await this.files.openStreamInTransaction(tx, organizationId, fileId);
     let columns: string[] | null = null;
     const sample: string[][] = [];
     try {
-      for await (const record of readCsv(stream, this.csvOptions(delimiter))) {
+      for await (const record of this.records(stream, format, delimiter)) {
         if (record.cells.length === 0) continue;
         if (!columns) {
           columns = this.validateHeader(record.cells);
           continue;
         }
-        sample.push(record.cells);
+        sample.push(this.fitRow(record.cells, columns, format));
         if (sample.length >= SAMPLE_ROWS) break;
       }
     } catch (error) {
@@ -931,9 +982,11 @@ export class ImportService {
     batch: ImportBatch,
   ): Promise<{ batch: ImportBatch } | { failed: string }> {
     const delimiter: CsvDelimiter =
-      batch.options.delimiter === 'auto'
-        ? await this.detectFileDelimiter(tx, ctx.organizationId, batch.fileId!)
-        : batch.options.delimiter;
+      batch.format === 'xlsx'
+        ? ','
+        : batch.options.delimiter === 'auto'
+          ? await this.detectFileDelimiter(tx, ctx.organizationId, batch.fileId!)
+          : batch.options.delimiter;
     const { file, stream } = await this.files.openStreamInTransaction(
       tx,
       ctx.organizationId,
@@ -942,7 +995,7 @@ export class ImportService {
     let columns: string[] | null = null;
     const rows: { rowNumber: number; raw: string[] }[] = [];
     try {
-      for await (const record of readCsv(stream, this.csvOptions(delimiter))) {
+      for await (const record of this.records(stream, batch.format, delimiter)) {
         if (record.cells.length === 0) continue;
         if (!columns) {
           columns = this.validateHeader(record.cells);
@@ -953,7 +1006,10 @@ export class ImportService {
             failed: `The file has more than ${this.limits.maxRows.toLocaleString('en')} data rows.`,
           };
         }
-        rows.push({ rowNumber: rows.length + 1, raw: record.cells });
+        rows.push({
+          rowNumber: rows.length + 1,
+          raw: this.fitRow(record.cells, columns, batch.format),
+        });
       }
     } catch (error) {
       return { failed: this.fileError(error) };

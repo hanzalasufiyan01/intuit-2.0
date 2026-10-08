@@ -387,6 +387,7 @@ export async function insertExport(
   input: {
     organizationId: string;
     domain: ExportDomainKey;
+    format?: 'csv' | 'xlsx';
     params: Record<string, unknown>;
     requiredPermission: string;
     userId: string;
@@ -398,6 +399,7 @@ export async function insertExport(
     .values({
       organizationId: input.organizationId,
       domain: input.domain,
+      format: input.format ?? 'csv',
       params: input.params,
       requiredPermission: input.requiredPermission,
       createdByUserId: input.userId,

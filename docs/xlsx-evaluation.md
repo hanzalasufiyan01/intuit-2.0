@@ -1,6 +1,6 @@
 # XLSX Library Evaluation (Decision 62)
 
-- **Status:** evaluation and recommendation only. **No library is approved or installed.** XLSX import and export stay disabled until Decision 62 approval (S6-37, ruling L-3 (a)).
+- **Status:** **implemented in-house, no dependency (2026-10-08)** under Decision 62; see section 7. The library recommendation below stays on record; section 5.1 could not be demonstrated for `read-excel-file`, so the documented fallback was taken.
 - **Date:** 2026-09-28 (registry and advisory data as of this date).
 - **Scope:** reading `.xlsx` for imports (S6) and writing `.xlsx` for list and statement exports (S3-20, S6).
 
@@ -73,3 +73,20 @@ Until approval:
 - CSV (UTF-8) remains the only format;
 - XLSX uploads to an import batch are refused with 415;
 - exports are CSV only (the database allows only `'csv'`).
+
+## 7. Implementation (2026-10-08)
+
+The in-house fallback of section 4 was implemented in `modules/data-exchange/xlsx.ts`. **No dependency was added** (`pnpm audit` and the lockfile are unchanged).
+
+| Safety criterion (section 2) | How it is met                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 Zip-bomb limits            | Declared sizes are checked against limits before anything is inflated (200 parts, 128 MB per part, 256 MB in total, ratio 200 for parts of 64 KiB or more), `inflateRawSync` runs with `maxOutputLength` equal to the declared size, the produced length must equal it, and the CRC is verified. ZIP64, multi-disk, encrypted and duplicate parts are refused. |
+| 2 No DTD or entities         | `<!DOCTYPE` and `<!ENTITY` are refused in every part; only the five XML entities and numeric references are decoded; any other `&` is refused. There is no entity expansion.                                                                                                                                                                                   |
+| 3 `.xlsx` only               | Macro-enabled content types, `vbaProject.bin`, `.xlsb` and binary workbook content types are refused (400). Upload detection (S5-06) refuses anything that is not an OOXML package (415).                                                                                                                                                                      |
+| 4 No formula evaluation      | Only the cached `<v>` of a cell is read; a formula without a cached value is an empty cell.                                                                                                                                                                                                                                                                    |
+| 5 Exported cells             | Text is written as inline strings after formula neutralization (`'` prefix, Decision 24); numbers and dates are typed; the package contains no `<f>` element.                                                                                                                                                                                                  |
+| 6 Dates                      | Number cells with a date number format (built-in ids and custom formats) become `YYYY-MM-DD`; the 1900 system (with Excel's phantom 1900-02-29 refused) and the 1904 system are supported; `t="d"` cells are read. Time-of-day is dropped.                                                                                                                     |
+| 7 Limits                     | The file is bounded by the 25 MB upload limit and read once into memory (measured: 25,000 rows x 12 columns, 1.2 MB, written in 0.1 s, read in 0.2 s, 240 MB RSS including the test runtime); rows (25,000), columns (200) and characters per row follow Decision 61 and are enforced by the same import pipeline as CSV.                                      |
+| 8 Licence                    | None needed.                                                                                                                                                                                                                                                                                                                                                   |
+
+Pipeline integration: the first sheet becomes the same `CsvRecord`s as a CSV, so batches, mapping, saved mappings, validation, staging, error reports and commit are the existing ones. Migration 0052 adds `xlsx` to `import_batches.format` and `exports.format`. `POST /exports` accepts `format: "csv" | "xlsx"` (default `csv`). Limits of the reader: first sheet only, values only, no hidden-sheet logic, no rich-text formatting, shared strings held in memory.
