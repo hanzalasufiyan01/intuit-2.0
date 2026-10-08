@@ -214,6 +214,31 @@ export async function getRolePermissionKeys(
   return rows.map((row) => row.key).sort();
 }
 
+/**
+ * The organization permission boundary of the Public API (ADR 0011, D2): the permission keys that
+ * at least one non-Owner role of the organization currently holds. The Owner role is excluded
+ * because it is immutable and holds every key, so it could never withdraw anything. The boundary
+ * depends on roles only, never on a person, so it does not change when a creator or responsible
+ * administrator leaves or is demoted.
+ */
+export async function getOrganizationPermissionBoundary(
+  tx: Transaction,
+  organizationId: string,
+): Promise<Set<string>> {
+  const rows = await tx
+    .selectDistinct({ key: rolePermissions.permissionKey })
+    .from(rolePermissions)
+    .innerJoin(
+      roles,
+      and(
+        eq(roles.id, rolePermissions.roleId),
+        eq(roles.organizationId, rolePermissions.organizationId),
+      ),
+    )
+    .where(and(eq(rolePermissions.organizationId, organizationId), eq(roles.isOwner, false)));
+  return new Set(rows.map((row) => row.key));
+}
+
 export async function countRoleAssignments(
   tx: Transaction,
   organizationId: string,

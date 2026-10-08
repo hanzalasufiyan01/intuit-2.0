@@ -15,6 +15,7 @@ import {
   recordSecurityEvent,
   type EventOrigin,
 } from '../modules/audit/index.js';
+import { getOrganizationPermissionBoundary } from '../modules/access-control/index.js';
 import { findServicePrincipal } from '../modules/identity/index.js';
 import { findMembership, getOrganization } from '../modules/organizations/index.js';
 import { permissionCatalog } from './permission-catalog.js';
@@ -35,7 +36,9 @@ import { inTransaction } from './unit-of-work.js';
  * Effective API permission =
  *   the integration's granted scopes
  *   ∩ the frozen platform Public API policy (the scope catalog: unknown scopes give nothing)
- *   ∩ the organization permission boundary (keys that exist in the permission catalog).
+ *   ∩ the current organization permission boundary: the keys that at least one non-Owner role of
+ *     the organization holds right now (evaluated on every request; never tied to the creator or
+ *     the responsible administrator, and nothing stored is deleted when it changes).
  *
  * Every authentication failure is the same generic 401; the reason is recorded as a security
  * event (never containing the credential). This step adds no routes: callers (the Public API
@@ -147,8 +150,14 @@ export class IntegrationAuthService {
     }
     const scopes =
       (await listScopes(tx, resolved.organizationId, [integration.id])).get(integration.id) ?? [];
+    // Evaluated on every request: a stored scope is effective only while the organization's
+    // (non-Owner) roles currently hold its permissions. Nothing is stored or deleted when that
+    // changes, so the scope works again as soon as the organization permits it again.
+    const boundary = await getOrganizationPermissionBoundary(tx, resolved.organizationId);
     const permissions = new Set(
-      [...permissionsForScopes(scopes)].filter((key) => KNOWN_PERMISSIONS.has(key)),
+      [...permissionsForScopes(scopes)].filter(
+        (key) => KNOWN_PERMISSIONS.has(key) && boundary.has(key),
+      ),
     );
     bindAuditApiToken(tx, token.id);
     await touchToken(tx, {

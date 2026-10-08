@@ -348,11 +348,14 @@ describe('API integrations', () => {
         ORDER BY occurred_at, id`,
       [org.organizationId],
     );
-    expect(rows.map((r) => r.action)).toEqual([
-      'api_integration.created',
-      'api_token.created',
-      'api_integration.updated',
+    // updated and scopes_changed come from one request (same instant), so their order is not fixed.
+    const actions = rows.map((r) => r.action) as string[];
+    expect(actions.slice(0, 2)).toEqual(['api_integration.created', 'api_token.created']);
+    expect(actions.slice(2, 4).sort()).toEqual([
       'api_integration.scopes_changed',
+      'api_integration.updated',
+    ]);
+    expect(actions.slice(4)).toEqual([
       'api_integration.disabled',
       'api_integration.enabled',
       'api_integration.revoked',
@@ -984,5 +987,262 @@ describe('idempotency ownership', () => {
         (tx) => run(tx, { organizationId: org.organizationId, userId: other.userId }, key, 'x'),
       ),
     ).rejects.toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Runtime organization permission boundary and scope boundaries
+// ---------------------------------------------------------------------------
+
+describe('runtime organization permission boundary', () => {
+  type RoleRow = {
+    id: string;
+    name: string;
+    description: string;
+    isOwner: boolean;
+    permissionKeys: string[];
+  };
+
+  async function nonOwnerRoles(org: { owner: TestClient }) {
+    const roles = (await org.owner.get('/organizations/current/roles')).body.data as RoleRow[];
+    return roles.filter((r) => !r.isOwner);
+  }
+
+  async function setRoleKeys(org: { owner: TestClient }, role: RoleRow, keys: string[]) {
+    const res = await org.owner.put(`/organizations/current/roles/${role.id}`, {
+      name: role.name,
+      description: role.description,
+      permissionKeys: keys,
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+  }
+
+  it('withdraws a stored scope while the organization lacks its permission and restores it afterwards', async () => {
+    const org = await setUpAccountingOrg(ctx);
+    // A: the integration has customers:write.
+    const integration = await integrationOf(org.owner, ['customers:write']);
+    const { token } = await tokenOf(org.owner, integration.id);
+    // B + C: the organization permits customers write, and the API succeeds.
+    await expect(authenticate(token, 'customers.create')).resolves.toBeDefined();
+    await expect(authenticate(token, 'customers.update')).resolves.toBeDefined();
+
+    // D: the organization stops permitting customers.create (no non-Owner role holds it).
+    const roles = await nonOwnerRoles(org);
+    const holders = roles.filter((r) => r.permissionKeys.includes('customers.create'));
+    expect(holders.length).toBeGreaterThan(0);
+    for (const role of holders) {
+      await setRoleKeys(
+        org,
+        role,
+        role.permissionKeys.filter((k) => k !== 'customers.create'),
+      );
+    }
+    // E: the same token and scope now receive the authorization denial; the rest is unaffected.
+    await expect(authenticate(token, 'customers.create')).rejects.toMatchObject({ status: 403 });
+    await expect(authenticate(token, 'customers.update')).resolves.toBeDefined();
+    const withdrawn = await authenticate(token);
+    expect([...withdrawn.permissions]).toEqual(['customers.update']);
+    // Nothing stored changed: same grants, same integration version, same token.
+    const stored = await org.owner.get(`/api-integrations/${integration.id}`);
+    expect(stored.body.data).toMatchObject({
+      scopes: ['customers:write'],
+      version: integration.version,
+      status: 'active',
+    });
+
+    // F: the organization permits it again.
+    for (const role of holders) await setRoleKeys(org, role, role.permissionKeys);
+    // G: the same token and scope work again.
+    await expect(authenticate(token, 'customers.create')).resolves.toBeDefined();
+    expect([...(await authenticate(token)).permissions].sort()).toEqual([
+      'customers.create',
+      'customers.update',
+    ]);
+  });
+
+  it('does not depend on the creator or the responsible administrator', async () => {
+    const org = await setUpAccountingOrg(ctx);
+    const admin = await joinWithRole(ctx, org.owner, 'Administrator');
+    const created = await admin.client.post('/api-integrations', {
+      name: 'Admin-run',
+      scopes: ['customers:write', 'invoices:write'],
+      responsibleMembershipId: admin.membershipId,
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const token = (await tokenOf(admin.client, created.body.data.id)).token;
+    // Strip the person of every permission: a role with nothing, and the account disabled.
+    const empty = await org.owner.post('/organizations/current/roles', {
+      name: 'Nothing',
+      permissionKeys: ['organization.read'],
+    });
+    expect(empty.status).toBe(201);
+    const assigned = await org.owner.put(
+      `/organizations/current/members/${admin.membershipId}/roles`,
+      { roleIds: [empty.body.data.id] },
+    );
+    expect(assigned.status, JSON.stringify(assigned.body)).toBe(200);
+    await org.owner.patch(`/organizations/current/members/${admin.membershipId}`, {
+      status: 'disabled',
+    });
+    const context = await authenticate(token);
+    expect([...context.permissions].sort()).toEqual([
+      'customers.create',
+      'customers.update',
+      'invoices.create',
+      'invoices.edit_draft',
+    ]);
+    expect(
+      (await org.owner.get(`/api-integrations/${created.body.data.id}`)).body.data.scopes,
+    ).toEqual(['customers:write', 'invoices:write']);
+  });
+
+  it('ignores the Owner role, which holds every key and cannot be changed', async () => {
+    const org = await setUpAccountingOrg(ctx);
+    const integration = await integrationOf(org.owner, ['invoices:write']);
+    const { token } = await tokenOf(org.owner, integration.id);
+    const roles = await nonOwnerRoles(org);
+    for (const role of roles) {
+      await setRoleKeys(
+        org,
+        role,
+        role.permissionKeys.filter((k) => !k.startsWith('invoices.')),
+      );
+    }
+    // The Owner still holds invoices.create, yet the delegated roles of the organization do not.
+    expect((await authenticate(token)).permissions.size).toBe(0);
+    await expect(authenticate(token, 'invoices.create')).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+describe('scope boundaries', () => {
+  const SCOPES = PUBLIC_API_SCOPES.map((s) => s.scope);
+
+  async function contexts() {
+    const org = await setUpAccountingOrg(ctx);
+    const result: Record<string, Set<string>> = {};
+    for (const scope of SCOPES) {
+      const integration = await integrationOf(org.owner, [scope], `Only ${scope}`);
+      const { token } = await tokenOf(org.owner, integration.id);
+      result[scope] = new Set((await authenticate(token)).permissions);
+    }
+    return result;
+  }
+
+  it('gives each scope exactly its own capabilities and nothing else', async () => {
+    const byScope = await contexts();
+    expect([...byScope['customers:write']!].sort()).toEqual([
+      'customers.create',
+      'customers.update',
+    ]);
+    expect([...byScope['items:write']!]).toEqual(['catalog.items.manage']);
+    expect([...byScope['invoices:write']!].sort()).toEqual([
+      'invoices.create',
+      'invoices.edit_draft',
+    ]);
+    expect([...byScope['customers:read']!]).toEqual(['customers.view']);
+    expect([...byScope['vendors:read']!]).toEqual(['vendors.view']);
+    expect([...byScope['invoices:read']!]).toEqual(['invoices.view']);
+    expect([...byScope['bills:read']!]).toEqual(['bills.view']);
+    expect([...byScope['accounts:read']!]).toEqual(['accounting.accounts.view']);
+  });
+
+  it('keeps read scopes read-only', async () => {
+    const byScope = await contexts();
+    for (const scope of SCOPES.filter((s) => s.endsWith(':read'))) {
+      for (const key of byScope[scope]!) expect(key, scope).toMatch(/\.view$/);
+    }
+  });
+
+  it('never lets a write scope reach issuing, posting, approving, voiding, refunding or the ledger', async () => {
+    const byScope = await contexts();
+    const ledgerOrMoney =
+      /(\.issue|\.post|\.record|\.void|\.approve|\.submit|\.reverse|\.refund|\.delete_draft|\.archive|\.settings|journals\.|ledger\.|periods\.|receipts\.|credit_notes\.|vendor_payments\.|vendor_credits\.|banking\.|inventory\.|fixed_assets\.|expenses?\.|purchases\.|accounting\.|organization\.|members\.|roles\.|api_tokens\.|webhooks\.)/;
+    for (const scope of SCOPES.filter((s) => s.endsWith(':write'))) {
+      for (const key of byScope[scope]!) expect(key, scope).not.toMatch(ledgerOrMoney);
+    }
+    // invoices:write is exactly draft create and edit.
+    const invoices = byScope['invoices:write']!;
+    for (const forbidden of [
+      'invoices.issue',
+      'invoices.void',
+      'invoices.approve',
+      'invoices.delete_draft',
+      'invoices.view',
+      'receipts.create',
+      'credit_notes.create',
+      'accounting.journals.view',
+    ]) {
+      expect(invoices.has(forbidden), forbidden).toBe(false);
+    }
+    // items:write is item master data only: no invoice, bill, accounting, payment or settings key.
+    for (const key of byScope['items:write']!) expect(key).toBe('catalog.items.manage');
+    // customers:write is customer create and update only (no archive, no other resources).
+    const customers = byScope['customers:write']!;
+    for (const forbidden of [
+      'customers.archive',
+      'parties.manage',
+      'invoices.create',
+      'receipts.create',
+    ]) {
+      expect(customers.has(forbidden), forbidden).toBe(false);
+    }
+  });
+
+  it('refuses every other capability at the permission check', async () => {
+    const org = await setUpAccountingOrg(ctx);
+    const integration = await integrationOf(org.owner, ['invoices:write']);
+    const { token } = await tokenOf(org.owner, integration.id);
+    for (const key of [
+      'invoices.issue',
+      'invoices.void',
+      'invoices.approve',
+      'receipts.create',
+      'receipts.void',
+      'accounting.journals.create',
+      'accounting.journals.post',
+      'catalog.items.manage',
+      'customers.create',
+      'api_tokens.manage',
+      'webhooks.manage',
+    ]) {
+      await expect(authenticate(token, key), key).rejects.toMatchObject({ status: 403 });
+    }
+    for (const key of ['invoices.create', 'invoices.edit_draft']) {
+      await expect(authenticate(token, key), key).resolves.toBeDefined();
+    }
+  });
+});
+
+describe('audit path of an integration request', () => {
+  it('ignores any integration or token identity a caller tries to supply', async () => {
+    const org = await setUpAccountingOrg(ctx);
+    const integration = await integrationOf(org.owner);
+    const token = await tokenOf(org.owner, integration.id);
+    const marker = randomUUID();
+    const bogus = randomUUID();
+    await ctx.services.integrationAuth.withIntegration(token.token, { origin }, async (tx, c) => {
+      await recordAuditEvent(tx, {
+        occurredAt: new Date(),
+        organizationId: c.organizationId,
+        actorUserId: c.userId,
+        action: 'test.spoof_attempt',
+        resourceType: 'test',
+        resourceId: marker,
+        origin,
+        // Not part of the input type; if it were honoured the row would name these identities.
+        ...({ actorIntegrationId: bogus, actorTokenId: bogus } as object),
+      });
+    });
+    const row = (
+      await sql(
+        `SELECT actor_type, actor_integration_id, actor_token_id FROM audit_events WHERE resource_id = $1`,
+        [marker],
+      )
+    ).rows[0];
+    expect(row).toEqual({
+      actor_type: 'api_token',
+      actor_integration_id: integration.id,
+      actor_token_id: token.id,
+    });
   });
 });
