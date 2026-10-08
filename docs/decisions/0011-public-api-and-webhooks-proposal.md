@@ -1,30 +1,28 @@
-# ADR 0011 (PROPOSAL) — Public API (`/public/v1`) and webhooks
+# ADR 0011 — Public API (`/public/v1`) and webhooks (decisions FROZEN; implementation not started)
 
-Status: **PROPOSAL / REVIEW DOCUMENT. Nothing is implemented.** Revised 2026-10-08 after the product decisions on D1–D9. Two items are still **pending approval and block implementation: the final D2 token-ownership model (section 3.2) and the exact D8 event catalog (section 11.2).** No migration, route or code may be written from this document yet.
+Status: **ALL NINE DECISIONS (D1–D9) ARE FROZEN (2026-10-08). Nothing is implemented, no migration exists and no code has been written.** Implementation starts only after the final pre-implementation audit (section 18) is approved. Sections marked _proposed_ below (section 18, and implementation sketches) are not decisions.
 
-### Review outcome (2026-10-08)
+### Decision outcome
 
-| ID          | Subject                                                                   | State                                                                                     |
-| ----------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| D1          | Scopes and write set                                                      | **APPROVED / FROZEN** (section 3.1)                                                       |
-| D2          | Token ownership and runtime permission model                              | **NOT FROZEN — revised, PENDING PRODUCT APPROVAL** (section 3.2)                          |
-| D3          | Rate-limit headers, 429, `Retry-After`                                    | **APPROVED; contract FROZEN**; store and numbers configurable (section 4)                 |
-| D4          | Thin default, full opt-in, envelope and mode names                        | **APPROVED; envelope and mode names FROZEN** (section 11.2)                               |
-| D5          | Secret overlap and history retention                                      | **APPROVED; configurable**, 24 h / 30 d are documented defaults only (section 11.4, 11.5) |
-| D6          | Auto-disable, re-enable, no automatic replay                              | **APPROVED** (section 11.5)                                                               |
-| D7          | SSRF protection, optional IP allow-list, egress proxy as guidance         | **APPROVED; SSRF requirements FROZEN** (section 11.3)                                     |
-| D8          | Event rules approved in principle; **exact catalog pending final review** | **APPROVED IN PRINCIPLE — catalog not frozen** (section 11.2)                             |
-| D9          | OAuth and sandbox deferred                                                | **APPROVED** (section 17)                                                                 |
-| Audit actor | `api_token` actor through a new migration                                 | **APPROVED FOR ARCHITECTURE; migration not written** (section 10)                         |
-
-Not approved for implementation: the final D2 ownership model, the exact D8 catalog, the API itself, webhooks.
+| ID    | Subject                                                                                                                            | State                                                |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| D1    | No ledger-posting scope; draft-only write set; coarse `resource:read` / `resource:write`; scope names are public contracts         | **FROZEN** (3.1)                                     |
+| D2    | Organization-owned service principal; webhook subscriptions bounded by the integration's read permissions                          | **FROZEN** (3.2)                                     |
+| D3    | `RateLimit-*` headers, 429 and `Retry-After`; store and numbers configurable                                                       | **FROZEN contract** (4)                              |
+| D4    | Thin payload default, full opt-in; envelope and mode names                                                                         | **FROZEN** (11.2)                                    |
+| D5    | Secret overlap and history retention configurable (24 h / 30 d documented defaults)                                                | **FROZEN as configurable** (11.4, 11.5)              |
+| D6    | Auto-disable after 10 consecutive dead deliveries or 3 days without success; re-enable needs re-auth and ping; no automatic replay | **FROZEN** (11.5)                                    |
+| D7    | SSRF requirements; optional IP allow-list; egress proxy is guidance only                                                           | **FROZEN** (11.3)                                    |
+| D8    | No journal events; `<resource>.<action>`; explicit voids; no global ordering; **the 27 event types**                               | **FROZEN** (11.2)                                    |
+| D9    | OAuth and sandbox/test mode deferred; never an accounting test mode in a real organization                                         | **FROZEN** (17)                                      |
+| Audit | `api_token` actor distinct from user, system, anonymous, through a new migration                                                   | **FROZEN direction; migration not written** (10, 18) |
 
 Scope: a stable, versioned, token-authenticated HTTP API for external systems, and signed outbound webhooks. It reuses the existing outbox, job queue, idempotency service, audit trail, permission model, MFA and re-authentication. It exposes **public DTOs**, never internal tables or internal view models.
 
 ## 1. Principles
 
 1. **Separate surface.** `/public/v1` is its own Fastify plugin with its own authentication hook, error mapper, rate limiter and DTOs. The internal `/api/v1` (cookie session + CSRF) never accepts bearer tokens, and `/public/v1` never accepts session cookies. No route is shared.
-2. **A token is not a user and not a person.** It is bound to one organization and can do no more than its explicitly granted scopes allow. Whose authority backs a token at runtime (the creator, independent permissions, or an organization-owned service principal) is **decision D2, still pending** (section 3.2).
+2. **A token is not a user and not a person.** It is bound to one organization and can do no more than its explicitly granted scopes allow. Its runtime authority is an **organization-owned service principal** (D2, section 3.2), never an employee.
 3. **Additive only.** Inside `v1`, fields and endpoints are only added. Anything else is `v2`.
 4. **DTOs are an explicit allow-list** (section 8). A new internal column is invisible to the public API until a DTO maps it.
 5. **Provider independence.** Rate limiting, secret encryption, outbound HTTP and event sourcing sit behind small interfaces (section 13). No gateway, queue or KMS product is assumed.
@@ -32,24 +30,24 @@ Scope: a stable, versioned, token-authenticated HTTP API for external systems, a
 
 ## 2. Token model
 
-| Item                 | Decision                                                                                                                                                                                                                                                                                                         |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Kind                 | "API token", created in the web app by a user with `api_tokens.manage` (Owner and Administrator by default).                                                                                                                                                                                                     |
-| Format               | `itk_` + 8-char public id + `_` + 43-char base64url secret (256 bits of CSPRNG). The prefix lets secret scanners and log filters recognize it.                                                                                                                                                                   |
-| Storage              | Only `SHA-256(secret)` is stored (the secret has 256 bits of entropy, so a slow hash adds nothing) plus the public id, name, scopes, creator, organization, `created_at`, `expires_at`, `last_used_at`, `last_used_ip`, `revoked_at/by/reason`. Lookup is by public id, comparison constant-time.                |
-| Display              | The full token is shown **once**, at creation, in the response of the create call. It can never be revealed again; losing it means rotating. The list shows name, public id, scopes, expiry, last use.                                                                                                           |
-| Expiration           | Mandatory. Choices 30 / 90 / 180 / 365 days; default 90; maximum 365. Expired tokens are rejected (`401 token_expired`). The owner is notified (in-app and email) 14 and 3 days before expiry.                                                                                                                   |
-| Revocation           | Immediate: every request reads the token row, so revocation takes effect on the next request. Revoke needs `api_tokens.manage` + re-authentication and is audited with a reason. Whether a token also stops when its creator leaves is decided by D2 (section 3.2); under the recommended model it does **not**. |
-| Rotation             | Create a new token, switch the integration, revoke the old one. There is no in-place secret change. Up to 10 active tokens per organization.                                                                                                                                                                     |
-| Organization binding | Fixed at creation; a token never switches organizations.                                                                                                                                                                                                                                                         |
-| Network              | Optional per-token IP allow-list (CIDR). TLS only (HSTS); `Authorization: Bearer itk_…`. Tokens in query strings are rejected.                                                                                                                                                                                   |
-| Org switch           | The public API is **off by default**; an Owner enables it in organization settings (audited). Disabling it makes every token answer `403 api_disabled`.                                                                                                                                                          |
+| Item                 | Decision                                                                                                                                                                                                                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Kind                 | "API token", created in the web app by a user with `api_tokens.manage` (Owner and Administrator by default).                                                                                                                                                                                      |
+| Format               | `itk_` + 8-char public id + `_` + 43-char base64url secret (256 bits of CSPRNG). The prefix lets secret scanners and log filters recognize it.                                                                                                                                                    |
+| Storage              | Only `SHA-256(secret)` is stored (the secret has 256 bits of entropy, so a slow hash adds nothing) plus the public id, name, scopes, creator, organization, `created_at`, `expires_at`, `last_used_at`, `last_used_ip`, `revoked_at/by/reason`. Lookup is by public id, comparison constant-time. |
+| Display              | The full token is shown **once**, at creation, in the response of the create call. It can never be revealed again; losing it means rotating. The list shows name, public id, scopes, expiry, last use.                                                                                            |
+| Expiration           | Mandatory. Choices 30 / 90 / 180 / 365 days; default 90; maximum 365. Expired tokens are rejected (`401 token_expired`). The owner is notified (in-app and email) 14 and 3 days before expiry.                                                                                                    |
+| Revocation           | Immediate: every request reads the token row, so revocation takes effect on the next request. Revoke needs `api_tokens.manage` + re-authentication and is audited with a reason. A token does **not** stop when the person who created it, or the responsible administrator, leaves (D2).         |
+| Rotation             | Create a new token, switch the integration, revoke the old one. There is no in-place secret change. Up to 10 active tokens per organization.                                                                                                                                                      |
+| Organization binding | Fixed at creation; a token never switches organizations.                                                                                                                                                                                                                                          |
+| Network              | Optional per-token IP allow-list (CIDR). TLS only (HSTS); `Authorization: Bearer itk_…`. Tokens in query strings are rejected.                                                                                                                                                                    |
+| Org switch           | The public API is **off by default**; an Owner enables it in organization settings (audited). Disabling it makes every token answer `403 api_disabled`.                                                                                                                                           |
 
 Creating, rotating, revoking a token and changing a scope are **sensitive actions**: they need `api_tokens.manage`, a recent password confirmation (15 min) and, when the organization enforces MFA, a satisfied MFA step-up (existing `MFA_STEP_UP_REQUIRED` flow). The human actor is audited on every one of them. A token can never manage tokens or webhooks, change roles, approve anything, or perform a sensitive action.
 
 ## 3. Scopes and authorization
 
-### 3.1 Scopes and the v1 write set — D1, APPROVED / FROZEN
+### 3.1 Scopes and the v1 write set — D1, FROZEN
 
 - **v1 has no ledger-posting scope.** No public API scope may post, approve, void, refund, reverse, or otherwise directly mutate the accounting ledger. Nothing that today requires `*.issue`, `*.post`, `*.record`, `*.void`, `*.approve`, settings, period, reconciliation or re-authentication is reachable through a token.
 - **The v1 write set creates and updates allowed draft resources only** (initial proposal: customers, items and draft invoices). A draft is turned into a ledger document only by a person in the web application. Adding write capabilities later is additive.
@@ -57,16 +55,33 @@ Creating, rotating, revoking a token and changing a scope are **sensitive action
 - **Scope names are public compatibility contracts**: they can be added, never renamed, removed or widened in meaning inside `v1`.
 - A token can never hold a scope outside the organization's **API policy** (section 3.2): a ceiling the organization sets on what any integration may be granted.
 
-### 3.2 Token ownership and runtime permission model — D2, **PENDING PRODUCT APPROVAL (not frozen)**
+### 3.2 Token ownership and runtime permission model — D2, FROZEN: organization-owned service principal
 
-The earlier proposal (effective permissions = scopes ∩ the creator's current permissions) is **withdrawn as the final design.** A company integration must not stop working because the employee who created its token left, was disabled or was demoted. Required behavior from the product decision:
+**Frozen architecture**
 
-- the human creator must hold the permission to create and manage tokens (`api_tokens.manage`);
-- the creator's authorization is checked **when the token is created or configured**;
-- at runtime the token belongs to the **organization/integration**, not to an employee's lifecycle;
-- organization administrators can revoke or disable the integration independently of anyone else;
-- scopes stay explicitly granted and bounded by the organization's API policy;
-- creation, revocation and scope changes stay audited with the human actor.
+1. API integrations (service principals) are **organization-owned, not employee-owned.**
+2. Employee lifecycle (leaving, disabling, demotion) **never silently disables** an organization's integration.
+3. The **responsible administrator** is a separate human relationship, recorded on the integration and reassignable by any holder of `api_tokens.manage`.
+4. **Any holder of `api_tokens.manage` can revoke or disable any integration**, whoever created it.
+5. Creating or changing an integration needs `api_tokens.manage` **plus re-authentication, and MFA step-up where the organization enforces it.** At that moment the actor may grant only scopes whose permission keys the actor currently holds. This is checked at configuration time only.
+6. **Mandatory token expiry remains** (section 2).
+7. The integration **never acts as a human** and never impersonates one.
+8. The integration **cannot be an approver, an Owner or a normal interactive Member.**
+9. The API authentication and audit identity is the **API token / service principal**, not the responsible administrator.
+10. The human creator and the responsible administrator remain recorded as **human actors** for lifecycle actions (create, rotate, revoke, scope change, reassignment).
+
+Scopes stay explicitly granted and are bounded by the organization's **API policy** (an Owner-managed ceiling: maximum scopes, whether write scopes are allowed, maximum token lifetime, whether IP allow-lists are mandatory).
+
+**Service-principal representation (frozen):**
+
+- The existing user/principal infrastructure is reused with an explicit **non-human service principal**: it is marked as non-human/service in the principal model, has **no password and no interactive login**, and is **not a fake human account.**
+- Existing foreign-key columns (`created_by_user_id` and the like) may reference this principal where technically required. Existing RLS and organization-ownership semantics stay intact. Unrelated domain schemas are **not** changed, and no existing `created_by_user_id` column is redesigned unless genuinely required.
+- A service principal can never be an Owner or an approver, and can never hold an interactive membership.
+- Runtime identity stays distinguishable as `api_token` (section 10).
+
+**Webhook rule (D2 addition, frozen):** _Webhook subscriptions may only subscribe to event types whose underlying resource read permission is granted to that integration._ The rule is checked when an endpoint is created or its subscriptions change, and again when events are fanned out (a later narrowing of the integration's scopes suspends the affected deliveries).
+
+Comparison considered (kept for the record):
 
 |                                         | 1. Creator-bound                              | 2. Independent service permissions                                    | 3. Organization-owned service principal                                                                                                                |
 | --------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -79,26 +94,12 @@ The earlier proposal (effective permissions = scopes ∩ the creator's current p
 | Operational fragility                   | High                                          | Low                                                                   | Low                                                                                                                                                    |
 | Main weakness                           | Breaks real integrations                      | Over-broad, drifting grants                                           | A new identity concept; orphaned long-lived credentials if nobody owns the integration                                                                 |
 
-**Recommendation (PENDING PRODUCT APPROVAL — not a decision): option 3, an organization-owned service principal**, with these guardrails:
-
-1. Creating or changing an integration needs `api_tokens.manage`, re-authentication and, when enforced, MFA step-up, and the actor **may grant only scopes whose permission keys the actor currently holds**. This is checked at configuration time only; later changes to the actor do not affect the integration.
-2. An organization **API policy** (Owner-managed, audited) sets the maximum scopes any integration may hold, whether tokens may carry write scopes at all, the maximum token lifetime and whether IP allow-lists are mandatory.
-3. Every integration has a **responsible administrator of record**, reassignable by any `api_tokens.manage` holder. If that person's membership ends, the integration keeps running and is flagged for reassignment; unattended integrations still expire with their token (mandatory expiry is retained) and expiry reminders go to all holders of `api_tokens.manage`.
-4. Any administrator with `api_tokens.manage` can disable or revoke any integration at once, independent of its creator; the Owner can disable the whole public API.
-5. Runtime requests act as the integration. They never impersonate a person and never inherit a person's MFA or session state.
-
-**Unresolved by this proposal (must be answered with D2):**
-
-- _Identity representation._ Many domain tables carry `created_by_user_id uuid NOT NULL REFERENCES users`. A service principal therefore needs either (a) a backing, non-interactive `users` row of a new kind (no password, cannot sign in, one per integration, with a membership and an integration-owned role), or (b) a schema change to those columns. (a) reuses `withOrganization`, memberships, roles, RLS context and audit unchanged but widens the meaning of "user"; (b) is invasive across the schema. No choice is made here.
-- _Audit._ Attributing runtime writes to the integration needs the new `api_token` actor (section 10) in addition to whatever user id the domain row stores.
-- _Approvals._ Self-approval rules compare users; a draft created by an integration must be approvable by any eligible person (it normally will be, since the integration is not the approver).
-
-Until D2 is approved, nothing in `authorization.ts`, `withOrganization` or the schema changes. For comparison only: the `Principal` variant `{ kind: 'api_token', … }` of the earlier text remains an implementation sketch, not a decision.
+The earlier creator-bound proposal and the independent-permissions option are **not adopted.** The remaining mechanics (columns, constraints, migrations) are listed as _proposals_ in section 18 for the final pre-implementation audit.
 
 ## 4. Rate limiting
 
 - Limits per token (token bucket): **600 requests/minute** for reads, **120/minute** for writes, plus a per-organization ceiling (**3,000/minute**) and a per-IP limit for unauthenticated failures (token guessing: 20/minute, then back-off). Limits are configurable per organization later.
-- **FROZEN contract (D3):** responses carry `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`; a rejection is `429` with `Retry-After` (seconds until the client may retry) and the standard error body (section 9, `type: rate_limited`). These headers, the 429 semantics and the `Retry-After` behavior are public compatibility contracts. The **store and every numeric threshold remain configurable** and are not contracts.
+- **FROZEN contract (D3, final):** responses carry `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`; a rejection is `429` with `Retry-After` (seconds until the client may retry) and the standard error body (section 9, `type: rate_limited`). These headers, the 429 semantics and the `Retry-After` behavior are public compatibility contracts. The **store and every numeric threshold remain configurable** and are not contracts.
 - Store behind `RateLimiter` (section 13). Default implementation: PostgreSQL fixed-window counters (UPSERT per token per minute, no extra infrastructure, correct with several API instances); an in-memory pre-aggregation reduces writes. A Redis implementation can replace it without touching handlers.
 - Hard request limits: body 1 MB (uploads are not part of v1), request timeout 30 s, `limit` ≤ 100, response size cap.
 
@@ -147,7 +148,7 @@ Until D2 is approved, nothing in `authorization.ts`, `withOrganization` or the s
 
 ## 10. Audit and monitoring
 
-- **Approved for architecture:** public API activity must be distinguishable from human activity. A new audit actor type `api_token` is added through a **new migration only** (never editing migrations 0001–0039; the existing `user` / `system` / `anonymous` semantics and the `user` ⇔ `actor_user_id` rule are preserved, with the new type governed by its own consistency check and an `actor_token_id`/integration reference). The migration is **not written yet.** Every write through the public API is audited like a user write, with the integration and token ids, public id and IP; configuration actions (create, rotate, revoke, scope change) carry the human actor. Token lifecycle events (`api_token.created|revoked|expired|ip_blocked|scope_changed`, `public_api.enabled|disabled`) are audited and also recorded as security events.
+- **Frozen direction:** public API activity is distinguishable from human activity, and the audit invariant distinguishes **`user`, `system`, `anonymous` and `api_token`.** A new audit actor type `api_token` is added through a **new migration only** (never editing migrations 0001–0039; the existing `user` / `system` / `anonymous` semantics and the `user` ⇔ `actor_user_id` rule are preserved, with the new type governed by its own consistency check and an `actor_token_id`/integration reference). The migration is **not written yet.** Every write through the public API is audited like a user write, with the integration and token ids, public id and IP; configuration actions (create, rotate, revoke, scope change) carry the human actor. Token lifecycle events (`api_token.created|revoked|expired|ip_blocked|scope_changed`, `public_api.enabled|disabled`) are audited and also recorded as security events.
 - Reads are not individually audited; a daily aggregate per token (`api_token_usage`: requests, errors, last IP) supports review and anomaly alerts (sudden volume, new IP).
 - Failed authentication is a security event (rate-limited), never revealing whether a public id exists.
 
@@ -168,53 +169,40 @@ webhook.deliver job ──► HTTPS POST (pinned IP, no redirects) ──► rec
 - Domain events are written to the outbox **in the business transaction** by additive emit calls (the same hook style as Inventory/Orders), so an event exists if and only if the change committed. No event is produced for an uncommitted change.
 - The fan-out is idempotent (`event id + endpoint id` is unique). Delivery is **at least once**; consumers dedupe on the event id.
 
-### 11.2 Event rules and the proposed v1 catalog — D4 and D8
+### 11.2 Event rules and the v1 event catalog — D4 and D8, FROZEN
 
-**Approved and frozen rules (D4, D8 in principle):**
+**Frozen rules**
 
-- Public events are **document / business-resource level only.** Journal-level events (journals, accounting events, system or realized-FX journals, reversals, approvals) are **never public in v1.**
-- Event type = `<resource>.<action>`. A void or cancellation is always its **own explicit event** (`invoice.voided`), never a mutation of an earlier event.
-- **Envelope and mode names are FROZEN:** `{ "id": "evt_…", "type": "invoice.issued", "api_version": "v1", "created_at": "…", "organization_id": "…", "data": { … } }`. Payload mode per endpoint is **`thin`** (default) or **`full`** (opt-in).
-- **Thin** `data` = `{ "object_type": "invoice", "object_id": "…", "url": "/public/v1/invoices/…" }`, nothing else. The consumer retrieves the object through the normal API, so **retrieval is authorized exactly like any other API call** (the integration's scopes, tenant isolation, RLS); a thin event grants nothing by itself.
-- **Full** `data.object` is the versioned public DTO (section 8) as of the event. It **never contains journal internals** (journal ids or numbers, accounting events, base-only/FX mechanics, tax-snapshot internals, system-journal links). Full mode is available only for resources whose scope the integration holds.
-- Events are produced in the business transaction (emit hooks), at least once, **without a global ordering guarantee**; the DTO carries a resource `version` so consumers can discard stale snapshots.
-- Opening documents (opening invoices, bills, vendor credits) and imported drafts emit **no** events.
+- Public events are **document / business-resource level only.** Journal-level events, accounting-event events and system or realized-FX journals are **never public in v1.**
+- Event type = `<resource>.<action>`. A void or cancellation is always its **own explicit event.** A single business operation may legitimately emit several related events (for example `expense_claim.voided` and `bill.voided`).
+- **No global ordering guarantee.** Consumers must use the event id, `occurred_at`, the resource identity and, where applicable, its `version`, and must **reconcile by retrieving the current resource** instead of assuming event order. Delivery is at least once.
+- **Event types are immutable public contracts**: additions are additive; removing or renaming a type is breaking (`v2`).
+- Update events carry **no changed-field names** in v1; consumers retrieve the current resource.
+- Vendor events apply to all vendor records **including employee vendor records**; there is no separate employee-vendor event family.
+- **Envelope and mode names are FROZEN.** Envelope fields: `id` (the event id, `evt_…`), `type`, `api_version`, `occurred_at` (when the business change committed), `organization_id`, `resource` (`{ "type", "id", "version" }` where the resource has a version) and `data`. Payload mode per endpoint: **`thin`** (the default) or **`full`** (opt-in).
+- **Thin** `data` = `{ "object_type", "object_id", "url" }` and nothing else. Retrieval through the URL is authorized exactly like any other API call (the integration's scopes, tenant isolation, RLS); a thin event grants nothing by itself.
+- **Full** `data.object` is the versioned public DTO (section 8). It **never contains journal internals** (journal ids or numbers, accounting events, base-only or FX line mechanics, tax-snapshot internals, system-journal links) and is available only for resources whose read permission the integration holds.
+- Opening documents (opening invoices, bills, vendor credits), imported drafts and draft-lifecycle changes emit **no** events.
 
-**PROPOSED exact v1 catalog — FOR FINAL REVIEW, NOT FROZEN, NOT IMPLEMENTABLE YET (27 types):**
+**The frozen v1 catalog — 27 event types**
 
-| #   | Event type                 | Fires when                                                      | Source in Intuit 2.0 | Notes                                            |
-| --- | -------------------------- | --------------------------------------------------------------- | -------------------- | ------------------------------------------------ |
-| 1   | `customer.created`         | a customer is created (UI, import or API)                       | Customers            | contact fields only in full mode                 |
-| 2   | `customer.updated`         | a customer's fields change                                      | Customers            |                                                  |
-| 3   | `customer.archived`        | a customer is archived                                          | Customers            | customers are archived, never deleted            |
-| 4   | `vendor.created`           | a vendor is created (including an employee's vendor record)     | Vendors              | employee vendors are indistinguishable by design |
-| 5   | `vendor.updated`           | a vendor's fields change                                        | Vendors              |                                                  |
-| 6   | `vendor.archived`          | a vendor is archived                                            | Vendors              |                                                  |
-| 7   | `item.created`             | an item is created                                              | Items catalog        |                                                  |
-| 8   | `item.updated`             | an item's fields change                                         | Items catalog        |                                                  |
-| 9   | `item.archived`            | an item is archived                                             | Items catalog        |                                                  |
-| 10  | `invoice.issued`           | an invoice is issued (ledger document exists)                   | Sales                | not on draft creation                            |
-| 11  | `invoice.voided`           | an issued invoice is voided                                     | Sales                |                                                  |
-| 12  | `credit_note.issued`       | a credit note is issued                                         | Sales                | credit notes cannot be voided                    |
-| 13  | `receipt.recorded`         | a customer receipt is recorded                                  | Sales                |                                                  |
-| 14  | `receipt.voided`           | a receipt is voided                                             | Sales                |                                                  |
-| 15  | `customer_refund.recorded` | a customer refund is recorded                                   | Sales (ADR 0010)     |                                                  |
-| 16  | `customer_refund.voided`   | a customer refund is voided                                     | Sales                |                                                  |
-| 17  | `bill.posted`              | a bill is posted (including a bill created by an expense claim) | Purchases            | opening bills excluded                           |
-| 18  | `bill.voided`              | a bill is voided                                                | Purchases            | also fires when a claim void voids its bill      |
-| 19  | `vendor_credit.posted`     | a vendor credit or debit note is posted                         | Purchases            | opening credits excluded                         |
-| 20  | `vendor_credit.voided`     | a vendor credit is voided                                       | Purchases            |                                                  |
-| 21  | `vendor_payment.recorded`  | a vendor payment is recorded (single or batch)                  | Purchases            | one event per payment                            |
-| 22  | `vendor_payment.voided`    | a vendor payment is voided                                      | Purchases            |                                                  |
-| 23  | `vendor_refund.recorded`   | a vendor refund is recorded                                     | Purchases            |                                                  |
-| 24  | `vendor_refund.voided`     | a vendor refund is voided                                       | Purchases            |                                                  |
-| 25  | `expense_claim.posted`     | an approved claim is posted                                     | Expense claims       |                                                  |
-| 26  | `expense_claim.voided`     | a posted claim is voided                                        | Expense claims       |                                                  |
-| 27  | `webhook.ping`             | an administrator tests an endpoint                              | Webhooks             | no business data                                 |
+| Resource        | Event types                                                 |
+| --------------- | ----------------------------------------------------------- |
+| customer        | `customer.created`, `customer.updated`, `customer.archived` |
+| vendor          | `vendor.created`, `vendor.updated`, `vendor.archived`       |
+| item            | `item.created`, `item.updated`, `item.archived`             |
+| invoice         | `invoice.issued`, `invoice.voided`                          |
+| credit note     | `credit_note.issued`                                        |
+| receipt         | `receipt.recorded`, `receipt.voided`                        |
+| customer refund | `customer_refund.recorded`, `customer_refund.voided`        |
+| bill            | `bill.posted`, `bill.voided`                                |
+| vendor credit   | `vendor_credit.posted`, `vendor_credit.voided`              |
+| vendor payment  | `vendor_payment.recorded`, `vendor_payment.voided`          |
+| vendor refund   | `vendor_refund.recorded`, `vendor_refund.voided`            |
+| expense claim   | `expense_claim.posted`, `expense_claim.voided`              |
+| test            | `webhook.ping`                                              |
 
-**Considered and NOT proposed for v1:** `bank_transaction.imported` (bank data is sensitive and counts alone have little value; was in the first draft and is removed), purchase-order, goods-receipt, fixed-asset, inventory-movement, depreciation, bank-transfer and reconciliation events, period or approval events, `invoice.paid` (derived from receipts and allocations; consumers use `receipt.recorded` and the pull API), any `*.updated` for ledger documents (issued/posted documents are immutable; changes are voids), draft-lifecycle events, user, role, organization and settings events.
-
-**Open questions for the final review of the catalog:** (a) whether vendor events should include employee-vendors at all; (b) whether `customer.updated` / `vendor.updated` / `item.updated` carry changed-field names in thin mode (proposal: no); (c) whether purchase orders or fixed assets belong in v1 (proposal: no).
+**Explicitly excluded from v1:** journal events; accounting-event events; `invoice.paid`; approval events; period events; banking transfer events; reconciliation events; opening and imported-draft events; purchase-order events; fixed-asset events; inventory events (also bank-transaction import, goods receipts, depreciation, `*.updated` for issued or posted documents, and user, role, organization and settings events). Purchase orders and fixed assets can be added later as additive contracts.
 
 ### 11.3 Endpoint rules and SSRF protection
 
@@ -238,7 +226,7 @@ webhook.deliver job ──► HTTPS POST (pinned IP, no redirects) ──► rec
 - Success = HTTP 2xx within the timeout. Anything else (non-2xx, timeout, TLS/DNS error, blocked address) is a failed attempt.
 - Retry schedule with exponential backoff and ±20% jitter: **30 s, 2 min, 10 min, 30 min, 1 h, 3 h, 6 h, 12 h, 24 h** (10 attempts over about two days). The job queue (`max_attempts`, `run_after`) carries the schedule. After the last attempt the delivery is **dead-lettered** (`status = dead`) and remains visible and re-deliverable.
 - `webhook_deliveries` (one per event and endpoint) and `webhook_delivery_attempts` (one per try: time, status code, duration, error class, response excerpt) form the **delivery history**, kept for a **configurable** retention (default **30 days**, not a compatibility contract; then redacted/purged by the existing cleanup job). The history never stores the signing secret.
-- **Auto-disable (D6, approved):** an endpoint is set to `auto_disabled` after **10 consecutive failed deliveries or 3 days without a successful delivery**, whichever comes first; fan-out stops creating deliveries for it, the owners are notified and it is audited. Here a _failed delivery_ is one that exhausted its retries (dead-lettered); this reading is to be confirmed in the review. **There is no automatic replay-from-time in v1**: events produced while an endpoint is disabled are not backfilled. Webhook delivery is **not a guaranteed historical backfill mechanism**; the pull API (`updated_since`, section 7) is the **authoritative reconciliation path**, and the documentation must say so. The history shows the gap.
+- **Auto-disable (D6, frozen):** an endpoint is set to `auto_disabled` after **10 consecutive failed deliveries or 3 days without a successful delivery**, whichever comes first; fan-out stops creating deliveries for it, the owners are notified and it is audited. **Frozen meaning:** a _failed delivery_ for auto-disable counting is a delivery that has **exhausted its configured retry attempts and been dead-lettered**; individual retry attempts are **not** counted as separate failed deliveries, and a successful delivery resets the consecutive count. **There is no automatic replay-from-time in v1**: events produced while an endpoint is disabled are not backfilled. Webhook delivery is **not a guaranteed historical backfill mechanism**; the pull API (`updated_since`, section 7) is the **authoritative reconciliation path**, and the documentation must say so. The history shows the gap.
 - **Disable / re-enable:** manual disable is immediate; re-enabling needs `webhooks.manage` + re-authentication and a successful `ping` first. Manual **redelivery of an individual delivery** (including dead ones) may exist and is audited.
 
 ### 11.6 Tenant isolation and permissions
@@ -273,21 +261,115 @@ Token hashing/expiry/revocation/IP rules; scope and creator-permission intersect
 
 ## 16. Decision register
 
-| ID  | Decision                                                                                                                                                                            | State                                                                 |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| D1  | No ledger-posting scope in v1; draft-only write set; coarse `resource:read` / `resource:write`; scope names are public contracts                                                    | **APPROVED / FROZEN**                                                 |
-| D2  | Token ownership and runtime permission model (creator-bound / independent / organization-owned service principal)                                                                   | **PENDING PRODUCT APPROVAL** — recommendation: option 3 (section 3.2) |
-| D3  | `RateLimit-*` headers, 429 semantics, `Retry-After`; store and numbers configurable                                                                                                 | **APPROVED; contract FROZEN**                                         |
-| D4  | Thin default, full opt-in; envelope and mode names; thin retrieval keeps normal API authorization; no journal internals in full payloads                                            | **APPROVED; envelope and mode names FROZEN**                          |
-| D5  | Secret overlap (24 h) and history retention (30 d)                                                                                                                                  | **APPROVED; configurable, defaults only**                             |
-| D6  | Auto-disable (10 consecutive failed deliveries or 3 days without success), re-enable needs re-auth and ping, no automatic replay, manual redelivery allowed, pull API authoritative | **APPROVED**                                                          |
-| D7  | SSRF protection frozen; optional IP allow-list; egress proxy is deployment guidance only                                                                                            | **APPROVED; SSRF requirements FROZEN**                                |
-| D8  | Journal-level events never public; `<resource>.<action>`; explicit void events; exact catalog (section 11.2)                                                                        | **APPROVED IN PRINCIPLE — catalog pending final review**              |
-| D9  | OAuth client credentials and in-organization sandbox/test mode deferred; **never a test-mode flag that changes accounting behavior inside a real organization**                     | **APPROVED**                                                          |
-| —   | Audit actor `api_token` through a new migration (never 0001–0039)                                                                                                                   | **APPROVED FOR ARCHITECTURE; migration not written**                  |
+All of D1–D9 and the audit-actor direction are **FROZEN** (see the outcome table at the top). The open items are implementation-level and are listed in section 18 for the final pre-implementation audit; they are proposals, not decisions.
 
-Open for the next review: the final D2 model; the exact D8 catalog; the reading of "failed delivery" in D6.
-
-## 17. Out of scope
+## 17. Out of scope (D9, frozen)
 
 Posting/voiding/approving/refunding/reversing documents through the API (D1); OAuth 2.0 client credentials and any sandbox or test mode inside a real organization (D9 — **a flag that changes accounting behavior inside a real organization is never to be created**); file upload/download; user, role and settings management; tax returns and MIRA (blocked on statutory material); inbound webhooks; OAuth.
+
+## 18. Pre-implementation consistency audit (architecture only; everything here is a proposal)
+
+Checked against the repository at `2ee3484` (code and migrations read, nothing changed). Items below are **proposals for the final pre-implementation audit**, not decisions beyond D1–D9.
+
+### 18.1 Remaining contradictions with the existing architecture
+
+1. **`users` cannot hold a service principal today.** `users.email`, `email_normalized` and `password_hash` are `NOT NULL`, `password_hash` must start with `$argon2id$`, and `email_normalized` is unique. A non-human principal with no password and no e-mail needs these relaxed **for service principals only**, by a new migration (migration 0001 is never edited).
+2. **`Principal` and `withOrganization` are session-based.** `Principal = { user, session }`; `withOrganization` resolves the organization from `session.activeOrganizationId`, looks the membership up, enforces organization MFA on the session and applies the re-authentication window. A token has no session. The repository already has a precedent for a session-less context: `resolveActingUserContext` (background jobs, `sessionId: null`). The public API needs an equivalent `resolveIntegrationContext` (organization taken from the token only), not a change to the interactive path.
+3. **MFA policy would block a service principal.** `enforceActingUserMfa` fails for any member whose role requires MFA and who has no enrolled factor. Service principals must be exempt by kind (they hold no roles, so the privileged-role rule does not apply, but the organization-wide policy would).
+4. **Audit invariant.** `audit_events` allows `actor_type IN ('user','system','anonymous')` with `(actor_type = 'user') = (actor_user_id IS NOT NULL)`. A runtime write by an integration cannot be recorded as `user` without hiding the distinction D2 requires. Needs a new migration (18.6).
+5. **Members, invitations and approvals assume humans.** `listOrganizationMemberships` (organization-service) lists every membership; role assignment, disable/enable, invitations, per-member MFA status and "seats" would show or act on service principals unless filtered. Approval steps are eligible by role (`approval_step_eligible_roles`) and, where used, explicit memberships; a service principal must be excluded by construction.
+6. **Envelope field names.** The earlier draft envelope used `created_at`; the D8 decision requires `event_id`, `occurred_at` and resource identity/version. Section 11.2 now freezes `id`, `occurred_at`, `resource`. Confirm in this audit that this reading matches the intended frozen envelope.
+7. **Full-payload snapshots versus fan-out time.** If the DTO is built when events are fanned out (asynchronously) it can reflect a later state than the event. Needs the rule in 18.9.
+8. **Idempotency table.** `idempotency_keys` is unique on `(organization_id, scope, idempotency_key)` and a replay must come from the same `user_id`. Two integrations in one organization using the same key and scope would collide (18.7).
+9. **No existing rate limiter and no outbound-HTTP client with address pinning** (only login back-off exists). Both are new components behind the interfaces of section 13, not extensions of existing code.
+
+None of these requires editing migrations 0001–0039 or redesigning domain tables.
+
+### 18.2 Existing tables and columns affected by the service-principal representation
+
+**Schema changes (proposed):**
+
+| Table                                                                                         | Change                                                                                                                                                                                                                                                                                              |
+| --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `users`                                                                                       | new `kind` (`human` / `service`, default `human`); `email`, `email_normalized`, `password_hash` become nullable with CHECKs that require them for `human` and forbid them for `service`; `display_name` carries the integration name. The unique e-mail index is unaffected (nulls do not collide). |
+| `memberships`                                                                                 | no column change. A service principal has exactly one membership (it is the object permissions and `membership_id` references hang from); a trigger forbids a service membership from being used where a human is required (below).                                                                 |
+| `membership_roles`                                                                            | guard trigger: a service membership can hold **no** role (so never Owner, never a role-based approver). Its permissions come from its scopes, not roles.                                                                                                                                            |
+| approval eligibility tables (`approval_step_eligible_roles`, any explicit-member eligibility) | guard: a service membership can never be listed as an approver.                                                                                                                                                                                                                                     |
+| `audit_events`                                                                                | `actor_type` gains `api_token`; new `actor_token_id`; replacement consistency check (18.6).                                                                                                                                                                                                         |
+| `security_events`                                                                             | no change needed (`user_id` is nullable); token events use metadata and, optionally, the service user id.                                                                                                                                                                                           |
+| `idempotency_keys`                                                                            | no column change (18.7).                                                                                                                                                                                                                                                                            |
+
+**Columns that will simply hold the service principal's user id (no schema change):** the roughly 160 `*_by_user_id uuid REFERENCES users` columns across the migrations (for example `created_by_user_id` and `updated_by_user_id` on customers, vendors, items and draft invoices; `created_by_user_id` on `jobs`; `requested_by_user_id` on `approval_requests`; `idempotency_keys.user_id`). Their foreign keys, RLS policies and organization ownership are untouched; `NOT NULL` constraints are satisfied by the principal's id.
+
+**Code paths that must treat `kind = 'service'` specially:** sign-in and password reset (a service principal can never authenticate with a password; the generic failure is kept), session creation, member lists and counts, invitations, role assignment, membership disable/enable UI, per-member MFA status, `resolveActingUserContext` (a service principal is not resolved as a background-job user), approval-eligibility resolution.
+
+### 18.3 Proposed service-principal and integration schema (new tables, by purpose)
+
+- **`api_integrations`**: the organization-owned integration. Organization, name, description, status (`active`, `disabled`, `revoked`), the service principal's `user_id` and `membership_id`, the **responsible administrator** (a membership, nullable when unassigned, reassignable), creator and timestamps (human actors), `disabled/revoked` by and reason.
+- **`api_integration_scopes`**: the scopes granted to the integration (one row per scope), with who granted them and when. Scope names are the public contract of D1.
+- **`api_tokens`**: tokens of an integration (public id, SHA-256 of the secret, expiry, last use and IP, optional IP allow-list, revoked by/at/reason). Several tokens per integration allow rotation without downtime.
+- **`public_api_settings`**: per-organization switch and API policy (maximum scopes, write scopes allowed, maximum token lifetime, IP allow-list required).
+- **`api_token_usage`** and **`api_rate_windows`**: aggregates and rate-limit counters.
+- **Webhooks:** `webhook_endpoints` (organization, optionally the integration it belongs to, URL, subscribed event types, payload mode, status, encrypted current and previous secrets), `webhook_deliveries`, `webhook_delivery_attempts`.
+
+All with `organization_id`, composite foreign keys, RLS, no PUBLIC grants, no TRUNCATE, like every tenant table.
+
+### 18.4 Proposed new migrations (purpose only; none created)
+
+1. **Service principal kind**: `users.kind` and the relaxed constraints, guards on `membership_roles` and approval eligibility, sign-in refusal support.
+2. **Audit actor**: `audit_events` gains `api_token`, `actor_token_id` and the four-way consistency check; unchanged semantics for `user`, `system`, `anonymous`.
+3. **Public API core**: `public_api_settings`, `api_integrations`, scopes, tokens, usage, rate windows, the four permission keys and the additive role backfill.
+4. **Webhooks**: endpoints, deliveries, attempts, the event-type catalog table and the subscription link.
+5. **(If chosen in 18.9)** nothing for event emission itself: events reuse `outbox_events`.
+
+Numbering continues from 0053 and each is independent and additive. Migrations 0001–0039 are never modified.
+
+### 18.5 Permission keys required
+
+New keys: `api_tokens.view`, `api_tokens.manage`, `webhooks.view`, `webhooks.manage`. Proposed, to be confirmed: `public_api.settings.manage` for the Owner-only switch and API policy (otherwise folded into `api_tokens.manage` with an Owner check). Owner and Administrator hold them; Member holds the two `.view` keys at most (decision to confirm). Each gets the usual additive backfill with audit events, and the permission counts in the existing role tests change accordingly. **Scopes map onto existing permission keys** (for example `invoices:read` → `invoices.view`, `customers:write` → `customers.create`/`customers.update`, `invoices:write` → `invoices.create`/`invoices.edit_draft`); no scope maps to any `*.issue`, `*.post`, `*.record`, `*.void`, `*.approve` or settings key.
+
+### 18.6 Audit changes required
+
+- `audit_events.actor_type` adds `api_token`; new `actor_token_id`; check: `user` ⇒ `actor_user_id` set and `actor_token_id` null; `api_token` ⇒ `actor_token_id` set and `actor_user_id` null; `system`/`anonymous` ⇒ both null.
+- The single insertion point is `recordAuditEvent` (about 82 call sites pass `actorUserId: ctx.userId`). Two ways to attribute runtime writes: (a) a database trigger that, when the session variable `app.api_token_id` (set by `setDbContext`) is present, normalizes the row to `api_token`; (b) every call site passes the token. **Proposal: (a)**, so no call site changes and an integration can never be recorded as a user. To be confirmed in the audit.
+- Lifecycle actions (integration created/changed/revoked/reassigned, token created/rotated/revoked, scope change, webhook endpoint changes, API enabled/disabled) are recorded with the **human** actor (`user`), plus the integration id in metadata.
+- Audit viewers and exports must display the new type; security events record token authentication failures without revealing whether a public id exists.
+
+### 18.7 Idempotency identity changes required
+
+- Keep `IdempotencyService` and the table; the owner (`user_id`) is the integration's service principal. Replay requires the same principal, which matches D2 (all tokens of one integration share the namespace, so a retry after token rotation still replays).
+- **Isolate integrations from each other:** include a short integration id in the scope (for example `public.<integration>.<resource>.<action>`; the scope pattern and the 100-character limit allow it) so one integration cannot see or collide with another's keys. Otherwise an unrelated integration reusing a key in the same scope receives a conflict that reveals its existence.
+- Retention stays the existing 24 hours (`IDEMPOTENCY_RETENTION_MS`); the key is required on every public write.
+
+### 18.8 Webhook permission and subscription checks required
+
+1. **Create/update endpoint:** `webhooks.manage` + re-authentication (+ MFA step-up where enforced); every subscribed event type must map to a resource whose **read permission the integration holds** (the D2 rule); an unsubscribable type is refused with a clear error. The acting human must hold the same read permission (so nobody can subscribe to what they cannot see).
+2. **Fan-out time:** re-check the integration's current scopes; if a scope was narrowed or the integration is disabled or revoked, no delivery is created for those types. Full-mode payloads are built only for resources the integration may read.
+3. **Delivery time:** re-validate the destination (SSRF, 11.3) and the endpoint status; thin retrieval is authorized by the API at call time.
+4. **Tenant isolation:** the organization of an endpoint, a delivery and its payload must match; the job runs in that organization's context only.
+
+### 18.9 Event-emission integration points (proposed; do not implement until approved)
+
+Mechanism: an optional, additive publisher passed as a trailing constructor parameter (the pattern already used for `InventoryHooks` and `PurchaseOrderHooks`), which enqueues an outbox row in the **same transaction** with an internal type namespace (for example `public.invoice.issued`) so nothing existing subscribes to it. The payload holds only the event id, type, `occurred_at`, resource type, id and `version`.
+
+| Event types                                   | Service methods that commit the change                                                                                                                                                                                             |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `customer.*`, `vendor.*`, `item.*`            | create, update and archive paths of `CustomerService`, `VendorService`, `ItemService`, including their `createInTransaction` variants (so an employee's vendor record created by an expense claim, and imports, emit consistently) |
+| `invoice.issued/voided`, `credit_note.issued` | `InvoiceService` issue and void; `CreditNoteService` issue                                                                                                                                                                         |
+| `receipt.recorded/voided`                     | `ReceiptService` record and void                                                                                                                                                                                                   |
+| `customer_refund.*`                           | `CustomerRefundService` record and void                                                                                                                                                                                            |
+| `bill.posted/voided`                          | `BillService` post (also reached by expense claims and, in-transaction, batch payments' bills) and void                                                                                                                            |
+| `vendor_credit.*`                             | `VendorCreditService` post and void                                                                                                                                                                                                |
+| `vendor_payment.*`                            | `VendorPaymentService.recordInTransaction` (also used by Pay bills batches, so one event per payment) and void                                                                                                                     |
+| `vendor_refund.*`                             | `VendorRefundService` record and void                                                                                                                                                                                              |
+| `expense_claim.posted/voided`                 | `ExpenseClaimService` post and void (a void also emits `bill.voided` through `BillService`, which is intended)                                                                                                                     |
+
+Rules: skip bills, invoices and vendor credits of kind `opening` and imported drafts; emit only when the transaction commits (it is part of the transaction); never emit for revaluation, journal, banking, inventory, fixed-asset or approval activity. **Full-mode snapshot rule (proposal):** the emitter records resource id and `version` only; the fan-out builds the DTO for `full` endpoints and includes the `version`, and a consumer who finds a newer version re-reads the resource. The documentation states that a full payload is "the state at or after the event", never a guaranteed historical snapshot.
+
+### 18.10 Remaining accounting and security risks
+
+- **Accounting:** none of the frozen v1 scopes can post, void or reverse, so the ledger chain (source document, accounting event, journal, GL) is untouched. Remaining care points: API-created drafts must be identifiable by origin in the UI; draft creation must reuse the service rules (numbering, tax snapshots, FX, dimensions) and add no parallel logic; adding emit hooks must not change any posting service's behavior (regression tests on every touched service); event volume from bulk imports needs an explicit decision (emit per record or suppress during import).
+- **Security:** a long-lived organization-owned credential with no human owner: mitigated by mandatory expiry, a responsible administrator of record, reminders to all `api_tokens.manage` holders and independent revocation. A service principal in `users` increases the blast radius of any code path that assumes "every user can sign in": every identity lookup that selects users must be reviewed (sign-in, reset, invitations, member and MFA lists, approvals) and covered by tests. SSRF, signing, secret encryption and rate limiting are new, security-critical components that need dedicated tests (section 15). Audit attribution through a trigger must be tested so an integration can never appear as a user.
+- **Compatibility:** scope names, event types, the envelope, `RateLimit-*` and the 429 contract become public the day the first external customer connects; they are frozen precisely for that reason.
+
+**Next step:** the final pre-implementation audit approves 18.1–18.10 (in particular 18.1 item 6, 18.6 option (a), 18.7 and 18.9). No implementation, migration or code change happens before then.
