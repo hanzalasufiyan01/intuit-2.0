@@ -57,6 +57,28 @@ const envSchema = z.object({
   PUBLIC_API_ORGANIZATION_PER_MINUTE: positiveInt.default(3000),
   PUBLIC_API_FAILED_AUTH_PER_MINUTE_PER_IP: positiveInt.default(20),
 
+  // ADR 0011 section 11 / Step 6: webhooks. The secret key ring is separate from the MFA key ring
+  // (same `keyId:base64(32 bytes)` format); without it endpoints cannot be created or signed.
+  WEBHOOK_ENCRYPTION_KEYS: z.string().min(1).optional(),
+  WEBHOOK_ENCRYPTION_ACTIVE_KEY_ID: z.string().min(1).optional(),
+  // D5 (configurable defaults): previous-secret overlap and delivery-history retention.
+  WEBHOOK_SECRET_OVERLAP_HOURS: positiveInt.default(24),
+  WEBHOOK_RETENTION_DAYS: positiveInt.default(30),
+  // Processed public outbox rows are purged after this many days.
+  WEBHOOK_OUTBOX_RETENTION_DAYS: positiveInt.default(7),
+  // Backpressure (section 19.4): per-endpoint ceiling of undelivered deliveries, concurrency and
+  // minimum spacing, and the per-organization share of one fan-out batch.
+  WEBHOOK_ENDPOINT_QUEUE_CEILING: positiveInt.default(1000),
+  WEBHOOK_ENDPOINT_CONCURRENCY: positiveInt.max(10).default(1),
+  WEBHOOK_ENDPOINT_MIN_INTERVAL_MS: z.coerce.number().int().min(0).max(60_000).default(250),
+  WEBHOOK_FANOUT_ORG_BATCH_CAP: positiveInt.default(50),
+  // Destination ports an endpoint may use (comma-separated); 443 only by default.
+  WEBHOOK_ALLOWED_PORTS: z
+    .string()
+    .regex(/^\d{1,5}(,\d{1,5})*$/)
+    .default('443'),
+  WEBHOOK_MAINTENANCE_INTERVAL_MINUTES: positiveInt.default(60),
+
   // Phase 3A S5: file storage (Decisions 6, 29, 61, 75, 76; S5-02, S5-08, S5-13)
   STORAGE_PROVIDER: z.enum(['local']).default('local'),
   STORAGE_LOCAL_ROOT: z.string().min(1).default('.data/storage'),
@@ -143,6 +165,19 @@ export interface AppConfig {
     organizationPerMinute: number;
     failedAuthPerMinutePerIp: number;
   };
+  webhooks: {
+    /** Null when no webhook key ring is configured: endpoints cannot be created or signed. */
+    keyRing: MfaKeyRing | null;
+    secretOverlapMs: number;
+    retentionMs: number;
+    outboxRetentionMs: number;
+    endpointQueueCeiling: number;
+    endpointConcurrency: number;
+    endpointMinIntervalMs: number;
+    fanOutOrganizationBatchCap: number;
+    allowedPorts: number[];
+    maintenanceIntervalMs: number;
+  };
   storage: {
     provider: 'local';
     /** Absolute path of the local provider root. */
@@ -214,6 +249,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new ConfigError(`Invalid environment configuration:
   - ${detail}`);
   }
+  let webhookKeyRing: MfaKeyRing | null = null;
+  if (e.WEBHOOK_ENCRYPTION_KEYS || e.WEBHOOK_ENCRYPTION_ACTIVE_KEY_ID) {
+    try {
+      webhookKeyRing = MfaKeyRing.parse(
+        e.WEBHOOK_ENCRYPTION_KEYS ?? '',
+        e.WEBHOOK_ENCRYPTION_ACTIVE_KEY_ID ?? '',
+      );
+    } catch {
+      // Never echoes key material.
+      throw new ConfigError(`Invalid environment configuration:
+  - WEBHOOK_ENCRYPTION_KEYS / WEBHOOK_ENCRYPTION_ACTIVE_KEY_ID must be 'keyId:base64(32 bytes)' entries and an active key id that names one of them.`);
+    }
+  }
   return {
     appEnv: e.APP_ENV,
     api: { host: e.API_HOST, port: e.API_PORT },
@@ -252,6 +300,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       writePerMinute: e.PUBLIC_API_WRITE_PER_MINUTE,
       organizationPerMinute: e.PUBLIC_API_ORGANIZATION_PER_MINUTE,
       failedAuthPerMinutePerIp: e.PUBLIC_API_FAILED_AUTH_PER_MINUTE_PER_IP,
+    },
+    webhooks: {
+      keyRing: webhookKeyRing,
+      secretOverlapMs: e.WEBHOOK_SECRET_OVERLAP_HOURS * 60 * MINUTE,
+      retentionMs: e.WEBHOOK_RETENTION_DAYS * 24 * 60 * MINUTE,
+      outboxRetentionMs: e.WEBHOOK_OUTBOX_RETENTION_DAYS * 24 * 60 * MINUTE,
+      endpointQueueCeiling: e.WEBHOOK_ENDPOINT_QUEUE_CEILING,
+      endpointConcurrency: e.WEBHOOK_ENDPOINT_CONCURRENCY,
+      endpointMinIntervalMs: e.WEBHOOK_ENDPOINT_MIN_INTERVAL_MS,
+      fanOutOrganizationBatchCap: e.WEBHOOK_FANOUT_ORG_BATCH_CAP,
+      allowedPorts: e.WEBHOOK_ALLOWED_PORTS.split(',').map(Number),
+      maintenanceIntervalMs: e.WEBHOOK_MAINTENANCE_INTERVAL_MINUTES * MINUTE,
     },
     storage: {
       provider: e.STORAGE_PROVIDER,

@@ -63,7 +63,9 @@ export type ErrorCode =
   // Inventory: an issue would take the stock below zero while negative stock is blocked.
   | 'INSUFFICIENT_STOCK'
   // Fixed assets: the cost is already capitalized by a posted bill.
-  | 'DUPLICATE_CAPITALIZATION';
+  | 'DUPLICATE_CAPITALIZATION'
+  // Webhooks: no signing key ring is configured, so endpoints cannot be created or signed.
+  | 'WEBHOOKS_NOT_CONFIGURED';
 
 export interface ValidationIssue {
   path: string;

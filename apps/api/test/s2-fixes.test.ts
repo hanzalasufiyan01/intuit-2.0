@@ -376,6 +376,7 @@ describe('Decision 90 — additive dimension permission backfill (migration 0008
       '0055_public_api_permissions', // api_tokens.* and webhooks.* permission keys (ADR 0011)
       '0056_api_integrations', // Organization-owned API integrations, scopes and tokens (ADR 0011)
       '0057_api_rate_windows', // Public API rate-limit counters (ADR 0011)
+      '0058_webhooks', // webhook endpoints, subscriptions, deliveries, attempts (ADR 0011)
     ]);
     const { rows } = await owner.query(
       `SELECT version FROM schema_migrations WHERE version = '0008_dimension_permission_backfill'`,

@@ -52,6 +52,12 @@ export interface OutboxDispatcherOptions {
   now?: () => Date;
   /** Claim only these event types (default: all). Lets a worker or a test own its events. */
   eventTypes?: readonly string[];
+  /**
+   * Fairness (ADR 0011 section 19.4): at most this many events of one organization per batch,
+   * claimed round-robin across organizations, so one organization's large import cannot occupy a
+   * whole batch. Unset: the plain `available_at, created_at` order.
+   */
+  perOrganizationBatchCap?: number;
   onError?: (event: OutboxEvent, error: unknown) => void;
 }
 
@@ -100,7 +106,30 @@ export class OutboxDispatcher {
           sql`, `,
         )})`
       : sql``;
+    const cap = this.options.perOrganizationBatchCap;
+    const due = sql`((status = 'pending' AND available_at <= ${now})
+             OR (status = 'processing' AND locked_at < ${staleBefore}))
+             ${typeFilter}`;
     const claimed = await this.db.transaction(async (tx) => {
+      if (cap !== undefined) {
+        const result = await tx.execute<{ id: string }>(sql`
+          UPDATE outbox_events
+          SET status = 'processing', locked_at = ${now}, locked_by = ${this.workerId},
+              attempts = attempts + 1
+          WHERE id IN (
+            SELECT o.id FROM outbox_events o
+              JOIN (SELECT id, row_number() OVER (
+                             PARTITION BY coalesce(organization_id::text, id::text)
+                             ORDER BY available_at, created_at, id) AS rn
+                      FROM outbox_events WHERE ${due}) ranked ON ranked.id = o.id
+             WHERE ranked.rn <= ${cap} AND ${due}
+             ORDER BY ranked.rn, o.available_at, o.created_at
+             LIMIT ${this.options.batchSize}
+             FOR UPDATE OF o SKIP LOCKED
+          )
+          RETURNING id`);
+        return result.rows.map((row) => row.id);
+      }
       const result = await tx.execute<{ id: string }>(sql`
         UPDATE outbox_events
         SET status = 'processing', locked_at = ${now}, locked_by = ${this.workerId},

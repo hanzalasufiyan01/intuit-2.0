@@ -12,6 +12,7 @@ import {
   finishJobUnsuccessfully,
   getJob,
   PermanentJobError,
+  RetryAfterError,
   retryJob,
   setJobProgress,
   type JobLock,
@@ -73,9 +74,14 @@ export class JobService {
       payload?: Record<string, unknown>;
       requiredPermission?: string | null;
       createdByUserId?: string | null;
+      /** Overrides the configured attempts (a job type with its own retry schedule). */
+      maxAttempts?: number;
     },
   ) {
-    return enqueueJob(tx, { ...input, maxAttempts: this.deps.config.jobs.maxAttempts });
+    return enqueueJob(tx, {
+      ...input,
+      maxAttempts: input.maxAttempts ?? this.deps.config.jobs.maxAttempts,
+    });
   }
 
   /** S5-16: the creator, or a holder of the job's required permission; other tenants get 404. */
@@ -184,6 +190,17 @@ export class JobWorker {
       await tenant((tx) => completeJob(tx, lock, result ?? null));
     } catch (error) {
       const description = describeError(error);
+      if (error instanceof RetryAfterError) {
+        // The handler chose the next run itself; this is a schedule, not a failure to log.
+        if (error.countsAsAttempt && job.attempts >= job.maxAttempts) {
+          await this.giveUp(lock, job, 'dead', description);
+        } else {
+          await tenant((tx) =>
+            retryJob(tx, lock, description, error.delayMs, !error.countsAsAttempt),
+          );
+        }
+        return;
+      }
       this.deps.logger.warn(
         { jobId, jobType: job.type, attempt: job.attempts, err: error },
         'Job attempt failed',

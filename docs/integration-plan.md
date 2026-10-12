@@ -27,7 +27,8 @@ Migrations are strictly sequential (no reserved gaps). Before creating one, a st
 | 0055   | `public_api_permissions`        | G / Public API 2 | committed (local)            |
 | 0056   | `api_integrations`              | G / Public API 2 | committed (local)            |
 | 0057   | `api_rate_windows`              | G / Public API 3 | committed (local)            |
-| 0058   | (next free: claim before use)   | —                |                              |
+| 0058   | `webhooks`                      | G / Public API 6 | implemented (uncommitted)    |
+| 0059   | (next free: claim before use)   | —                |                              |
 
 ## Collision files
 

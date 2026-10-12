@@ -177,11 +177,13 @@ export async function retryJob(
   lock: JobLock,
   error: string,
   delayMs: number,
+  refundAttempt = false,
 ): Promise<boolean> {
   const rows = await tx
     .update(jobs)
     .set({
       status: 'queued',
+      ...(refundAttempt && { attempts: sql`greatest(${jobs.attempts} - 1, 0)` }),
       lastError: error.slice(0, 2000),
       runAfter: sql`now() + make_interval(secs => ${delayMs / 1000})`,
       lockedAt: null,

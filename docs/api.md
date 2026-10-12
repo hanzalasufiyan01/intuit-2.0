@@ -348,3 +348,45 @@ Import limits are the Decision 61 maxima for both formats (25 MB, 25,000 rows, 2
 Reads, plus draft writes for customers, items and draft invoices (see below); bearer-token only (`Authorization: Bearer itk_…`); cookies are never accepted. The contract is `docs/openapi/public-v1.json` (also served at `GET /public/v1/openapi.json`). Resources: `customers`, `vendors`, `invoices`, `bills`, `accounts`, each as a list and `/:id`. Items are not a public v1 resource (no `items:read` scope exists). Lists use `limit` (1–100) and an opaque `cursor`; responses are `{ data, page: { next_cursor, has_more } }`; errors are `{ error: { type, code, message, request_id, details? } }`; rate limits are reported in `RateLimit-*` headers with `429` and `Retry-After`.
 
 Draft writes (scope `customers:write`, `items:write`, `invoices:write`; ADR 0011 section 22): `POST /customers`, `PATCH /customers/:id`, `POST /items`, `PATCH /items/:id`, `POST /invoices`, `PUT /invoices/:id`. Bodies are strict snake_case (unknown fields are a 400); no account, tax code or dimension reference is accepted. Creates take an optional `Idempotency-Key` (same key and request replays the first response, a different request is `409 idempotency_conflict`; keys belong to the integration). Updates take the resource `version` (`409 version_conflict` when stale; customers also return an `identity_version` of the contact record that you may send back to avoid overwriting a Contacts-screen edit); only a DRAFT invoice can be replaced (`409 invalid_state` otherwise). Item writes return the item but there is still no item read endpoint. There is no endpoint that issues, posts, approves, voids, refunds or records a payment, or that reads or writes a journal or ledger: an invoice created here stays a draft until a person issues it in the application.
+
+## Webhooks (ADR 0011 section 11; Step 6)
+
+Webhook endpoints are managed by people under `/api/v1/webhooks/*` (cookie session; `webhooks.view` to read, `webhooks.manage` plus a recent password confirmation to change). `GET /webhooks/event-types` lists the catalog and which types can be subscribed to with the current scopes; `POST /webhooks/endpoints` creates an endpoint for one integration (`name`, `url`, `integrationId`, `eventTypes`, `payloadMode` `thin` or `full`) and returns the signing secret **once**; further actions: `PATCH`/`DELETE /webhooks/endpoints/:id`, `POST .../rotate-secret`, `.../disable`, `.../enable` (needs a successful `.../ping` since the disablement), `.../ping`, `GET /webhooks/deliveries[/:id]` and `POST /webhooks/deliveries/:id/redeliver`.
+
+**Delivery.** `POST` of the event JSON to your HTTPS URL (port 443, a public DNS name; redirects are not followed). Success is any 2xx within 10 s. Anything else is retried after 30 s, 2 min, 10 min, 30 min, 1 h, 3 h, 6 h, 12 h and 24 h (about two days, ±20% jitter) and then dead-lettered; the same delivery id and event id are used for every retry. After 10 consecutive dead-lettered deliveries, or 3 days without a success, the endpoint is disabled automatically and nothing is replayed: **webhooks are a notification channel, not a guaranteed backfill. Reconcile with the pull API (`updated_since`).** Delivery is at least once and not ordered: de-duplicate on the event `id`, and treat events as notifications (a Contacts edit can repeat the same `resource.version`).
+
+**Envelope** (`thin` default): `{ id, type, api_version, occurred_at, organization_id, resource: { type, id, version }, data: { object_type, object_id, url } }`; `url` is a path under `/public/v1` for customers, vendors, invoices and bills and `null` for other resources. A `full` endpoint also gets `data.object`, the public DTO "as of at or after the event". Headers: `Intuit-Webhook-Id` (the delivery), `Intuit-Webhook-Event`, `Intuit-Webhook-Timestamp`, `Intuit-Webhook-Signature: t=<unix seconds>,v1=<hex>` (two `v1` values while a rotated secret overlaps).
+
+**Verify the signature** over the RAW body: `HMAC-SHA256(secret, "<t>.<Intuit-Webhook-Id>.<raw body>")`, compare in constant time and reject `t` older than 5 minutes.
+
+```js
+// Node.js
+import { createHmac, timingSafeEqual } from 'node:crypto';
+function verify(secret, headers, rawBody) {
+  const parts = headers['intuit-webhook-signature'].split(',');
+  const t = Number(parts.find((p) => p.startsWith('t=')).slice(2));
+  if (Math.abs(Date.now() / 1000 - t) > 300) return false;
+  const expected = createHmac('sha256', secret)
+    .update(`${t}.${headers['intuit-webhook-id']}.${rawBody}`)
+    .digest();
+  return parts
+    .filter((p) => p.startsWith('v1='))
+    .some((p) => {
+      const given = Buffer.from(p.slice(3), 'hex');
+      return given.length === expected.length && timingSafeEqual(given, expected);
+    });
+}
+```
+
+```python
+# Python
+import hashlib, hmac, time
+def verify(secret: str, headers: dict, raw_body: bytes) -> bool:
+    parts = headers["intuit-webhook-signature"].split(",")
+    t = int(next(p[2:] for p in parts if p.startswith("t=")))
+    if abs(time.time() - t) > 300:
+        return False
+    msg = f"{t}.{headers['intuit-webhook-id']}.".encode() + raw_body
+    expected = hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()
+    return any(hmac.compare_digest(p[3:], expected) for p in parts if p.startswith("v1="))
+```

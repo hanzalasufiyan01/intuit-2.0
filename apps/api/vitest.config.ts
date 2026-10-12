@@ -43,6 +43,8 @@ const serialFiles = [
   'test/purchase-orders-permissions.test.ts',
   'test/fixed-assets-permissions.test.ts',
   'test/expense-claims-permissions.test.ts',
+  // ADR 0011 step 6: drives the job worker for webhook deliveries and the shared outbox.
+  'test/webhooks.test.ts',
 ];
 
 export default defineConfig({

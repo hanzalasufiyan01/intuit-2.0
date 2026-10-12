@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import pg from 'pg';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
-import { buildApp, type BuiltApp } from '../src/app.js';
+import { buildApp, type BuildAppOptions, type BuiltApp } from '../src/app.js';
 import { createDatabase, type DatabaseHandle } from '../src/database/client.js';
 import type { Clock } from '../src/infrastructure/clock.js';
 import { loadConfig, type AppConfig } from '../src/infrastructure/config/config.js';
@@ -55,6 +55,8 @@ export interface TestContext extends BuiltApp {
 
 export async function createTestContext(
   overrides: Partial<Record<string, string>> = {},
+  /** Replaces collaborators of the composition root (the outbound webhook transport). */
+  build: Pick<BuildAppOptions, 'webhookTransport'> = {},
 ): Promise<TestContext> {
   const config = loadConfig({
     ...process.env,
@@ -77,6 +79,7 @@ export async function createTestContext(
       emailProvider: email,
     },
     logStream: { write: (line) => void logs.push(line) },
+    ...build,
   });
   await built.app.ready();
   return {

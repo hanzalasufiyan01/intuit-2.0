@@ -16,6 +16,18 @@ import { PurchasesSettingsService } from './application/purchases-settings-servi
 import { ItemService } from './application/item-service.js';
 import { publicApi } from './api/public/index.js';
 import { ApiIntegrationService } from './application/api-integration-service.js';
+import {
+  WEBHOOK_DELIVER_JOB,
+  WebhookDeliveryService,
+  type ObjectRenderer,
+} from './application/webhook-delivery-service.js';
+import { WebhookEndpointService } from './application/webhook-endpoint-service.js';
+import {
+  HttpsWebhookTransport,
+  WebhookSecretCipher,
+  type WebhookTransport,
+} from './modules/webhooks/index.js';
+import { toBill, toCustomer, toInvoice, toVendor } from './api/public/dto-v1.js';
 import { PublicEventPublisher } from './application/public-event-publisher.js';
 import { PublicApiReadService } from './application/public-api-read-service.js';
 import { PostgresRateLimiter } from './application/rate-limiter.js';
@@ -101,6 +113,8 @@ export interface BuildAppOptions {
   deps: Omit<AppDependencies, 'logger'>;
   /** Optional log destination (tests capture logs to assert no secrets are written). */
   logStream?: LogDestination;
+  /** The outbound webhook transport; tests inject a fake one. Default: pinned-address HTTPS. */
+  webhookTransport?: WebhookTransport;
 }
 
 export interface BuiltApp {
@@ -143,6 +157,8 @@ export interface BuiltApp {
     expenseClaims: ExpenseClaimService;
     apiIntegrations: ApiIntegrationService;
     integrationAuth: IntegrationAuthService;
+    webhooks: WebhookEndpointService;
+    webhookDelivery: WebhookDeliveryService;
     purchaseOrders: PurchaseOrderService;
     vendorCredits: VendorCreditService;
     vendorPayments: VendorPaymentService;
@@ -260,6 +276,47 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   // Public API (read-only in step 3): its own queries, DTOs and PostgreSQL rate limiter.
   const publicReads = new PublicApiReadService();
   const rateLimiter = new PostgresRateLimiter(deps.db, deps.clock);
+  // Webhooks (ADR 0011 step 6): management by people, fan-out and signed delivery over the
+  // existing outbox and job queue. The secret cipher exists only when a key ring is configured.
+  const webhookCipher = config.webhooks.keyRing
+    ? new WebhookSecretCipher(config.webhooks.keyRing)
+    : null;
+  const webhookTransport =
+    options.webhookTransport ??
+    new HttpsWebhookTransport({ allowedPorts: config.webhooks.allowedPorts });
+  const renderWebhookObject: ObjectRenderer = async (tx, organizationId, type, id) => {
+    // `full` payloads carry the same public DTOs as the read API, built under the organization.
+    if (type === 'customer') {
+      const row = await publicReads.getCustomer(tx, organizationId, id);
+      return row ? toCustomer(row) : null;
+    }
+    if (type === 'vendor') {
+      const row = await publicReads.getVendor(tx, organizationId, id);
+      return row ? toVendor(row) : null;
+    }
+    if (type === 'invoice') {
+      const found = await publicReads.getInvoice(tx, organizationId, id);
+      return found ? toInvoice(found.row, found.lines) : null;
+    }
+    if (type === 'bill') {
+      const found = await publicReads.getBill(tx, organizationId, id);
+      return found ? toBill(found.row, found.lines) : null;
+    }
+    return null;
+  };
+  const webhookDelivery = new WebhookDeliveryService(
+    deps,
+    jobs,
+    webhookTransport,
+    webhookCipher,
+    renderWebhookObject,
+  );
+  const webhookEndpoints = new WebhookEndpointService(
+    deps,
+    webhookTransport,
+    webhookCipher,
+    webhookDelivery,
+  );
   // Phase 4B-1: vendor credits and debit notes, with debit-note PDFs and email (P4-23, P4-46).
   const purchasesOutput = new PurchasesOutputService(deps, files, jobs, new PdfkitRenderer());
   // Phase 4B-7: vendor remittance advice PDF and email (P4-46), output only.
@@ -352,6 +409,8 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     expenseClaims,
     apiIntegrations,
     integrationAuth,
+    webhooks: webhookEndpoints,
+    webhookDelivery,
     purchaseOrders,
     vendorCredits,
     vendorPayments,
@@ -399,6 +458,7 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     [REMITTANCE_PDF_JOB, (job) => services.remittance.runPdf(job)],
     [REMITTANCE_EMAIL_JOB, (job) => services.remittance.runEmail(job)],
   ]);
+  handlers.set(WEBHOOK_DELIVER_JOB, (job) => services.webhookDelivery.handleJob(job));
   const worker = new JobWorker(deps, handlers);
 
   // JSON only. Dropping the default text/plain parser also means every write needs a

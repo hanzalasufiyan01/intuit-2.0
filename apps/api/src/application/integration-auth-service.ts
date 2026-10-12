@@ -65,6 +65,26 @@ class AuthenticationFailure extends Error {
 const KNOWN_PERMISSIONS = new Set(permissionCatalog.map((p) => p.key));
 const NO_SECRET = Buffer.alloc(32);
 
+/**
+ * The effective API permissions of an integration right now: its granted scopes, within the fixed
+ * platform policy, within the current non-Owner organization permission boundary. Evaluated on
+ * every API request, and again by webhook fan-out and delivery, so a narrowed scope or boundary
+ * takes effect immediately everywhere. Nothing stored changes when the boundary does.
+ */
+export async function effectiveIntegrationPermissions(
+  tx: Transaction,
+  organizationId: string,
+  integrationId: string,
+): Promise<Set<string>> {
+  const scopes = (await listScopes(tx, organizationId, [integrationId])).get(integrationId) ?? [];
+  const boundary = await getOrganizationPermissionBoundary(tx, organizationId);
+  return new Set(
+    [...permissionsForScopes(scopes)].filter(
+      (key) => KNOWN_PERMISSIONS.has(key) && boundary.has(key),
+    ),
+  );
+}
+
 export class IntegrationAuthService {
   constructor(private readonly deps: AppDependencies) {}
 
@@ -148,16 +168,13 @@ export class IntegrationAuthService {
     ) {
       throw new AuthenticationFailure('principal_inactive');
     }
-    const scopes =
-      (await listScopes(tx, resolved.organizationId, [integration.id])).get(integration.id) ?? [];
     // Evaluated on every request: a stored scope is effective only while the organization's
     // (non-Owner) roles currently hold its permissions. Nothing is stored or deleted when that
     // changes, so the scope works again as soon as the organization permits it again.
-    const boundary = await getOrganizationPermissionBoundary(tx, resolved.organizationId);
-    const permissions = new Set(
-      [...permissionsForScopes(scopes)].filter(
-        (key) => KNOWN_PERMISSIONS.has(key) && boundary.has(key),
-      ),
+    const permissions = await effectiveIntegrationPermissions(
+      tx,
+      resolved.organizationId,
+      integration.id,
     );
     bindAuditApiToken(tx, token.id);
     await touchToken(tx, {

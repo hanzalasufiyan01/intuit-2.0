@@ -31,15 +31,19 @@ const { app, services, worker } = await buildApp({
   },
 });
 
-// Outbox dispatcher. Phase 1 registers no subscribers; events are recorded and marked processed.
+// Outbox dispatcher. Events with no subscriber are recorded and marked processed. The webhook
+// fan-out (ADR 0011 step 6) is the first real subscriber, of the `public.*` event types only; the
+// per-organization cap keeps one organization's burst from filling a whole batch (section 19.4).
 const dispatcher = new OutboxDispatcher(database.db, {
   batchSize: config.outbox.batchSize,
+  perOrganizationBatchCap: config.webhooks.fanOutOrganizationBatchCap,
   onError: (event, error) =>
     app.log.error(
       { outboxEventId: event.id, eventType: event.eventType, err: error },
       'Outbox handler failed',
     ),
 });
+services.webhookDelivery.registerFanOut(dispatcher);
 const stopOutbox = startOutboxPolling(dispatcher, config.outbox.pollIntervalMs, (error) =>
   app.log.error({ err: error }, 'Outbox dispatch failed'),
 );
@@ -59,6 +63,12 @@ if (config.jobs.workerEnabled) {
       () => services.dataExchangeCleanup.schedule(),
       config.dataExchange.cleanupIntervalMs,
       (error) => app.log.error({ err: error }, 'Import/export cleanup scheduling failed'),
+    ),
+    // ADR 0011 step 6: lost delivery jobs, stale endpoints (D6) and delivery-history retention.
+    poll(
+      () => services.webhookDelivery.runMaintenance(),
+      config.webhooks.maintenanceIntervalMs,
+      (error) => app.log.error({ err: error }, 'Webhook maintenance failed'),
     ),
     // Phase 3B (Decision 23): expired idempotency keys, on the file purge interval.
     poll(
