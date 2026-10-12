@@ -841,6 +841,167 @@ describe('approval-driven and repeated operations', () => {
   });
 });
 
+describe('Contacts-only identity updates', () => {
+  const partyOf = async (table: string, id: string) =>
+    (
+      await sql(
+        `SELECT t.party_id, t.version AS record_version, p.version AS party_version
+           FROM ${table} t JOIN parties p ON p.id = t.party_id WHERE t.id = $1`,
+        [id],
+      )
+    ).rows[0] as { party_id: string; record_version: number; party_version: number };
+
+  const edit = (o: AccountingOrg, partyId: string, version: number, phone: string) =>
+    o.owner.patch(`/parties/${partyId}`, { version, phone });
+
+  it('emits customer.updated and vendor.updated, with the unchanged record version', async () => {
+    const o = await bothSettings();
+    for (const [resource, route, table] of [
+      ['customer', '/customers', 'customers'],
+      ['vendor', '/vendors', 'vendors'],
+    ] as const) {
+      const record = (
+        await o.owner.post(route, { party: { kind: 'organization', displayName: `C ${resource}` } })
+      ).body.data;
+      let state = await partyOf(table, record.id);
+
+      const first = await emitted(o, async () => {
+        const res = await edit(o, state.party_id, state.party_version, '+960 111');
+        expect(res.status, JSON.stringify(res.body)).toBe(200);
+      });
+      expect(types(first), resource).toEqual([`${resource}.updated`]);
+      expect(first[0]!.payload.resource.id).toBe(record.id);
+      // A notification, not a change log: the record's own version is neither advanced nor invented.
+      expect(first[0]!.payload.resource.version).toBe(state.record_version);
+      expect((await partyOf(table, record.id)).record_version).toBe(state.record_version);
+      await expectContract(o, first);
+
+      // Each effective edit is exactly one event; an edit that changes nothing is none.
+      state = await partyOf(table, record.id);
+      const again = await emitted(o, async () => {
+        expect((await edit(o, state.party_id, state.party_version, '+960 222')).status).toBe(200);
+      });
+      expect(types(again), resource).toEqual([`${resource}.updated`]);
+      state = await partyOf(table, record.id);
+      const noop = await emitted(o, async () => {
+        expect((await edit(o, state.party_id, state.party_version, '+960 222')).status).toBe(200);
+      });
+      expect(noop, `${resource} no-op`).toEqual([]);
+
+      // A stale edit fails and emits nothing.
+      const stale = await emitted(o, async () => {
+        expect((await edit(o, state.party_id, state.party_version - 1, '+960 333')).status).toBe(
+          409,
+        );
+      });
+      expect(stale, `${resource} stale`).toEqual([]);
+    }
+  });
+
+  it('emits nothing for a contact that is neither a customer nor a vendor, or for contact details', async () => {
+    const o = await bothSettings();
+    const plain = (
+      await o.owner.post('/parties', {
+        kind: 'individual',
+        displayName: 'Just a contact',
+        roles: [],
+      })
+    ).body.data;
+    const rows = await emitted(o, async () => {
+      const res = await edit(o, plain.id, plain.version, '+960 444');
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+    });
+    expect(rows).toEqual([]);
+  });
+
+  it('emits one event per role record, and none twice from the customer or vendor screens', async () => {
+    const o = await bothSettings();
+    const customer = (
+      await o.owner.post('/customers', {
+        party: { kind: 'organization', displayName: 'Both roles', roles: ['vendor'] },
+      })
+    ).body.data;
+    const partyId = (await partyOf('customers', customer.id)).party_id;
+    const vendor = (await o.owner.post('/vendors', { partyId })).body.data;
+    expect(vendor.id).toBeDefined();
+
+    // The Contacts screen reports to both records.
+    let state = await partyOf('customers', customer.id);
+    const contacts = await emitted(o, async () => {
+      expect((await edit(o, partyId, state.party_version, '+960 555')).status).toBe(200);
+    });
+    expect(types(contacts)).toEqual(['customer.updated', 'vendor.updated']);
+    await expectContract(o, contacts);
+
+    // The customer screen reports its own record once (not again through the Contacts hook) and
+    // the vendor, whose view of the same party changed, once.
+    state = await partyOf('customers', customer.id);
+    const fromCustomer = await emitted(o, async () => {
+      const res = await o.owner.patch(`/customers/${customer.id}`, {
+        version: state.record_version,
+        party: { version: state.party_version, phone: '+960 666' },
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+    });
+    expect(types(fromCustomer)).toEqual(['customer.updated', 'vendor.updated']);
+    await expectContract(o, fromCustomer);
+  });
+
+  it('rolls the event back with a failed transaction and keeps tenants apart', async () => {
+    const a = await bothSettings();
+    const b = await bothSettings();
+    const mine = (
+      await a.owner.post('/customers', { party: { kind: 'organization', displayName: 'Mine' } })
+    ).body.data;
+    const theirs = (
+      await b.owner.post('/customers', { party: { kind: 'organization', displayName: 'Theirs' } })
+    ).body.data;
+    const mineState = await partyOf('customers', mine.id);
+    const theirState = await partyOf('customers', theirs.id);
+
+    // The party edit and its event are one transaction: if it throws afterwards, neither remains.
+    const ownerRow = (
+      await sql(`SELECT user_id FROM memberships WHERE id = $1`, [a.ownerMembershipId])
+    ).rows[0];
+    const rolledBack = await emitted(a, async () => {
+      await expect(
+        inTransaction(ctx.database.db, { organizationId: a.organizationId }, async (tx) => {
+          await ctx.services.parties.updateInTransaction(
+            tx,
+            {
+              userId: ownerRow.user_id,
+              sessionId: null,
+              organizationId: a.organizationId,
+              membershipId: a.ownerMembershipId,
+              isOwner: true,
+              roleIds: [],
+              permissions: new Set(['parties.update']),
+            },
+            mineState.party_id,
+            { version: mineState.party_version, phone: '+960 777' },
+            { ipAddress: null, userAgent: null } as never,
+          );
+          throw new Error('rollback');
+        }),
+      ).rejects.toThrow('rollback');
+    });
+    expect(rolledBack).toEqual([]);
+    expect((await partyOf('customers', mine.id)).party_version).toBe(mineState.party_version);
+
+    // A Contacts edit in organization B produces an event only there.
+    const aBefore = (await outbox(a.organizationId)).length;
+    const inB = await emitted(b, async () => {
+      expect(
+        (await edit(b, theirState.party_id, theirState.party_version, '+960 888')).status,
+      ).toBe(200);
+    });
+    expect(types(inB)).toEqual(['customer.updated']);
+    expect(inB[0]!.payload.organization_id).toBe(b.organizationId);
+    expect(inB[0]!.payload.resource.id).toBe(theirs.id);
+    expect((await outbox(a.organizationId)).length).toBe(aBefore);
+  });
+});
+
 describe('opening documents', () => {
   it('emit no events when posted or voided (opening invoice, bill and vendor credit)', async () => {
     const o = await bothSettings();

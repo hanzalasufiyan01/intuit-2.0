@@ -116,6 +116,20 @@ export class CustomerService {
     private readonly publicEvents?: PublicEventEmitter,
   ) {
     // A party keeps its customer role while it has a customer record.
+    // A change to the party's identity made elsewhere (Contacts) changes what the customer shows.
+    // It is a notification: the customer's own version is not advanced and is reported as it is.
+    if (publicEvents) {
+      parties.registerIdentityListener('customer', async (tx, organizationId, partyId) => {
+        const record = await getCustomerByParty(tx, organizationId, partyId);
+        if (!record) return;
+        await publicEvents.emit(tx, {
+          type: 'customer.updated',
+          organizationId,
+          resourceId: record.id,
+          version: record.version,
+        });
+      });
+    }
     parties.registerRoleGuard('customer', async (tx, organizationId, partyId) =>
       (await getCustomerByParty(tx, organizationId, partyId))
         ? 'This contact is a customer. Archive the customer instead of removing the role.'

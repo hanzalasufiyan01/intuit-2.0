@@ -74,6 +74,17 @@ export type UpdatePartyInput = { version: number; roles?: PartyRole[] | undefine
 };
 
 /**
+ * Told, inside the transaction, that a party's identity (header) fields changed, so a module that
+ * keeps a record for one of the party's roles can react (the Public API emits `customer.updated` /
+ * `vendor.updated`). It must only write inside the given transaction.
+ */
+export type PartyIdentityListener = (
+  tx: Transaction,
+  organizationId: string,
+  partyId: string,
+) => Promise<void>;
+
+/**
  * Who may change a party through a given screen. The Contacts screens use `parties.*`; a module
  * that owns a role edits its parties' identity under its own key (Phase 3B D6: `customers.update`
  * on the customer screens) and may require the party to hold that role.
@@ -173,6 +184,17 @@ export class PartyService {
   private readonly roleGuards = new Map<PartyRole, PartyRoleGuard>();
 
   constructor(private readonly deps: AppDependencies) {}
+
+  private readonly identityListeners = new Map<PartyRole, PartyIdentityListener>();
+
+  /**
+   * A module that keeps records for a role registers to be told when the identity of a party
+   * changes on a screen other than its own (Contacts). Calls made on that module's own screen
+   * (`access.role`) are not reported back to it: the module handles its own writes.
+   */
+  registerIdentityListener(role: PartyRole, listener: PartyIdentityListener): void {
+    this.identityListeners.set(role, listener);
+  }
 
   /** A module that keeps records for a role registers a guard against removing it (3B). */
   registerRoleGuard(role: PartyRole, guard: PartyRoleGuard): void {
@@ -538,6 +560,11 @@ export class PartyService {
         },
         origin,
       );
+    }
+    if (Object.keys(changes).length > 0) {
+      for (const [role, listener] of this.identityListeners) {
+        if (role !== access.role) await listener(tx, ctx.organizationId, partyId);
+      }
     }
     return updated;
   }

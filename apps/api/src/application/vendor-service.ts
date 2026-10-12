@@ -134,6 +134,20 @@ export class VendorService {
     private readonly publicEvents?: PublicEventEmitter,
   ) {
     // A party keeps its vendor role while it has a vendor record.
+    // A change to the party's identity made elsewhere (Contacts) changes what the vendor shows.
+    // It is a notification: the vendor's own version is not advanced and is reported as it is.
+    if (publicEvents) {
+      parties.registerIdentityListener('vendor', async (tx, organizationId, partyId) => {
+        const record = await getVendorByParty(tx, organizationId, partyId);
+        if (!record) return;
+        await publicEvents.emit(tx, {
+          type: 'vendor.updated',
+          organizationId,
+          resourceId: record.id,
+          version: record.version,
+        });
+      });
+    }
     parties.registerRoleGuard('vendor', async (tx, organizationId, partyId) =>
       (await getVendorByParty(tx, organizationId, partyId))
         ? 'This contact is a vendor. Archive the vendor instead of removing the role.'

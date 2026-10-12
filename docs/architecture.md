@@ -68,7 +68,7 @@ Phase 1 registers no subscribers yet. Later phases add consumers such as notific
 
 Emails that contain one-time links (password reset, invitation) are sent directly after commit, not through the outbox. That keeps raw tokens out of persisted payloads.
 
-**Public API events (ADR 0011 step 5).** The same outbox also carries public events as `public.<type>` rows whose payload is the public event envelope (`modules/public-events`, emitted by `PublicEventPublisher` at the commit point of each eligible operation). Nothing delivers them yet; the dispatcher marks them processed like any event without a handler. There is no outbox retention job today (see ADR 0011 section 23.1).
+**Public API events (ADR 0011 step 5).** The same outbox also carries public events as `public.<type>` rows whose payload is the public event envelope (`modules/public-events`, emitted by `PublicEventPublisher` at the commit point of each eligible operation). Nothing delivers them yet; the dispatcher marks them processed like any event without a handler. There is no outbox retention job today (see ADR 0011 section 23.1). Identity edits on the Contacts screens reach customers and vendors through `PartyService`'s identity listeners (ADR 0011 section 23.2), inside the same transaction; they are notifications and may carry an unchanged record version.
 
 ## Documentation
 
