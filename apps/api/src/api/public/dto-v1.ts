@@ -21,29 +21,37 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const money = z.string();
 const status = z.enum(['ACTIVE', 'ARCHIVED']);
 
+const partyShape = {
+  id,
+  name: z.string(),
+  company_name: z.string().nullable(),
+  kind: z.enum(['organization', 'individual']),
+  reference: z.string().nullable(),
+  tin: z.string().nullable(),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
+  website: z.string().nullable(),
+  currency_code: z.string().length(3),
+  payment_terms_days: z.number().int().nullable(),
+  credit_limit: money.nullable(),
+  status,
+  version: z.number().int(),
+  created_at: iso,
+  updated_at: iso,
+};
+
+/**
+ * `identity_version` is the version of the contact record behind the customer (name, email, phone,
+ * ...), which can also change on the web Contacts screens. Send it back on a customer update
+ * (optional) to refuse overwriting an identity edit made since you read it.
+ */
 export const CustomerDto = z
-  .object({
-    id,
-    name: z.string(),
-    company_name: z.string().nullable(),
-    kind: z.enum(['organization', 'individual']),
-    reference: z.string().nullable(),
-    tin: z.string().nullable(),
-    email: z.string().nullable(),
-    phone: z.string().nullable(),
-    website: z.string().nullable(),
-    currency_code: z.string().length(3),
-    payment_terms_days: z.number().int().nullable(),
-    credit_limit: money.nullable(),
-    status,
-    version: z.number().int(),
-    created_at: iso,
-    updated_at: iso,
-  })
+  .object({ ...partyShape, identity_version: z.number().int() })
   .strict()
   .meta({ id: 'Customer' });
 
-export const VendorDto = CustomerDto.extend({ account_number: z.string().nullable() })
+export const VendorDto = z
+  .object({ ...partyShape, account_number: z.string().nullable() })
   .strict()
   .meta({ id: 'Vendor' });
 
@@ -198,9 +206,9 @@ const amount = (v: unknown, currency: string) =>
 const plain = (v: unknown) => decimal(String(v)).toFixed();
 const day = (v: unknown) => String(v).slice(0, 10);
 
-export function toCustomer(r: Row) {
+function partyFields(r: Row) {
   const currency = String(r.currency_code);
-  return CustomerDto.parse({
+  return {
     id: r.id,
     name: r.display_name,
     company_name: text(r.company_name),
@@ -217,11 +225,15 @@ export function toCustomer(r: Row) {
     version: r.version,
     created_at: iso8601(r.created_at),
     updated_at: iso8601(r.updated_at),
-  });
+  };
+}
+
+export function toCustomer(r: Row) {
+  return CustomerDto.parse({ ...partyFields(r), identity_version: r.identity_version });
 }
 
 export function toVendor(r: Row) {
-  return VendorDto.parse({ ...toCustomer(r), account_number: text(r.account_number) });
+  return VendorDto.parse({ ...partyFields(r), account_number: text(r.account_number) });
 }
 
 function toLine(r: Row, currency: string) {

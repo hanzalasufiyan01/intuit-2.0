@@ -90,6 +90,7 @@ const CUSTOMER: Omit<ListSpec, 'where'> = {
   alias: 'c',
   columns: sql`c.id, p.display_name, p.company_name, p.kind, p.reference, p.tin, p.email, p.phone,
     p.website, c.currency_code, c.payment_terms_days, c.credit_limit, c.status, c.version,
+    p.version AS identity_version,
     ${sql.raw(ts('c.created_at'))}, ${sql.raw(ts('c.updated_at'))}`,
   from: sql`customers c JOIN parties p ON p.id = c.party_id AND p.organization_id = c.organization_id`,
 };

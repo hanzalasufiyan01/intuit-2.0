@@ -1027,6 +1027,79 @@ describe('public API write concurrency', () => {
     expect(email).toBe('one@example.test');
   });
 
+  it('refuses to overwrite an identity edit made on the web Contacts screen', async () => {
+    const w = await world();
+    const { token } = await tokenFor(w.org.owner, ['customers:write', 'customers:read']);
+    const created = (await call('POST', '/customers', { token, body: customerBody('Shared') })).body
+      .data;
+    expect(typeof created.identity_version).toBe('number');
+    const partyId = (await sql(`SELECT party_id FROM customers WHERE id = $1`, [created.id]))
+      .rows[0].party_id;
+    const party = () =>
+      sql(`SELECT display_name, phone, version FROM parties WHERE id = $1`, [partyId]).then(
+        (r) => r.rows[0],
+      );
+
+    // A person edits the contact on the web; this bumps the party but not the customer version.
+    const web = await w.org.owner.patch(`/parties/${partyId}`, {
+      version: created.identity_version,
+      phone: '+960 000',
+    });
+    expect(web.status, JSON.stringify(web.body)).toBe(200);
+
+    // The API client still holds the identity_version it read: its identity write is refused ...
+    const stale = await call('PATCH', `/customers/${created.id}`, {
+      token,
+      body: { version: created.version, identity_version: created.identity_version, name: 'API' },
+    });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error).toMatchObject({ type: 'conflict', code: 'version_conflict' });
+    // ... as is a customer-terms-only write that carries it (the check does not need identity fields).
+    const staleTerms = await call('PATCH', `/customers/${created.id}`, {
+      token,
+      body: {
+        version: created.version,
+        identity_version: created.identity_version,
+        payment_terms_days: 60,
+      },
+    });
+    expect(staleTerms.status).toBe(409);
+    expect(await party()).toMatchObject({ display_name: 'Shared', phone: '+960 000' });
+
+    // After re-reading, the same change goes through with the new identity_version.
+    const fresh = (await call('GET', `/customers/${created.id}`, { token })).body.data;
+    expect(fresh.identity_version).toBe(created.identity_version + 1);
+    expect(fresh.phone).toBe('+960 000');
+    const ok = await call('PATCH', `/customers/${created.id}`, {
+      token,
+      body: { version: fresh.version, identity_version: fresh.identity_version, name: 'API' },
+    });
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    expect(ok.body.data).toMatchObject({ name: 'API', phone: '+960 000' });
+    expect(ok.body.data.identity_version).toBe(fresh.identity_version + 1);
+    expect(await party()).toMatchObject({ display_name: 'API', phone: '+960 000' });
+
+    // The web client is protected the other way round by the party version it already sends.
+    const webStale = await w.org.owner.patch(`/parties/${partyId}`, {
+      version: fresh.identity_version,
+      phone: 'late',
+    });
+    expect(webStale.status).toBe(409);
+
+    // identity_version is optional: omitting it keeps the customer-version-only guard (Step 4).
+    const noToken = await call('PATCH', `/customers/${created.id}`, {
+      token,
+      body: { version: ok.body.data.version, payment_terms_days: 45 },
+    });
+    expect(noToken.status, JSON.stringify(noToken.body)).toBe(200);
+    // It must be a positive integer when sent.
+    const bad = await call('PATCH', `/customers/${created.id}`, {
+      token,
+      body: { version: noToken.body.data.version, identity_version: 0, name: 'x' },
+    });
+    expect(bad.status).toBe(400);
+  });
+
   it('never edits an invoice that is no longer a draft', async () => {
     const w = await world();
     const { token } = await tokenFor(w.org.owner, ['invoices:write']);

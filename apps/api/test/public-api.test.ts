@@ -454,6 +454,7 @@ describe('public API resources', () => {
         'credit_limit',
         'currency_code',
         'email',
+        'identity_version',
         'id',
         'kind',
         'name',

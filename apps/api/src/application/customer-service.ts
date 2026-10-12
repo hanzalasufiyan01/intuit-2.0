@@ -65,6 +65,8 @@ export interface UpdateCustomerInput extends CustomerTermsInput {
 }
 
 export type UpdateCustomerInTransactionInput = Omit<UpdateCustomerInput, 'party'> & {
+  /** The contact (party) version the caller read; checked when given (`customerVersionOnly`). */
+  identityVersion?: number | undefined;
   party?: (Omit<UpdatePartyInput, 'roles' | 'version'> & { version?: number }) | undefined;
 };
 
@@ -342,10 +344,11 @@ export class CustomerService {
 
   /**
    * Updates a customer inside the caller's transaction with the HTTP path's rules and audit (the
-   * Public API calls this). `customerVersionOnly` is for a caller that holds only the customer's
-   * version: the party's current version is used (the customer row is locked), and an identity
-   * change advances the customer's version, so two such callers conflict instead of overwriting
-   * each other.
+   * Public API calls this). `customerVersionOnly` is for a caller that holds the customer's
+   * version and, optionally, the contact version it read (`identityVersion`): a stale one is a
+   * conflict, so a concurrent Contacts-screen edit is never overwritten. Without it the party's
+   * current version is used (the customer row is locked). An identity change advances the
+   * customer's version, so two such callers conflict instead of overwriting each other.
    */
   async updateInTransaction(
     tx: Transaction,
@@ -362,6 +365,11 @@ export class CustomerService {
     if (issues.length) throw new ValidationError(issues);
 
     let party: Party | undefined;
+    if (options.customerVersionOnly && input.identityVersion !== undefined) {
+      const current = await getParty(tx, ctx.organizationId, customer.partyId, { forUpdate: true });
+      if (!current) throw new NotFoundError('Customer not found.');
+      if (current.version !== input.identityVersion) throw versionConflict();
+    }
     if (input.party) {
       const partyVersion = options.customerVersionOnly
         ? (await getParty(tx, ctx.organizationId, customer.partyId, { forUpdate: true }))?.version

@@ -33,7 +33,8 @@ const discount = z
   .strict();
 
 /** A partial update must change something besides the version it is checked against. */
-const hasChange = (body: Record<string, unknown>) => Object.keys(body).some((k) => k !== 'version');
+const hasChange = (body: Record<string, unknown>) =>
+  Object.keys(body).some((k) => k !== 'version' && k !== 'identity_version');
 const CHANGE_REQUIRED = { error: 'Send at least one field to change.' };
 
 // ---------------------------------------------------------------------------
@@ -78,8 +79,10 @@ export const CustomerCreateBody = z
 export const CustomerUpdateBody = z
   .object({
     version,
+    // Optional: the identity_version you read; a stale one is refused (409 version_conflict).
+    identity_version: version.optional(),
     ...Object.fromEntries(Object.entries(customerFields).map(([k, v]) => [k, v.optional()])),
-  } as { version: typeof version } & {
+  } as { version: typeof version; identity_version: z.ZodOptional<typeof version> } & {
     [K in keyof typeof customerFields]: z.ZodOptional<(typeof customerFields)[K]>;
   })
   .strict()
@@ -156,6 +159,7 @@ export function toUpdateCustomerInput(
   const party = identity(body);
   return {
     version: body.version,
+    ...(body.identity_version !== undefined && { identityVersion: body.identity_version }),
     ...(body.currency_code !== undefined && { currencyCode: body.currency_code }),
     ...(body.payment_terms_days !== undefined && { paymentTermsDays: body.payment_terms_days }),
     ...(body.credit_limit !== undefined && { creditLimit: body.credit_limit }),
