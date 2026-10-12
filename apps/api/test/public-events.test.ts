@@ -6,8 +6,9 @@ import {
   PUBLIC_EVENT_TYPES,
   publishPublicEvent,
 } from '../src/modules/public-events/index.js';
+import { OutboxDispatcher } from '../src/modules/outbox/index.js';
 import { inTransaction } from '../src/application/unit-of-work.js';
-import { setUpAccountingOrg, type AccountingOrg } from './fixtures.js';
+import { joinWithRole, setUpAccountingOrg, type AccountingOrg } from './fixtures.js';
 import { connectAs, createTestContext, type TestContext } from './helpers.js';
 
 /**
@@ -79,12 +80,13 @@ interface Row {
   aggregate_id: string;
   organization_id: string;
   payload: {
-    event_id: string;
+    id: string;
     type: string;
     api_version: string;
     occurred_at: string;
     organization_id: string;
     resource: { type: string; id: string; version?: number };
+    data: { object_type: string; object_id: string; url: string | null };
   };
   status: string;
 }
@@ -117,9 +119,23 @@ async function expectContract(o: AccountingOrg, rows: Row[]) {
   for (const [index, row] of rows.entries()) {
     const p = row.payload;
     expect(Object.keys(p).sort()).toEqual(
-      ['api_version', 'event_id', 'occurred_at', 'organization_id', 'resource', 'type'].sort(),
+      ['api_version', 'data', 'id', 'occurred_at', 'organization_id', 'resource', 'type'].sort(),
     );
-    expect(p.event_id).toMatch(/^evt_[0-9a-f-]{36}$/);
+    expect(p.id).toMatch(/^evt_[0-9a-f-]{36}$/);
+    expect(p.id).not.toBe(p.resource.id);
+    // The thin data form, and nothing else.
+    expect(Object.keys(p.data).sort()).toEqual(['object_id', 'object_type', 'url']);
+    expect(p.data.object_type).toBe(p.resource.type);
+    expect(p.data.object_id).toBe(p.resource.id);
+    const readable: Record<string, string> = {
+      customer: 'customers',
+      vendor: 'vendors',
+      invoice: 'invoices',
+      bill: 'bills',
+    };
+    expect(p.data.url).toBe(
+      readable[p.resource.type] ? `/public/v1/${readable[p.resource.type]}/${p.resource.id}` : null,
+    );
     expect(p.api_version).toBe('v1');
     expect(p.organization_id).toBe(o.organizationId);
     expect(new Date(p.occurred_at).toISOString()).toBe(p.occurred_at);
@@ -278,6 +294,8 @@ describe('master data events', () => {
       });
       expect(types(restore), c.resource).toEqual([`${c.resource}.updated`]);
       await expectContract(o, restore);
+      // The restore event names the version the restore committed (one after the archive).
+      expect(restore[0]!.payload.resource.version, c.resource).toBe(archived.version + 1);
     }
   });
 
@@ -656,6 +674,173 @@ describe('purchase document events', () => {
   });
 });
 
+describe('approval-driven and repeated operations', () => {
+  async function withPolicy(key: string) {
+    const o = await bothSettings();
+    const roles = (await o.owner.get('/organizations/current/roles')).body.data as {
+      id: string;
+      name: string;
+    }[];
+    const policy = await o.owner.put(`/approvals/policies/${key}`, {
+      steps: [
+        {
+          name: 'Manager',
+          requiredApprovals: 1,
+          roleIds: [roles.find((r) => r.name === 'Administrator')!.id],
+          membershipIds: [],
+          conditions: { minBaseAmount: '100' },
+        },
+      ],
+    });
+    expect(policy.status, JSON.stringify(policy.body)).toBe(200);
+    const admin = await joinWithRole(ctx, o.owner, 'Administrator');
+    return { o, admin: admin.client };
+  }
+
+  it('emits invoice.issued exactly once, at Issue, not at submit or approval', async () => {
+    const { o, admin } = await withPolicy('sales.invoice.issue');
+    const customer = (
+      await o.owner.post('/customers', { party: { kind: 'organization', displayName: 'Big' } })
+    ).body.data;
+    const created = (
+      await o.owner.post('/sales/invoices', {
+        customerId: customer.id,
+        invoiceDate: '2026-03-10',
+        lines: [{ description: 'Consulting', quantity: '4', unitPrice: '250' }],
+      })
+    ).body.data;
+    expect(created.approval.required).toBe(true);
+    const stages = await emitted(o, async () => {
+      const refused = await o.owner.post(`/sales/invoices/${created.id}/issue`, {
+        version: created.version,
+      });
+      expect(refused.body.error.code).toBe('APPROVAL_REQUIRED');
+      const submitted = await o.owner.post(`/sales/invoices/${created.id}/submit`, {
+        version: created.version,
+      });
+      expect(submitted.status, JSON.stringify(submitted.body)).toBe(200);
+      const approved = await admin.post(
+        `/approvals/requests/${submitted.body.data.approval.requestId}/approve`,
+        {},
+      );
+      expect(approved.status, JSON.stringify(approved.body)).toBe(200);
+    });
+    expect(stages).toEqual([]);
+
+    const issue = await emitted(o, async () => {
+      const current = (await o.owner.get(`/sales/invoices/${created.id}`)).body.data;
+      const key = `k-${randomUUID()}`;
+      for (let i = 0; i < 2; i += 1) {
+        const res = await o.owner.post(
+          `/sales/invoices/${created.id}/issue`,
+          { version: current.version },
+          { 'idempotency-key': key },
+        );
+        expect(res.status, JSON.stringify(res.body)).toBe(200);
+      }
+      // Issuing the issued invoice again (new key) is refused and emits nothing more.
+      const again = await o.owner.post(`/sales/invoices/${created.id}/issue`, {
+        version: current.version,
+      });
+      expect(again.status).toBe(409);
+    });
+    expect(types(issue)).toEqual(['invoice.issued']);
+    await expectContract(o, issue);
+  });
+
+  it('emits bill.posted exactly once, at Post, not at submit or approval', async () => {
+    const { o, admin } = await withPolicy('purchases.bill.post');
+    const vendor = (
+      await o.owner.post('/vendors', { party: { kind: 'organization', displayName: 'Big V' } })
+    ).body.data;
+    const created = (
+      await o.owner.post('/purchases/bills', {
+        vendorId: vendor.id,
+        billDate: '2026-03-10',
+        vendorReference: `INV-${randomUUID().slice(0, 8)}`,
+        lines: [{ description: 'Generator', quantity: '1', unitPrice: '800', taxCodeId: null }],
+      })
+    ).body.data;
+    expect(created.approval.required).toBe(true);
+    const stages = await emitted(o, async () => {
+      const refused = await o.owner.post(`/purchases/bills/${created.id}/post`, {
+        version: created.version,
+      });
+      expect(refused.body.error.code).toBe('APPROVAL_REQUIRED');
+      const submitted = await o.owner.post(`/purchases/bills/${created.id}/submit`, {
+        version: created.version,
+      });
+      expect(submitted.status, JSON.stringify(submitted.body)).toBe(200);
+      const approved = await admin.post(
+        `/approvals/requests/${submitted.body.data.approval.requestId}/approve`,
+        {},
+      );
+      expect(approved.status, JSON.stringify(approved.body)).toBe(200);
+    });
+    expect(stages).toEqual([]);
+
+    const post = await emitted(o, async () => {
+      const current = (await o.owner.get(`/purchases/bills/${created.id}`)).body.data;
+      const res = await o.owner.post(`/purchases/bills/${created.id}/post`, {
+        version: current.version,
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      const again = await o.owner.post(`/purchases/bills/${created.id}/post`, {
+        version: current.version,
+      });
+      expect(again.status).toBe(409);
+    });
+    expect(types(post)).toEqual(['bill.posted']);
+    await expectContract(o, post);
+  });
+
+  it('creates one event for a retried receipt and a retried Public API create', async () => {
+    const o = await bothSettings();
+    const customer = (
+      await o.owner.post('/customers', { party: { kind: 'organization', displayName: 'Retry' } })
+    ).body.data;
+    const receipt = await emitted(o, async () => {
+      const key = `r-${randomUUID()}`;
+      for (let i = 0; i < 3; i += 1) {
+        const res = await o.owner.post(
+          '/sales/receipts',
+          { customerId: customer.id, receiptDate: '2026-03-15', amount: '25' },
+          { 'idempotency-key': key },
+        );
+        expect(res.status, JSON.stringify(res.body)).toBe(201);
+      }
+    });
+    expect(types(receipt)).toEqual(['receipt.recorded']);
+
+    const integration = await o.owner.post('/api-integrations', {
+      name: 'Retry',
+      scopes: ['customers:write'],
+    });
+    const token = (
+      await o.owner.post(`/api-integrations/${integration.body.data.id}/tokens`, { name: 'Prod' })
+    ).body.data.token as string;
+    const created = await emitted(o, async () => {
+      const key = `c-${randomUUID()}`;
+      for (let i = 0; i < 3; i += 1) {
+        const res = await ctx.app.inject({
+          method: 'POST',
+          url: '/public/v1/customers',
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+            'idempotency-key': key,
+          },
+          payload: JSON.stringify({ kind: 'organization', name: 'Retried Co' }),
+          remoteAddress: '203.0.113.9',
+        });
+        expect(res.statusCode, res.body).toBe(201);
+      }
+    });
+    expect(types(created)).toEqual(['customer.created']);
+    await expectContract(o, created);
+  });
+});
+
 describe('opening documents', () => {
   it('emit no events when posted or voided (opening invoice, bill and vendor credit)', async () => {
     const o = await bothSettings();
@@ -764,6 +949,29 @@ describe('public event guarantees', () => {
     expect(attempts.rows[0].n).toBe(0);
   });
 
+  it('is invisible to dispatchers and handlers of other event types', async () => {
+    const o = await bothSettings();
+    await o.owner.post('/customers', { party: { kind: 'organization', displayName: 'Isolated' } });
+    const before = await outbox(o.organizationId);
+    expect(before).toHaveLength(1);
+    // A dispatcher restricted to other types never claims the row, and a handler subscribed to
+    // another type is never called with it (handlers are matched by exact event type).
+    const seen: string[] = [];
+    const other = new OutboxDispatcher(ctx.database.db, {
+      batchSize: 50,
+      eventTypes: ['unrelated.type'],
+    });
+    other.subscribe('unrelated.type', async (event) => void seen.push(event.eventType));
+    other.subscribe('customer.created', async (event) => void seen.push(event.eventType));
+    const result = await other.dispatchBatch();
+    expect(result.claimed).toBe(0);
+    expect(seen).toEqual([]);
+    const after = await outbox(o.organizationId);
+    expect(after.map((r) => r.status)).toEqual(['pending']);
+    // The internal type is namespaced: the unprefixed domain type is never used for a public row.
+    expect(after.every((r) => r.event_type.startsWith('public.'))).toBe(true);
+  });
+
   it('rolls the event back with the transaction that carries it', async () => {
     const o = await bothSettings();
     const probe = randomUUID();
@@ -798,7 +1006,7 @@ describe('public event guarantees', () => {
     expect(rb[0]!.payload.organization_id).toBe(b.organizationId);
     expect(ra[0]!.payload.resource.id).not.toBe(rb[0]!.payload.resource.id);
     // Event ids are unique across all events.
-    const ids = new Set([...ra, ...rb].map((r) => r.payload.event_id));
+    const ids = new Set([...ra, ...rb].map((r) => r.payload.id));
     expect(ids.size).toBe(2);
   });
 

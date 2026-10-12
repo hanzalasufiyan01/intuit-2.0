@@ -4,6 +4,7 @@ import { enqueueOutboxEvent } from '../outbox/index.js';
 import {
   DOMAIN_PUBLIC_EVENT_TYPES,
   PUBLIC_API_VERSION,
+  PUBLIC_READ_PATHS,
   publicOutboxType,
   type DomainPublicEventType,
   type PublicResourceType,
@@ -18,17 +19,22 @@ export interface PublicEventInput {
 }
 
 /**
- * What the outbox row carries (ADR 0011 section 18.9): identity and reference only. No snapshot,
- * no changed fields, no amounts, no journal or accounting data: a later fan-out builds the public
- * DTO from the current resource, and consumers reconcile by retrieving it.
+ * The frozen public event envelope (ADR 0011 section 19.1), stored as the outbox payload:
+ * `id`, `type`, `api_version`, `occurred_at`, `organization_id`, `resource` and `data`. `data` is
+ * the default **thin** form `{ object_type, object_id, url }` and nothing else; a later fan-out
+ * only replaces it for endpoints that opted into the `full` mode (the versioned public DTO).
+ * Identity and reference only: no snapshot, changed fields, amounts, or journal, ledger,
+ * tax-snapshot or other accounting data. Consumers reconcile by retrieving the resource.
  */
 export interface PublicEventPayload {
-  event_id: string;
+  /** The immutable, unique event id (never the resource id; the consumer's de-duplication key). */
+  id: string;
   type: DomainPublicEventType;
   api_version: typeof PUBLIC_API_VERSION;
   occurred_at: string;
   organization_id: string;
   resource: { type: PublicResourceType; id: string; version?: number };
+  data: { object_type: PublicResourceType; object_id: string; url: string | null };
 }
 
 const KNOWN = new Set<string>(DOMAIN_PUBLIC_EVENT_TYPES);
@@ -46,8 +52,9 @@ export async function publishPublicEvent(
   if (!KNOWN.has(event.type)) throw new Error(`Unknown public event type: ${event.type}`);
   const resourceType = event.type.slice(0, event.type.indexOf('.')) as PublicResourceType;
   const eventId = `evt_${randomUUID()}`;
+  const readPath = PUBLIC_READ_PATHS[resourceType];
   const payload: PublicEventPayload = {
-    event_id: eventId,
+    id: eventId,
     type: event.type,
     api_version: PUBLIC_API_VERSION,
     occurred_at: occurredAt.toISOString(),
@@ -56,6 +63,11 @@ export async function publishPublicEvent(
       type: resourceType,
       id: event.resourceId,
       ...(event.version !== undefined && { version: event.version }),
+    },
+    data: {
+      object_type: resourceType,
+      object_id: event.resourceId,
+      url: readPath ? `${readPath}/${event.resourceId}` : null,
     },
   };
   await enqueueOutboxEvent(
