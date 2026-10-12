@@ -27,6 +27,7 @@ import {
 import { requireAccountingSettings } from './accounting-service.js';
 import { requirePermission, type AuthorizationContext, type Principal } from './authorization.js';
 import type { AppDependencies } from './dependencies.js';
+import type { PublicEventEmitter } from './public-event-publisher.js';
 import { withOrganization } from './organization-service.js';
 import {
   assertPartyActiveForRestore,
@@ -130,6 +131,7 @@ export class VendorService {
   constructor(
     private readonly deps: AppDependencies,
     private readonly parties: PartyService,
+    private readonly publicEvents?: PublicEventEmitter,
   ) {
     // A party keeps its vendor role while it has a vendor record.
     parties.registerRoleGuard('vendor', async (tx, organizationId, partyId) =>
@@ -412,6 +414,12 @@ export class VendorService {
       },
       origin,
     );
+    await this.publicEvents?.emit(tx, {
+      type: 'vendor.created',
+      organizationId: ctx.organizationId,
+      resourceId: vendor.id,
+      version: vendor.version,
+    });
     return { vendor, party };
   }
 
@@ -427,6 +435,7 @@ export class VendorService {
         if (issues.length) throw new ValidationError(issues);
 
         let party: Party | undefined;
+        let partyChanged = false;
         if (input.party) {
           party = await this.parties.updateInTransaction(
             tx,
@@ -436,6 +445,7 @@ export class VendorService {
             origin,
             VENDOR_ACCESS,
           );
+          partyChanged = party.version !== input.party.version;
         }
         const changed = VENDOR_FIELDS.filter((k) => fields[k] !== vendor[k]);
         let updated = vendor;
@@ -463,6 +473,14 @@ export class VendorService {
             },
             origin,
           );
+        }
+        if (updated !== vendor || partyChanged) {
+          await this.publicEvents?.emit(tx, {
+            type: 'vendor.updated',
+            organizationId: ctx.organizationId,
+            resourceId: id,
+            version: updated.version,
+          });
         }
         return {
           ...(await this.detail(tx, ctx.organizationId, updated)),
@@ -519,6 +537,13 @@ export class VendorService {
           { partyId: vendor.partyId, status: input.status },
           origin,
         );
+        // The catalog has no restore event: a restore is an update of the vendor.
+        await this.publicEvents?.emit(tx, {
+          type: archived ? 'vendor.archived' : 'vendor.updated',
+          organizationId: ctx.organizationId,
+          resourceId: id,
+          version: saved.version,
+        });
         return this.detail(tx, ctx.organizationId, saved);
       },
     );

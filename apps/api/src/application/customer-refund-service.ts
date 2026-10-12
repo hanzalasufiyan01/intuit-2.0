@@ -44,6 +44,7 @@ import {
   type Principal,
 } from './authorization.js';
 import type { AppDependencies } from './dependencies.js';
+import type { PublicEventEmitter } from './public-event-publisher.js';
 import type { IdempotencyService } from './idempotency-service.js';
 import type { JournalService } from './journal-service.js';
 import { withOrganization } from './organization-service.js';
@@ -125,6 +126,7 @@ export class CustomerRefundService {
     private readonly deps: AppDependencies,
     private readonly journals: JournalService,
     private readonly idempotency: IdempotencyService,
+    private readonly publicEvents?: PublicEventEmitter,
   ) {
     // The journal a refund posts; Sales owns the authorization (Decision 13).
     journals.registerEventHandler(
@@ -621,6 +623,12 @@ export class CustomerRefundService {
       realizedFx: refund.fxDifference,
       journalId: event.journalId,
     });
+    await this.publicEvents?.emit(tx, {
+      type: 'customer_refund.recorded',
+      organizationId: ctx.organizationId,
+      resourceId: id,
+      version: refund.version,
+    });
     return this.detail(tx, ctx, id);
   }
 
@@ -746,6 +754,12 @@ export class CustomerRefundService {
           reversalJournalId: reversal.id,
           sourceType: refund.sourceType,
           sourceId: source.id,
+        });
+        await this.publicEvents?.emit(tx, {
+          type: 'customer_refund.voided',
+          organizationId: ctx.organizationId,
+          resourceId: id,
+          version: voided.version,
         });
         return this.detail(tx, ctx, id);
       },

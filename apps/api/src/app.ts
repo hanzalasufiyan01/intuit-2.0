@@ -16,6 +16,7 @@ import { PurchasesSettingsService } from './application/purchases-settings-servi
 import { ItemService } from './application/item-service.js';
 import { publicApi } from './api/public/index.js';
 import { ApiIntegrationService } from './application/api-integration-service.js';
+import { PublicEventPublisher } from './application/public-event-publisher.js';
 import { PublicApiReadService } from './application/public-api-read-service.js';
 import { PostgresRateLimiter } from './application/rate-limiter.js';
 import { IntegrationAuthService } from './application/integration-auth-service.js';
@@ -201,17 +202,19 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   const jobs = new JobService(deps);
   // Phase 3B (Decision 23): reusable request idempotency for Sales create/issue and receipts.
   const idempotency = new IdempotencyService(deps);
-  const receipts = new ReceiptService(deps, journals, idempotency);
+  // Public API events (ADR 0011 step 5): additive transactional-outbox emission; no delivery.
+  const publicEvents = new PublicEventPublisher(deps);
+  const receipts = new ReceiptService(deps, journals, idempotency, publicEvents);
   // Customer refunds from unallocated receipts and unapplied credit notes (mirrors vendor refunds).
-  const customerRefunds = new CustomerRefundService(deps, journals, idempotency);
+  const customerRefunds = new CustomerRefundService(deps, journals, idempotency, publicEvents);
   const salesOutput = new SalesOutputService(deps, files, jobs, new PdfkitRenderer());
   // S8: opening balances are an accounting process posting through the system-journal path.
   const openingBalances = new OpeningBalanceService(deps, approvals, journals, files);
   // Phase 3B Sales services used by the S6 import/export domains (step 18).
-  const customers = new CustomerService(deps, parties);
+  const customers = new CustomerService(deps, parties, publicEvents);
   // Phase 4A-3: vendors on the shared Party master (ADR 0004 P4-03).
-  const vendors = new VendorService(deps, parties);
-  const items = new ItemService(deps);
+  const vendors = new VendorService(deps, parties, publicEvents);
+  const items = new ItemService(deps, publicEvents);
   // Inventory (ADR 0006): additive to Sales and Purchases through hooks inside their transactions.
   const inventory = new InventoryService(deps, journals, idempotency);
   // Fixed assets (ADR 0008): register, depreciation, disposal and transfers.
@@ -223,18 +226,34 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     idempotency,
     salesOutput,
     inventory,
+    publicEvents,
   );
   // Phase 4A-5: bills (ADR 0004 P4-15 to P4-22).
   // Purchase orders, goods receiving and three-way matching (ADR 0007): additive to bills.
   const purchaseOrders = new PurchaseOrderService(deps, approvals, idempotency);
-  const bills = new BillService(deps, approvals, journals, idempotency, inventory, purchaseOrders);
+  const bills = new BillService(
+    deps,
+    approvals,
+    journals,
+    idempotency,
+    inventory,
+    purchaseOrders,
+    publicEvents,
+  );
   // Phase 4B-9: direct expenses (ADR 0004 P4-44).
   const expenses = new ExpenseService(deps, approvals, journals, idempotency, inventory);
   // Banking: statements, matching, entries, transfers and reconciliation.
   const banking = new BankingService(deps, idempotency);
   const bankingPosting = new BankingPostingService(deps, journals, idempotency);
   // Employee expense claims (ADR 0009): posted as a bill from the employee as a vendor.
-  const expenseClaims = new ExpenseClaimService(deps, approvals, idempotency, bills, vendors);
+  const expenseClaims = new ExpenseClaimService(
+    deps,
+    approvals,
+    idempotency,
+    bills,
+    vendors,
+    publicEvents,
+  );
   // Public API foundations (ADR 0011): organization-owned integrations and their authentication.
   const apiIntegrations = new ApiIntegrationService(deps);
   const integrationAuth = new IntegrationAuthService(deps);
@@ -252,11 +271,18 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     idempotency,
     purchasesOutput,
     inventory,
+    publicEvents,
   );
   // Phase 4B-2: vendor payments, prepayments, AP credit application and realized FX (P4-25 to P4-33).
-  const vendorPayments = new VendorPaymentService(deps, approvals, journals, idempotency);
+  const vendorPayments = new VendorPaymentService(
+    deps,
+    approvals,
+    journals,
+    idempotency,
+    publicEvents,
+  );
   // Phase 4B-3: vendor refunds from prepayments and unapplied vendor credits (P4-30).
-  const vendorRefunds = new VendorRefundService(deps, journals, idempotency);
+  const vendorRefunds = new VendorRefundService(deps, journals, idempotency, publicEvents);
   // Phase 4B-4: batch Pay bills over the payment pipeline (P4-32, P4-50).
   const paymentBatches = new PaymentBatchService(deps, vendorPayments, idempotency);
   const arReports = new ArReportService(deps);
@@ -349,6 +375,7 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
       receipts,
       idempotency,
       salesOutput,
+      publicEvents,
     ),
     // Phase 3B steps 14-15: PDFs (PDFKit, approved D14; docs/pdf-evaluation.md) and email.
     salesOutput,

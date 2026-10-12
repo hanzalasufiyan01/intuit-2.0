@@ -29,6 +29,7 @@ import { purchaseAccountProblem } from '../modules/vendors/index.js';
 import { requireAccountingSettings } from './accounting-service.js';
 import { hasPermission, type AuthorizationContext, type Principal } from './authorization.js';
 import type { AppDependencies } from './dependencies.js';
+import type { PublicEventEmitter } from './public-event-publisher.js';
 import { withOrganization } from './organization-service.js';
 
 /**
@@ -121,7 +122,10 @@ function decodeCursor(cursor: string): { name: string; id: string } {
 }
 
 export class ItemService {
-  constructor(private readonly deps: AppDependencies) {}
+  constructor(
+    private readonly deps: AppDependencies,
+    private readonly publicEvents?: PublicEventEmitter,
+  ) {}
 
   private get now() {
     return this.deps.clock.now();
@@ -359,6 +363,12 @@ export class ItemService {
       now: this.now,
     });
     await this.audit(tx, ctx, 'sales_item.created', item.id, { ...fields }, origin);
+    await this.publicEvents?.emit(tx, {
+      type: 'item.created',
+      organizationId: ctx.organizationId,
+      resourceId: item.id,
+      version: item.version,
+    });
     return item;
   }
 
@@ -426,6 +436,12 @@ export class ItemService {
       },
       origin,
     );
+    await this.publicEvents?.emit(tx, {
+      type: 'item.updated',
+      organizationId: ctx.organizationId,
+      resourceId: id,
+      version: saved.version,
+    });
     return saved;
   }
 
@@ -468,6 +484,13 @@ export class ItemService {
         { name: item.name, sku: item.sku },
         origin,
       );
+      // The catalog has no restore event: a restore is an update of the item.
+      await this.publicEvents?.emit(tx, {
+        type: archived ? 'item.archived' : 'item.updated',
+        organizationId: ctx.organizationId,
+        resourceId: id,
+        version: saved.version,
+      });
       return this.view(saved, settings.baseCurrency);
     });
   }

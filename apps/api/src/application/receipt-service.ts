@@ -58,6 +58,7 @@ import {
 import { requireAccountingSettings } from './accounting-service.js';
 import type { AuthorizationContext, Principal } from './authorization.js';
 import type { AppDependencies } from './dependencies.js';
+import type { PublicEventEmitter } from './public-event-publisher.js';
 import type { IdempotencyService } from './idempotency-service.js';
 import type { JournalService } from './journal-service.js';
 import { withOrganization } from './organization-service.js';
@@ -107,6 +108,7 @@ export class ReceiptService {
     private readonly deps: AppDependencies,
     private readonly journals: JournalService,
     private readonly idempotency: IdempotencyService,
+    private readonly publicEvents?: PublicEventEmitter,
   ) {
     // The journals Sales posts for receipts and credit applications; receipts have no separate
     // accounting approval (Decision 13: the originating module owns the authorization).
@@ -681,6 +683,12 @@ export class ReceiptService {
       })),
       journalId: event.journalId,
     });
+    await this.publicEvents?.emit(tx, {
+      type: 'receipt.recorded',
+      organizationId: ctx.organizationId,
+      resourceId: id,
+      version: receipt.version,
+    });
     return this.detail(tx, ctx.organizationId, id);
   }
 
@@ -1209,6 +1217,12 @@ export class ReceiptService {
           reason,
           reversalJournalIds: [...reversals.values()],
           allocationsReversed: open.length,
+        });
+        await this.publicEvents?.emit(tx, {
+          type: 'receipt.voided',
+          organizationId: ctx.organizationId,
+          resourceId: id,
+          version: voided.version,
         });
         return this.detail(tx, ctx.organizationId, id);
       },

@@ -24,6 +24,7 @@ import { getParty, listParties, type Party } from '../modules/parties/index.js';
 import { requireAccountingSettings } from './accounting-service.js';
 import { requirePermission, type AuthorizationContext, type Principal } from './authorization.js';
 import type { AppDependencies } from './dependencies.js';
+import type { PublicEventEmitter } from './public-event-publisher.js';
 import { withOrganization } from './organization-service.js';
 import {
   assertPartyActiveForRestore,
@@ -112,6 +113,7 @@ export class CustomerService {
   constructor(
     private readonly deps: AppDependencies,
     private readonly parties: PartyService,
+    private readonly publicEvents?: PublicEventEmitter,
   ) {
     // A party keeps its customer role while it has a customer record.
     parties.registerRoleGuard('customer', async (tx, organizationId, partyId) =>
@@ -322,6 +324,12 @@ export class CustomerService {
       },
       origin,
     );
+    await this.publicEvents?.emit(tx, {
+      type: 'customer.created',
+      organizationId: ctx.organizationId,
+      resourceId: customer.id,
+      version: customer.version,
+    });
     return { customer, party };
   }
 
@@ -365,6 +373,7 @@ export class CustomerService {
     if (issues.length) throw new ValidationError(issues);
 
     let party: Party | undefined;
+    let partyChanged = false;
     if (options.customerVersionOnly && input.identityVersion !== undefined) {
       const current = await getParty(tx, ctx.organizationId, customer.partyId, { forUpdate: true });
       if (!current) throw new NotFoundError('Customer not found.');
@@ -383,6 +392,7 @@ export class CustomerService {
         origin,
         CUSTOMER_ACCESS,
       );
+      partyChanged = party.version !== partyVersion;
     }
     const changed = (Object.keys(fields) as (keyof CustomerFields)[]).filter(
       (k) => fields[k] !== customer[k],
@@ -418,6 +428,14 @@ export class CustomerService {
           origin,
         );
       }
+    }
+    if (updated !== customer || partyChanged) {
+      await this.publicEvents?.emit(tx, {
+        type: 'customer.updated',
+        organizationId: ctx.organizationId,
+        resourceId: id,
+        version: updated.version,
+      });
     }
     return { customer: updated, party };
   }
@@ -467,6 +485,13 @@ export class CustomerService {
           { partyId: customer.partyId, status: input.status },
           origin,
         );
+        // The catalog has no restore event: a restore is an update of the customer.
+        await this.publicEvents?.emit(tx, {
+          type: archived ? 'customer.archived' : 'customer.updated',
+          organizationId: ctx.organizationId,
+          resourceId: id,
+          version: saved.version,
+        });
         return this.detail(tx, ctx.organizationId, saved);
       },
     );

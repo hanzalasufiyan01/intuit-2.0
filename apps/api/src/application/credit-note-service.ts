@@ -43,6 +43,7 @@ import { requireAccountingSettings } from './accounting-service.js';
 import type { ApprovalService } from './approval-service.js';
 import type { AuthorizationContext, Principal } from './authorization.js';
 import type { AppDependencies } from './dependencies.js';
+import type { PublicEventEmitter } from './public-event-publisher.js';
 import type { IdempotencyService } from './idempotency-service.js';
 import type { JournalService } from './journal-service.js';
 import { withOrganization } from './organization-service.js';
@@ -107,6 +108,7 @@ export class CreditNoteService {
     private readonly receipts: ReceiptService,
     private readonly idempotency: IdempotencyService,
     private readonly output: SalesOutputService,
+    private readonly publicEvents?: PublicEventEmitter,
   ) {
     approvals.register({
       actionKey: CREDIT_NOTE_ISSUE_ACTION,
@@ -887,6 +889,12 @@ export class CreditNoteService {
       baseTotal,
       journalId: event.journalId,
       approvalRequestId: issued.approvalRequestId,
+    });
+    await this.publicEvents?.emit(tx, {
+      type: 'credit_note.issued',
+      organizationId: ctx.organizationId,
+      resourceId: id,
+      version: issued.version,
     });
     return this.detail(tx, ctx, id);
   }

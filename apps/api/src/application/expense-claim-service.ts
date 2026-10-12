@@ -35,6 +35,7 @@ import type { ApprovalService } from './approval-service.js';
 import type { AuthorizationContext, Principal } from './authorization.js';
 import type { BillService } from './bill-service.js';
 import type { AppDependencies } from './dependencies.js';
+import type { PublicEventEmitter } from './public-event-publisher.js';
 import type { IdempotencyService } from './idempotency-service.js';
 import { withOrganization } from './organization-service.js';
 import { shownMoney } from './sales-documents.js';
@@ -106,6 +107,7 @@ export class ExpenseClaimService {
     private readonly idempotency: IdempotencyService,
     private readonly bills: BillService,
     private readonly vendors: VendorService,
+    private readonly publicEvents?: PublicEventEmitter,
   ) {
     approvals.register({
       actionKey: CLAIM_APPROVE_ACTION,
@@ -944,6 +946,12 @@ export class ExpenseClaimService {
           billId: posted.billId,
           total: posted.total,
         });
+        await this.publicEvents?.emit(tx, {
+          type: 'expense_claim.posted',
+          organizationId: ctx.organizationId,
+          resourceId: id,
+          version: posted.version,
+        });
         return this.detail(tx, ctx, id);
       },
     );
@@ -1004,6 +1012,12 @@ export class ExpenseClaimService {
         await this.audit(tx, ctx, 'expense_claim.voided', id, now, origin, {
           reason: voided.voidReason,
           billId: voided.billId,
+        });
+        await this.publicEvents?.emit(tx, {
+          type: 'expense_claim.voided',
+          organizationId: ctx.organizationId,
+          resourceId: id,
+          version: voided.version,
         });
         return this.detail(tx, ctx, id);
       },

@@ -45,6 +45,7 @@ import { requireAccountingSettings } from './accounting-service.js';
 import type { ApprovalService } from './approval-service.js';
 import { requirePermission, type AuthorizationContext, type Principal } from './authorization.js';
 import type { AppDependencies } from './dependencies.js';
+import type { PublicEventEmitter } from './public-event-publisher.js';
 import type { IdempotencyService } from './idempotency-service.js';
 import type { JournalService } from './journal-service.js';
 import type { InventoryHooks } from './inventory-hooks.js';
@@ -169,6 +170,7 @@ export class BillService {
     private readonly idempotency: IdempotencyService,
     private readonly inventory?: InventoryHooks,
     private readonly orders?: PurchaseOrderHooks,
+    private readonly publicEvents?: PublicEventEmitter,
   ) {
     approvals.register({
       actionKey: BILL_POST_ACTION,
@@ -1287,6 +1289,14 @@ export class BillService {
       journalId: event.journalId,
       approvalRequestId: posted.approvalRequestId,
     });
+    if (posted.kind !== 'opening') {
+      await this.publicEvents?.emit(tx, {
+        type: 'bill.posted',
+        organizationId: ctx.organizationId,
+        resourceId: id,
+        version: posted.version,
+      });
+    }
     return this.detail(tx, ctx, id);
   }
 
@@ -1368,6 +1378,14 @@ export class BillService {
           total: bill.total,
           reversalJournalId: reversal.id,
         });
+        if (voided.kind !== 'opening') {
+          await this.publicEvents?.emit(tx, {
+            type: 'bill.voided',
+            organizationId: ctx.organizationId,
+            resourceId: id,
+            version: voided.version,
+          });
+        }
         return this.detail(tx, ctx, id);
       },
     );

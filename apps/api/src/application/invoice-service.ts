@@ -50,6 +50,7 @@ import { requireAccountingSettings } from './accounting-service.js';
 import type { ApprovalService } from './approval-service.js';
 import { requirePermission, type AuthorizationContext, type Principal } from './authorization.js';
 import type { AppDependencies } from './dependencies.js';
+import type { PublicEventEmitter } from './public-event-publisher.js';
 import type { IdempotencyService } from './idempotency-service.js';
 import type { JournalService } from './journal-service.js';
 import type { InventoryHooks } from './inventory-hooks.js';
@@ -160,6 +161,7 @@ export class InvoiceService {
     private readonly idempotency: IdempotencyService,
     private readonly output: SalesOutputService,
     private readonly inventory?: InventoryHooks,
+    private readonly publicEvents?: PublicEventEmitter,
   ) {
     approvals.register({
       actionKey: INVOICE_ISSUE_ACTION,
@@ -1180,6 +1182,14 @@ export class InvoiceService {
       journalId: event.journalId,
       approvalRequestId: issued.approvalRequestId,
     });
+    if (issued.kind !== 'opening') {
+      await this.publicEvents?.emit(tx, {
+        type: 'invoice.issued',
+        organizationId: ctx.organizationId,
+        resourceId: id,
+        version: issued.version,
+      });
+    }
     return this.detail(tx, ctx, id);
   }
 
@@ -1255,6 +1265,14 @@ export class InvoiceService {
           total: invoice.total,
           reversalJournalId: reversal.id,
         });
+        if (voided.kind !== 'opening') {
+          await this.publicEvents?.emit(tx, {
+            type: 'invoice.voided',
+            organizationId: ctx.organizationId,
+            resourceId: id,
+            version: voided.version,
+          });
+        }
         return this.detail(tx, ctx, id);
       },
     );
