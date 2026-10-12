@@ -20,7 +20,7 @@ import {
   type CustomerFields,
   type CustomerStatus,
 } from '../modules/customers/index.js';
-import { listParties, type Party } from '../modules/parties/index.js';
+import { getParty, listParties, type Party } from '../modules/parties/index.js';
 import { requireAccountingSettings } from './accounting-service.js';
 import { requirePermission, type AuthorizationContext, type Principal } from './authorization.js';
 import type { AppDependencies } from './dependencies.js';
@@ -63,6 +63,10 @@ export interface UpdateCustomerInput extends CustomerTermsInput {
   /** Identity changes, at the party's own version. Roles are managed on the Contacts screens. */
   party?: Omit<UpdatePartyInput, 'roles'> | undefined;
 }
+
+export type UpdateCustomerInTransactionInput = Omit<UpdateCustomerInput, 'party'> & {
+  party?: (Omit<UpdatePartyInput, 'roles' | 'version'> & { version?: number }) | undefined;
+};
 
 const CUSTOMER_ACCESS: PartyAccess = { permission: CustomerPermissions.Update, role: 'customer' };
 
@@ -325,59 +329,89 @@ export class CustomerService {
       principal,
       { permission: CustomerPermissions.Update },
       async (tx, ctx) => {
-        const customer = await this.requireCustomer(tx, ctx.organizationId, id);
-        if (customer.version !== input.version) throw versionConflict();
-        const { fields, issues } = this.terms(input, customer);
-        if (issues.length) throw new ValidationError(issues);
-
-        let party: Party | undefined;
-        if (input.party) {
-          party = await this.parties.updateInTransaction(
-            tx,
-            ctx,
-            customer.partyId,
-            input.party,
-            origin,
-            CUSTOMER_ACCESS,
-          );
-        }
-        const changed = (Object.keys(fields) as (keyof CustomerFields)[]).filter(
-          (k) => fields[k] !== customer[k],
-        );
-        let updated = customer;
-        if (changed.length) {
-          const saved = await updateCustomer(tx, {
-            organizationId: ctx.organizationId,
-            id,
-            version: input.version,
-            set: Object.fromEntries(changed.map((k) => [k, fields[k]])),
-            userId: ctx.userId,
-            now: this.now,
-          });
-          if (!saved) throw versionConflict();
-          updated = saved;
-          await this.audit(
-            tx,
-            ctx,
-            'customer.updated',
-            id,
-            {
-              version: saved.version,
-              changedFields: changed,
-              before: Object.fromEntries(changed.map((k) => [k, customer[k]])),
-              after: Object.fromEntries(changed.map((k) => [k, fields[k]])),
-            },
-            origin,
-          );
-        }
+        const { customer, party } = await this.updateInTransaction(tx, ctx, id, input, origin);
         return {
-          ...(await this.detail(tx, ctx.organizationId, updated)),
+          ...(await this.detail(tx, ctx.organizationId, customer)),
           warnings: party
             ? await this.parties.duplicateWarningsInTransaction(tx, ctx.organizationId, party)
             : [],
         };
       },
     );
+  }
+
+  /**
+   * Updates a customer inside the caller's transaction with the HTTP path's rules and audit (the
+   * Public API calls this). `customerVersionOnly` is for a caller that holds only the customer's
+   * version: the party's current version is used (the customer row is locked), and an identity
+   * change advances the customer's version, so two such callers conflict instead of overwriting
+   * each other.
+   */
+  async updateInTransaction(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    id: string,
+    input: UpdateCustomerInTransactionInput,
+    origin: EventOrigin,
+    options: { customerVersionOnly?: boolean } = {},
+  ): Promise<{ customer: Customer; party: Party | undefined }> {
+    requirePermission(ctx, CustomerPermissions.Update);
+    const customer = await this.requireCustomer(tx, ctx.organizationId, id);
+    if (customer.version !== input.version) throw versionConflict();
+    const { fields, issues } = this.terms(input, customer);
+    if (issues.length) throw new ValidationError(issues);
+
+    let party: Party | undefined;
+    if (input.party) {
+      const partyVersion = options.customerVersionOnly
+        ? (await getParty(tx, ctx.organizationId, customer.partyId, { forUpdate: true }))?.version
+        : input.party.version;
+      if (partyVersion === undefined) throw new NotFoundError('Customer not found.');
+      party = await this.parties.updateInTransaction(
+        tx,
+        ctx,
+        customer.partyId,
+        { ...input.party, version: partyVersion },
+        origin,
+        CUSTOMER_ACCESS,
+      );
+    }
+    const changed = (Object.keys(fields) as (keyof CustomerFields)[]).filter(
+      (k) => fields[k] !== customer[k],
+    );
+    const advance = options.customerVersionOnly === true && party !== undefined;
+    let updated = customer;
+    if (changed.length || advance) {
+      const saved = await updateCustomer(tx, {
+        organizationId: ctx.organizationId,
+        id,
+        version: input.version,
+        // An unchanged value still advances the version when only the identity changed.
+        set: changed.length
+          ? Object.fromEntries(changed.map((k) => [k, fields[k]]))
+          : { currencyCode: customer.currencyCode },
+        userId: ctx.userId,
+        now: this.now,
+      });
+      if (!saved) throw versionConflict();
+      updated = saved;
+      if (changed.length) {
+        await this.audit(
+          tx,
+          ctx,
+          'customer.updated',
+          id,
+          {
+            version: saved.version,
+            changedFields: changed,
+            before: Object.fromEntries(changed.map((k) => [k, customer[k]])),
+            after: Object.fromEntries(changed.map((k) => [k, fields[k]])),
+          },
+          origin,
+        );
+      }
+    }
+    return { customer: updated, party };
   }
 
   /** Archived customers stay valid on existing documents but get no new ones. */

@@ -8,7 +8,8 @@ import { joinWithRole, setUpAccountingOrg, type AccountingOrg } from './fixtures
 import { connectAs, createTestContext, DAY, type TestClient, type TestContext } from './helpers.js';
 
 /**
- * ADR 0011 Step 3: the Public API foundation (`/public/v1`), read-only. Authentication through
+ * ADR 0011 Step 3: the Public API foundation (`/public/v1`) and its reads (the Step 4 draft writes
+ * are in public-api-writes.test.ts). Authentication through
  * IntegrationAuthService only, the fixed platform policy within the current non-Owner permission
  * boundary, cursor pagination, DTO isolation, the error contract, PostgreSQL rate limiting and the
  * OpenAPI document.
@@ -261,8 +262,12 @@ describe('public API authentication', () => {
     expect(missing.status).toBe(404);
     expect(Object.keys(missing.body)).toEqual(['error']);
     expect(missing.body.error).toMatchObject({ type: 'not_found', code: 'resource_not_found' });
+    // A read-only token cannot use the D1 draft writes (Step 4) ...
     const write = await call('/customers', { token: shared.token, method: 'POST' });
-    expect(write.status).toBe(404); // no write endpoints in this step
+    expect(write.status).toBe(403);
+    // ... and no other resource has a write endpoint at all.
+    const vendorWrite = await call('/vendors', { token: shared.token, method: 'POST' });
+    expect(vendorWrite.status).toBe(404);
     const unversioned = await ctx.app.inject({ method: 'GET', url: '/public/customers' });
     expect(unversioned.statusCode).toBe(404);
   });
@@ -945,36 +950,44 @@ describe('public API audit policy', () => {
 });
 
 describe('public API OpenAPI document', () => {
-  it('is served without credentials and lists the six read resources', async () => {
+  it('is served without credentials and lists the reads and the three draft writes', async () => {
     const res = await call('/openapi.json');
     expect(res.status).toBe(200);
     expect(res.body.openapi).toBe('3.1.0');
-    expect(Object.keys(res.body.paths).sort()).toEqual(
-      [
-        '/accounts',
-        '/accounts/{id}',
-        '/bills',
-        '/bills/{id}',
-        '/customers',
-        '/customers/{id}',
-        '/invoices',
-        '/invoices/{id}',
-        '/vendors',
-        '/vendors/{id}',
-      ].sort(),
+    const methods = Object.fromEntries(
+      Object.entries(res.body.paths).map(([path, ops]) => [path, Object.keys(ops as object)]),
     );
-    for (const path of Object.values(res.body.paths) as { get: object }[]) {
-      expect(Object.keys(path)).toEqual(['get']);
-    }
+    expect(methods).toEqual({
+      '/accounts': ['get'],
+      '/accounts/{id}': ['get'],
+      '/bills': ['get'],
+      '/bills/{id}': ['get'],
+      '/customers': ['get', 'post'],
+      '/customers/{id}': ['get', 'patch'],
+      // No GET under /items: the frozen scope catalog has no items:read.
+      '/items': ['post'],
+      '/items/{id}': ['patch'],
+      '/invoices': ['get', 'post'],
+      '/invoices/{id}': ['get', 'put'],
+      '/vendors': ['get'],
+      '/vendors/{id}': ['get'],
+    });
     expect(Object.keys(res.body.components.schemas).sort()).toEqual(
       [
         'Account',
         'Bill',
         'BillSummary',
         'Customer',
+        'CustomerCreate',
+        'CustomerUpdate',
         'Error',
         'Invoice',
+        'InvoiceDraftCreate',
+        'InvoiceDraftReplace',
         'InvoiceSummary',
+        'ItemCreate',
+        'ItemResult',
+        'ItemUpdate',
         'Page',
         'Vendor',
       ].sort(),

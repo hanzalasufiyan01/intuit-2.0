@@ -378,40 +378,55 @@ export class ItemService {
     origin: EventOrigin,
   ) {
     return withOrganization(this.deps, principal, {}, async (tx, ctx) => {
-      requireAny(ctx, MANAGE_PERMISSIONS);
       const settings = await requireAccountingSettings(tx, ctx.organizationId);
-      const item = await this.requireItem(tx, ctx.organizationId, id);
-      if (item.version !== input.version) throw versionConflict();
-      const merged = Object.fromEntries(
-        ITEM_FIELDS.map((k) => [k, input[k] === undefined ? item[k] : input[k]]),
-      ) as unknown as ItemInput;
-      const fields = await this.validate(tx, ctx.organizationId, merged, item);
-      const changed = ITEM_FIELDS.filter((k) => fields[k] !== item[k]);
-      if (!changed.length) return this.view(item, settings.baseCurrency);
-      const saved = await updateItem(tx, {
-        organizationId: ctx.organizationId,
-        id,
-        version: input.version,
-        set: Object.fromEntries(changed.map((k) => [k, fields[k]])),
-        userId: ctx.userId,
-        now: this.now,
-      });
-      if (!saved) throw versionConflict();
-      await this.audit(
-        tx,
-        ctx,
-        'sales_item.updated',
-        id,
-        {
-          version: saved.version,
-          changedFields: changed,
-          before: Object.fromEntries(changed.map((k) => [k, item[k]])),
-          after: Object.fromEntries(changed.map((k) => [k, fields[k]])),
-        },
-        origin,
+      return this.view(
+        await this.updateInTransaction(tx, ctx, id, input, origin),
+        settings.baseCurrency,
       );
-      return this.view(saved, settings.baseCurrency);
     });
+  }
+
+  /** Updates an item in the caller's transaction with the HTTP path's rules and audit (Public API). */
+  async updateInTransaction(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    id: string,
+    input: { version: number } & { [K in keyof ItemInput]?: ItemInput[K] | undefined },
+    origin: EventOrigin,
+  ): Promise<SalesItem> {
+    requireAny(ctx, MANAGE_PERMISSIONS);
+    await requireAccountingSettings(tx, ctx.organizationId);
+    const item = await this.requireItem(tx, ctx.organizationId, id);
+    if (item.version !== input.version) throw versionConflict();
+    const merged = Object.fromEntries(
+      ITEM_FIELDS.map((k) => [k, input[k] === undefined ? item[k] : input[k]]),
+    ) as unknown as ItemInput;
+    const fields = await this.validate(tx, ctx.organizationId, merged, item);
+    const changed = ITEM_FIELDS.filter((k) => fields[k] !== item[k]);
+    if (!changed.length) return item;
+    const saved = await updateItem(tx, {
+      organizationId: ctx.organizationId,
+      id,
+      version: input.version,
+      set: Object.fromEntries(changed.map((k) => [k, fields[k]])),
+      userId: ctx.userId,
+      now: this.now,
+    });
+    if (!saved) throw versionConflict();
+    await this.audit(
+      tx,
+      ctx,
+      'sales_item.updated',
+      id,
+      {
+        version: saved.version,
+        changedFields: changed,
+        before: Object.fromEntries(changed.map((k) => [k, item[k]])),
+        after: Object.fromEntries(changed.map((k) => [k, fields[k]])),
+      },
+      origin,
+    );
+    return saved;
   }
 
   setStatus(

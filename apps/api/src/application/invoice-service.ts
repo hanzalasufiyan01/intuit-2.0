@@ -728,32 +728,47 @@ export class InvoiceService {
       principal,
       { permission: SalesPermissions.InvoicesEditDraft },
       async (tx, ctx) => {
-        const invoice = await this.lockDraft(tx, ctx, id, input.version, 'edited');
-        const accounting = await requireAccountingSettings(tx, ctx.organizationId);
-        const sales = await getSalesSettings(tx, ctx.organizationId);
-        const existingLines = await getInvoiceLines(tx, ctx.organizationId, id);
-        const resolved = await this.resolve(tx, ctx.organizationId, accounting, sales, input, {
-          invoice,
-          lines: existingLines,
-        });
-        const now = this.now;
-        const updated = await updateInvoice(tx, {
-          organizationId: ctx.organizationId,
-          id,
-          from: 'DRAFT',
-          version: input.version,
-          set: { ...resolved.header, updatedByUserId: ctx.userId, updatedAt: now },
-        });
-        if (!updated) throw versionConflict();
-        await replaceInvoiceLines(tx, ctx.organizationId, id, stripLines(resolved.lines));
-        await this.audit(tx, ctx, 'invoice.updated', id, now, origin, {
-          version: updated.version,
-          total: { before: invoice.total, after: updated.total },
-          lines: resolved.lines.length,
-        });
+        await this.updateDraftInTransaction(tx, ctx, id, input, origin);
         return this.detail(tx, ctx, id);
       },
     );
+  }
+
+  /**
+   * Edits a DRAFT in the caller's transaction with the HTTP rules and audit (Public API). Only a
+   * draft at the given version can be edited; it stays a draft and posts nothing.
+   */
+  async updateDraftInTransaction(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    id: string,
+    input: InvoiceDraftInput & { version: number },
+    origin: EventOrigin,
+  ): Promise<void> {
+    requirePermission(ctx, SalesPermissions.InvoicesEditDraft);
+    const invoice = await this.lockDraft(tx, ctx, id, input.version, 'edited');
+    const accounting = await requireAccountingSettings(tx, ctx.organizationId);
+    const sales = await getSalesSettings(tx, ctx.organizationId);
+    const existingLines = await getInvoiceLines(tx, ctx.organizationId, id);
+    const resolved = await this.resolve(tx, ctx.organizationId, accounting, sales, input, {
+      invoice,
+      lines: existingLines,
+    });
+    const now = this.now;
+    const updated = await updateInvoice(tx, {
+      organizationId: ctx.organizationId,
+      id,
+      from: 'DRAFT',
+      version: input.version,
+      set: { ...resolved.header, updatedByUserId: ctx.userId, updatedAt: now },
+    });
+    if (!updated) throw versionConflict();
+    await replaceInvoiceLines(tx, ctx.organizationId, id, stripLines(resolved.lines));
+    await this.audit(tx, ctx, 'invoice.updated', id, now, origin, {
+      version: updated.version,
+      total: { before: invoice.total, after: updated.total },
+      lines: resolved.lines.length,
+    });
   }
 
   delete(principal: Principal, id: string, input: { version: number }, origin: EventOrigin) {

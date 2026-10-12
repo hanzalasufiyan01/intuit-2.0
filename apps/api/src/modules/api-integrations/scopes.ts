@@ -34,7 +34,7 @@ export const PUBLIC_API_SCOPES: readonly PublicApiScope[] = [
   // have to widen into invoice or bill access. It can be added when the catalog gets a view key.
   {
     scope: 'items:write',
-    description: 'Create and update items (and read them)',
+    description: 'Create and update items (there is no public item read)',
     permissions: ['catalog.items.manage'],
     write: true,
   },

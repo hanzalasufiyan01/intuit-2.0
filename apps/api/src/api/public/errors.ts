@@ -44,6 +44,29 @@ export function rateLimitHeaders(
   void reply.header('ratelimit-reset', String(d.resetSeconds));
 }
 
+/** Stable public codes for the conflicts a client can act on; the rest stay `conflict`. */
+function conflict(internal: string): PublicError {
+  const known: Record<string, [string, string]> = {
+    VERSION_CONFLICT: [
+      'version_conflict',
+      'The resource was changed since the version you sent. Read it again and retry.',
+    ],
+    IDEMPOTENCY_CONFLICT: [
+      'idempotency_conflict',
+      'This Idempotency-Key was already used for a different request.',
+    ],
+    INVALID_STATE_TRANSITION: [
+      'invalid_state',
+      'The resource is not in a state that allows this change.',
+    ],
+  };
+  const [code, message] = known[internal] ?? [
+    'conflict',
+    'The request conflicts with the current state.',
+  ];
+  return { status: 409, type: 'conflict', code, message };
+}
+
 function classify(error: unknown): PublicError {
   if (error instanceof RateLimitedError) {
     return {
@@ -96,12 +119,7 @@ function classify(error: unknown): PublicError {
           message: 'The resource was not found.',
         };
       case 409:
-        return {
-          status: 409,
-          type: 'conflict',
-          code: 'conflict',
-          message: 'The request conflicts with the current state.',
-        };
+        return conflict(error.code);
       default:
         if (error.status < 500) {
           return {

@@ -25,9 +25,10 @@ import {
 } from './dto-v1.js';
 import { registerPublicErrors, rateLimitHeaders } from './errors.js';
 import { buildOpenApiDocument } from './openapi.js';
+import { registerPublicWrites, type PublicWriteDeps } from './writes.js';
 
 /**
- * The Public API, version 1 (ADR 0011): `/public/v1`, read-only in this step. A separate Fastify
+ * The Public API, version 1 (ADR 0011): `/public/v1`: reads, and the D1 draft writes. A separate Fastify
  * plugin with its own authentication, error contract, rate limiting and DTOs. It is authenticated
  * ONLY by `Authorization: Bearer <api token>` through IntegrationAuthService: cookies and
  * sessions are never read here, and the internal `/api/v1` never accepts tokens.
@@ -42,6 +43,8 @@ export interface PublicApiDeps {
   integrationAuth: IntegrationAuthService;
   reads: PublicApiReadService;
   limiter: RateLimiter;
+  /** The domain services behind the draft write endpoints (customers, items, draft invoices). */
+  writes: Omit<PublicWriteDeps, 'authorized' | 'reads'>;
 }
 
 const DEFAULT_LIMIT = 25;
@@ -104,7 +107,7 @@ function bearer(request: FastifyRequest): string | undefined {
 }
 
 export function publicApi(deps: PublicApiDeps) {
-  const { config, integrationAuth, reads, limiter } = deps;
+  const { config, integrationAuth, reads, limiter, writes } = deps;
   const limits = config.publicApi;
 
   /** Counts the request against the token and organization windows. */
@@ -350,5 +353,8 @@ export function publicApi(deps: PublicApiDeps) {
       const row = await reads.getAccount(tx, c.organizationId, id);
       return row && toAccount(row);
     });
+
+    // Draft writes: customers, items and DRAFT invoices (nothing else is writable).
+    registerPublicWrites(app, { ...writes, authorized, reads });
   };
 }

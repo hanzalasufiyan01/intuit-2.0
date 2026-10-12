@@ -133,6 +133,30 @@ export const AccountDto = z
   .strict()
   .meta({ id: 'Account' });
 
+/**
+ * What an item write returns (and nothing else does): there is no public item read endpoint, since
+ * the frozen scope catalog has no `items:read`. No account, tax-code, audit or creator field.
+ */
+export const ItemResultDto = z
+  .object({
+    id,
+    sku: z.string().nullable(),
+    name: z.string(),
+    item_type: z.enum(['service', 'product']),
+    description: z.string(),
+    unit_price: money.nullable(),
+    is_sold: z.boolean(),
+    is_purchased: z.boolean(),
+    purchase_description: z.string(),
+    purchase_unit_cost: money.nullable(),
+    status,
+    version: z.number().int(),
+    created_at: iso,
+    updated_at: iso,
+  })
+  .strict()
+  .meta({ id: 'ItemResult' });
+
 export const PageDto = z
   .object({ next_cursor: z.string().nullable(), has_more: z.boolean() })
   .strict()
@@ -288,5 +312,25 @@ export function toAccount(r: Row) {
     status: r.status,
     created_at: iso8601(r.created_at),
     updated_at: iso8601(r.updated_at),
+  });
+}
+
+/** The result of an item write, from the domain item and the organization's base currency. */
+export function toItemResult(r: Row, baseCurrency: string) {
+  return ItemResultDto.parse({
+    id: r.id,
+    sku: text(r.sku),
+    name: r.name,
+    item_type: r.itemType,
+    description: r.description,
+    unit_price: amount(r.unitPrice, baseCurrency),
+    is_sold: r.isSold,
+    is_purchased: r.isPurchased,
+    purchase_description: r.purchaseDescription,
+    purchase_unit_cost: amount(r.purchaseUnitCost, baseCurrency),
+    status: r.status,
+    version: r.version,
+    created_at: iso8601(r.createdAt),
+    updated_at: iso8601(r.updatedAt),
   });
 }

@@ -405,7 +405,13 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
 
   // The Public API: bearer-token only, its own error contract; it shares nothing with /api/v1.
   await app.register(
-    publicApi({ config, integrationAuth, reads: publicReads, limiter: rateLimiter }),
+    publicApi({
+      config,
+      integrationAuth,
+      reads: publicReads,
+      limiter: rateLimiter,
+      writes: { idempotency, customers, items, invoices },
+    }),
     { prefix: '/public/v1' },
   );
 
