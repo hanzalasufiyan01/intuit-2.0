@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link } from 'react-router';
 import { ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card } from '../../shared/ui/Card';
@@ -11,7 +11,6 @@ export const PASSWORD_HINT = 'At least 12 characters. A passphrase works well.';
 /** Registration creates the user and a new organization, with the user as its Owner. */
 export function RegisterPage() {
   const { register } = useAuth();
-  const navigate = useNavigate();
   const [form, setForm] = useState({
     displayName: '',
     email: '',
@@ -22,9 +21,11 @@ export function RegisterPage() {
   const update = (key: keyof typeof form) => (e: { target: { value: string } }) =>
     setForm((current) => ({ ...current, [key]: e.target.value }));
 
+  // No navigation here: once the new session exists, the route guard (RedirectIfAuthenticated)
+  // continues into the app; navigating from the mutation callback raced the session update.
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    mutation.mutate(form, { onSuccess: () => void navigate('/', { replace: true }) });
+    mutation.mutate(form);
   };
   const fieldError = (path: string) => mutation.error?.fieldError(path);
 

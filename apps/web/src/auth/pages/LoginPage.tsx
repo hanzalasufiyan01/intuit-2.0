@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, Navigate, useLocation, useNavigate } from 'react-router';
+import { Link, Navigate, useLocation } from 'react-router';
 import { ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card } from '../../shared/ui/Card';
@@ -9,23 +9,18 @@ import { safeRedirectTarget } from '../RequireAuth';
 
 export function LoginPage() {
   const { login, status } = useAuth();
-  const navigate = useNavigate();
   const location = useLocation();
   const from = safeRedirectTarget(location.state);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const mutation = useApiMutation(login);
 
+  // No navigation here: once the session is complete, the route guard (RedirectIfAuthenticated)
+  // continues to `from`. Navigating from the mutation callback raced the session update and could
+  // bounce through /login (docs/known-flaky-tests.md).
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    mutation.mutate(
-      { email, password },
-      {
-        onSuccess: (result) => {
-          if (result.authentication === 'complete') void navigate(from, { replace: true });
-        },
-      },
-    );
+    mutation.mutate({ email, password });
   };
 
   // S7-14: with two-step verification the sign-in continues on the code screen. Driven by the
