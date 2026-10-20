@@ -28,3 +28,10 @@ pgdata/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Playwright
+test-results/
+playwright-report/
+
+# Local Claude Code workspace settings (never commit)
+.claude/

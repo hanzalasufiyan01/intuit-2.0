@@ -13,6 +13,7 @@
     "dev:web": "pnpm --filter @intuit-2/web dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
+    "openapi:check": "pnpm --filter @intuit-2/api openapi:check",
     "test": "pnpm -r test",
     "test:api": "pnpm --filter @intuit-2/api test",
     "test:web": "pnpm --filter @intuit-2/web test",
@@ -25,10 +26,13 @@
     "db:seed": "pnpm --filter @intuit-2/api db:seed",
     "db:seed:dev": "pnpm --filter @intuit-2/api db:seed:dev",
     "db:setup": "pnpm --filter @intuit-2/api db:setup",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm openapi:check && pnpm test && pnpm build",
+    "e2e": "playwright test",
+    "e2e:install": "playwright install chromium"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.55.0",
     "@types/node": "^22.20.4",
     "eslint": "^10.11.0",
     "eslint-plugin-react-hooks": "^7.1.1",
