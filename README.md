@@ -2,7 +2,7 @@
 
 Cloud accounting and business-management platform. The initial market is the Maldives; the core is country- and industry-independent.
 
-> **Status:** Phases 1–4 are implemented: the foundation, the accounting core (chart of accounts, periods, the double-entry journal engine with configurable approvals, multi-currency, the general ledger, financial statements, dimensions, opening balances and foreign-currency revaluation), Sales and receivables, and Purchases and payables (vendors, bills, vendor credits and debit notes, payments, prepayments, refunds, batch Pay bills, direct expenses, AP reports, remittance advices, imports and exports). Banking (bank accounts, CSV and OFX statements, matching, bank entries, transfers, reconciliation and rules) follows. Inventory (weighted-average stock, cost of goods sold, adjustments, valuation) follows. Purchase orders with goods receiving and three-way matching follow. Fixed assets (register, straight-line depreciation, disposal, transfers) follow. Employee expense claims (posted as bills, reimbursed through the payment engine) follow. Customer refunds (from unallocated receipts and unapplied credit notes) follow. The public API and tax returns are not built yet; see [the integration plan](docs/integration-plan.md) and the decision records.
+> **Status (2026-10-20):** much of the original product scope is implemented and tested locally (full `pnpm verify` green, run 18). The work after `c0b61cb` is being committed locally in six planned commits (see [the handover](docs/HANDOVER.md)); `git log` and `git status` show how far that has got. Nothing after `8d162be` is pushed, nothing is deployed and no production readiness is claimed. Read [the handover](docs/HANDOVER.md) first, then [the requirements matrix](docs/requirements-matrix.md), [master-specification coverage](docs/master-spec-coverage.md) and [open decisions](docs/open-decisions.md). Older phase notes below are kept for history.
 
 ## Architecture
 
@@ -59,7 +59,7 @@ See [docs/development.md](docs/development.md) for details on each step, the env
 ## Common commands
 
 ```sh
-pnpm verify        # format:check + lint + typecheck + test + build
+pnpm verify        # format:check + lint + typecheck + openapi:check + test + build
 pnpm test          # all tests (API integration tests use the real intuit2_dev database)
 pnpm lint
 pnpm typecheck

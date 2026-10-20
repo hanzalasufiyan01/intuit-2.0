@@ -53,6 +53,7 @@ Choose strong, unique passwords for the two roles. `.env` is git-ignored. Never 
 | `LOGIN_FAILED_WINDOW_MINUTES`                            | `15`                                  | Failure counting window                                           |
 | `LOGIN_BACKOFF_BASE_SECONDS` / `_MAX_SECONDS`            | `60` / `900`                          | Progressive back-off                                              |
 | `INVITATION_EXPIRY_HOURS`                                | `72`                                  | Invitation lifetime (approved)                                    |
+| `OWNERSHIP_TRANSFER_EXPIRY_HOURS`                        | `72`                                  | Time the new owner has to accept an ownership transfer            |
 | `OUTBOX_POLL_INTERVAL_MS` / `OUTBOX_BATCH_SIZE`          | `2000` / `20`                         | Outbox dispatcher                                                 |
 | `DEV_SEED_PASSWORD`                                      | —                                     | Password for `pnpm db:seed:dev` users (local only)                |
 | `DEV_SEED_TOTP_SECRET`                                   | —                                     | Authenticator key (base32) for the seeded Owner and Administrator |
@@ -151,7 +152,8 @@ Open http://localhost:5173. The Vite dev server proxies `/api` to the API, so th
 | `pnpm test:api`                     | API unit and integration tests (real PostgreSQL)               |
 | `pnpm test:web`                     | Frontend tests (jsdom)                                         |
 | `pnpm build`                        | Builds the API (`apps/api/dist`) and web app (`apps/web/dist`) |
-| `pnpm verify`                       | format:check, lint, typecheck, test, build                     |
+| `pnpm verify`                       | format:check, lint, typecheck, openapi:check, test, build      |
+| `pnpm openapi:check`                | API contract up to date; see docs/openapi-compatibility.md     |
 
 ## Tests
 
