@@ -1,0 +1,50 @@
+# A single-host production layout: PostgreSQL 16, the API and the web server. Secrets come from
+# the environment (an .env.production file that is NOT committed); nothing secret is written here.
+# NOT verified in the development environment (no container runtime there). See docs/operations.md.
+#
+#   docker compose -f deploy/docker-compose.prod.yml --env-file .env.production up -d
+#   docker compose -f deploy/docker-compose.prod.yml run --rm migrate
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: { context: .., target: api }
+    restart: unless-stopped
+    depends_on: { postgres: { condition: service_healthy } }
+    env_file: ../.env.production
+    environment:
+      APP_ENV: production
+    volumes:
+      - files:/data/storage
+    expose: ['3000']
+
+  migrate:
+    build: { context: .., target: api }
+    profiles: ['tools']
+    depends_on: { postgres: { condition: service_healthy } }
+    env_file: ../.env.production
+    # Migrate, then seed reference data (idempotent).
+    command:
+      ['sh', '-c', 'node dist/src/database/cli/migrate.js && node dist/src/database/cli/seed.js']
+
+  web:
+    build: { context: .., target: web }
+    restart: unless-stopped
+    depends_on: [api]
+    ports: ['8080:80']
+
+volumes:
+  pgdata:
+  files:

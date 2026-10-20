@@ -1,0 +1,77 @@
+# Continuous integration (GitHub Actions). Runs on every pull request and on pushes to main.
+# NOT yet run on GitHub from this repository (it has never been pushed with this file): the first
+# run may need small adjustments. See docs/operations.md.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci_postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      PGPASSWORD: ci_postgres
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the OpenAPI compatibility check needs the base branch
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Create roles and the database
+        run: |
+          psql -h localhost -U postgres -v db_name=intuit2_dev \
+            -v owner_password=ci_owner -v app_password=ci_app \
+            -f apps/api/src/database/bootstrap.sql
+      - name: Write .env (CI-only secrets, generated per run)
+        run: |
+          {
+            echo "APP_ENV=testing"
+            echo "DATABASE_URL=postgres://intuit_app:ci_app@localhost:5432/intuit2_dev"
+            echo "DATABASE_MIGRATION_URL=postgres://intuit_owner:ci_owner@localhost:5432/intuit2_dev"
+            echo "SESSION_SECRET=$(openssl rand -hex 32)"
+            echo "MFA_ENCRYPTION_KEYS=ci1:$(openssl rand -base64 32)"
+            echo "MFA_ENCRYPTION_ACTIVE_KEY_ID=ci1"
+            echo "WEBHOOK_ENCRYPTION_KEYS=wh1:$(openssl rand -base64 32)"
+            echo "WEBHOOK_ENCRYPTION_ACTIVE_KEY_ID=wh1"
+            echo "DEV_SEED_PASSWORD=ci-only-password-1"
+          } > .env
+      - run: pnpm db:setup
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - name: OpenAPI contract (baseline up to date; no breaking change against the base branch)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "${{ github.base_ref }}" --depth=1
+            BASE_REF="origin/${{ github.base_ref }}" sh apps/api/scripts/ci/openapi-compat.sh
+          else
+            pnpm openapi:check
+          fi
+      - run: pnpm test
+      - run: pnpm build
+      - name: Browser end-to-end smoke tests (Playwright)
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm e2e
+      - name: Dependency audit (production dependencies)
+        run: pnpm audit --prod --audit-level high
