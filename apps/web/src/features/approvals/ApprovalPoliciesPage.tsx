@@ -15,6 +15,7 @@ import {
   type ApprovalAction,
   type StepConditions,
 } from './conditions';
+import { useT } from '../../i18n/i18n';
 
 interface StepDraft {
   name: string;
@@ -85,6 +86,7 @@ function PolicyEditor({
   roles: Role[];
   members: Member[];
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const sensitive = useSensitiveAction();
   const [steps, setSteps] = useState<StepDraft[]>((existing ?? []).map(toDraft));
@@ -108,11 +110,12 @@ function PolicyEditor({
   return (
     <Card title={action.label}>
       <p className="muted">
-        {existing?.length
-          ? 'Approval is required when a step applies. Every step that applies must be satisfied by distinct eligible approvers; a document that no step applies to needs no approval.'
-          : 'No approval required: an authorized user may post directly.'}{' '}
-        Approvers also need the {action.approverPermission} permission and can never approve their
-        own request.
+        {t('approvals.approvalPoliciesPage.approversAlsoNeedThePermission', {
+          value: existing?.length
+            ? t('approvals.approvalPoliciesPage.approvalIsRequiredWhenA')
+            : t('approvals.approvalPoliciesPage.noApprovalRequiredAnAuthorized'),
+          approverPermission: action.approverPermission,
+        })}
       </p>
       {steps.map((step, i) => {
         const staleCurrency =
@@ -121,15 +124,15 @@ function PolicyEditor({
           step.thresholdCurrency !== baseCurrency;
         return (
           <fieldset key={i} className="step">
-            <legend>Step {i + 1}</legend>
+            <legend>{t('approvals.approvalPoliciesPage.step', { value: i + 1 })}</legend>
             <div className="form form--inline">
               <TextField
-                label="Step name"
+                label={t('approvals.approvalPoliciesPage.stepName')}
                 value={step.name}
                 onChange={(e) => update(i, { name: e.target.value })}
               />
               <TextField
-                label="Approvals required"
+                label={t('approvals.approvalPoliciesPage.approvalsRequired')}
                 type="number"
                 min={1}
                 max={20}
@@ -139,28 +142,34 @@ function PolicyEditor({
             </div>
             {canCondition ? (
               <div className="step-conditions">
-                <strong>Applies when</strong>
+                <strong>{t('approvals.approvalPoliciesPage.appliesWhen')}</strong>
                 {action.conditions.amount ? (
                   <div className="form form--inline">
                     <TextField
-                      label={`Amount from (${baseCurrency ?? 'base currency'})`}
+                      label={t('approvals.approvalPoliciesPage.amountFrom', {
+                        baseCurrency: baseCurrency ?? 'base currency',
+                      })}
                       inputMode="decimal"
                       value={step.minBaseAmount}
-                      placeholder="any"
+                      placeholder={t('approvals.approvalPoliciesPage.any')}
                       onChange={(e) => update(i, { minBaseAmount: e.target.value })}
                     />
                     <TextField
-                      label={`Up to, not including (${baseCurrency ?? 'base currency'})`}
+                      label={t('approvals.approvalPoliciesPage.upToNotIncluding', {
+                        baseCurrency: baseCurrency ?? 'base currency',
+                      })}
                       inputMode="decimal"
                       value={step.maxBaseAmount}
-                      placeholder="no limit"
+                      placeholder={t('approvals.approvalPoliciesPage.noLimit')}
                       onChange={(e) => update(i, { maxBaseAmount: e.target.value })}
                     />
                   </div>
                 ) : null}
                 {action.conditions.transactionTypes.length > 1 ? (
                   <fieldset className="choice-row">
-                    <legend>Transaction types (none ticked = all)</legend>
+                    <legend>
+                      {t('approvals.approvalPoliciesPage.transactionTypesNoneTickedAll')}
+                    </legend>
                     {action.conditions.transactionTypes.map((type) => (
                       <label key={type} className="checkbox">
                         <input
@@ -170,7 +179,7 @@ function PolicyEditor({
                             update(i, { transactionTypes: toggle(step.transactionTypes, type) })
                           }
                         />{' '}
-                        {transactionTypeLabel(type)}
+                        {transactionTypeLabel(type, t)}
                       </label>
                     ))}
                   </fieldset>
@@ -184,20 +193,22 @@ function PolicyEditor({
                       thresholdCurrency: step.thresholdCurrency ?? baseCurrency,
                     },
                     baseCurrency,
+                    t,
                   )}
                 </p>
                 {staleCurrency ? (
                   <Alert>
-                    This step&apos;s amounts were set in {step.thresholdCurrency}, but the base
-                    currency is now {baseCurrency}. Until you save it again, the step applies to
-                    every document.
+                    {t('approvals.approvalPoliciesPage.thisStepSAmountsWere', {
+                      thresholdCurrency: step.thresholdCurrency,
+                      baseCurrency,
+                    })}
                   </Alert>
                 ) : null}
               </div>
             ) : null}
             <div className="choice-grid">
               <div>
-                <strong>Eligible roles</strong>
+                <strong>{t('approvals.approvalPoliciesPage.eligibleRoles')}</strong>
                 {roles.map((r) => (
                   <label key={r.id} className="checkbox">
                     <input
@@ -210,7 +221,7 @@ function PolicyEditor({
                 ))}
               </div>
               <div>
-                <strong>Eligible members</strong>
+                <strong>{t('approvals.approvalPoliciesPage.eligibleMembers')}</strong>
                 {members.map((m) => (
                   <label key={m.membershipId} className="checkbox">
                     <input
@@ -226,7 +237,7 @@ function PolicyEditor({
               </div>
             </div>
             <Button variant="ghost" onClick={() => setSteps(steps.filter((_, idx) => idx !== i))}>
-              Remove step
+              {t('approvals.approvalPoliciesPage.removeStep')}
             </Button>
           </fieldset>
         );
@@ -251,14 +262,14 @@ function PolicyEditor({
             ])
           }
         >
-          Add step
+          {t('approvals.approvalPoliciesPage.addStep')}
         </Button>
         <Button
           busy={save.isPending}
           disabled={steps.length === 0}
           onClick={() => save.mutate(undefined, { onSuccess: refresh })}
         >
-          Save policy
+          {t('approvals.approvalPoliciesPage.savePolicy')}
         </Button>
         {existing?.length ? (
           <Button
@@ -266,7 +277,7 @@ function PolicyEditor({
             busy={remove.isPending}
             onClick={() => remove.mutate(undefined, { onSuccess: () => (setSteps([]), refresh()) })}
           >
-            Remove approval requirement
+            {t('approvals.approvalPoliciesPage.removeApprovalRequirement')}
           </Button>
         ) : null}
       </div>
@@ -276,6 +287,7 @@ function PolicyEditor({
 
 /** Authority & Approval configuration (approvals.manage). */
 export function ApprovalPoliciesPage() {
+  const t = useT();
   const policies = useQuery({
     queryKey: ['approval-policies'],
     queryFn: () => api.get<PoliciesResponse>('/approvals/policies'),
@@ -292,15 +304,15 @@ export function ApprovalPoliciesPage() {
   return (
     <>
       <PageHeader
-        title="Approval policies"
-        description="Configure who must approve sensitive actions, and when: by amount or transaction type, with one or several steps."
+        title={t('approvals.approvalPoliciesPage.approvalPolicies')}
+        description={t('approvals.approvalPoliciesPage.configureWhoMustApproveSensitive')}
       />
       {policies.isPending ? (
-        <Spinner label="Loading policies" />
+        <Spinner label={t('approvals.approvalPoliciesPage.loadingPolicies')} />
       ) : policies.isError ? (
         <ErrorAlert error={policies.error} />
       ) : roles.isError || members.isError ? (
-        <Alert>Configuring policies also needs permission to view roles and members.</Alert>
+        <Alert>{t('approvals.approvalPoliciesPage.configuringPoliciesAlsoNeedsPermission')}</Alert>
       ) : (
         policies.data.actions.map((action) => (
           <PolicyEditor

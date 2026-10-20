@@ -8,13 +8,15 @@ import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
 import { AccountingPage, useAccountingSetup, useAccounts, useOrgKey } from './shared';
-import { DESIGNATION_LABELS, type Account, type Designation, type DesignationEntry } from './types';
+import { type Account, type Designation, type DesignationEntry } from './types';
+import { useT } from '../../i18n/i18n';
 
 /**
  * System account designations (Decisions 14, 64): the accounts that dependent features post to
  * or report through. Nothing is guessed: an undesignated entry stays empty until chosen.
  */
 export function DesignationsPage() {
+  const t = useT();
   const org = useOrgKey();
   const queryClient = useQueryClient();
   const canEdit = usePermission(Permission.AccountingSetup);
@@ -40,19 +42,16 @@ export function DesignationsPage() {
     );
   const accountLabel = (id: string | null) => {
     const a = accounts.data?.find((x) => x.id === id);
-    return a ? `${a.code} ${a.name}` : 'Not designated';
+    return a ? `${a.code} ${a.name}` : t('designations.none');
   };
 
   return (
     <>
-      <PageHeader
-        title="System Accounts"
-        description="Accounts used for retained earnings, FX gains and losses, rounding and opening balances."
-      />
+      <PageHeader title={t('designations.title')} description={t('designations.description')} />
       <AccountingPage>
         <Card>
           {designations.isPending || accounts.isPending ? (
-            <Spinner label="Loading designations" />
+            <Spinner label={t('designations.loading')} />
           ) : designations.isError ? (
             <ErrorAlert error={designations.error} />
           ) : (
@@ -73,8 +72,8 @@ export function DesignationsPage() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Designation</th>
-                    <th>Account</th>
+                    <th>{t('designations.designation')}</th>
+                    <th>{t('designations.account')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -87,7 +86,7 @@ export function DesignationsPage() {
                     return (
                       <tr key={entry.designation}>
                         <td>
-                          <label htmlFor={id}>{DESIGNATION_LABELS[entry.designation]}</label>
+                          <label htmlFor={id}>{t(`designations.label.${entry.designation}`)}</label>
                         </td>
                         <td>
                           {canEdit ? (
@@ -101,7 +100,7 @@ export function DesignationsPage() {
                                 })
                               }
                             >
-                              <option value="">Not designated</option>
+                              <option value="">{t('designations.none')}</option>
                               {eligible(entry).map((a) => (
                                 <option key={a.id} value={a.id}>
                                   {a.code} {a.name}
@@ -123,14 +122,11 @@ export function DesignationsPage() {
                 </tbody>
               </table>
               {designations.data.some((d) => d.accountId === null) ? (
-                <Alert tone="info">
-                  Features that depend on an undesignated account stay unavailable until one is
-                  chosen.
-                </Alert>
+                <Alert tone="info">{t('designations.unavailable')}</Alert>
               ) : null}
               {canEdit ? (
                 <Button type="submit" busy={save.isPending} disabled={!Object.keys(changes).length}>
-                  Save designations
+                  {t('designations.save')}
                 </Button>
               ) : null}
               <ErrorAlert error={save.error?.issues.length ? null : save.error} />

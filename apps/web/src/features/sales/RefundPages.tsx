@@ -14,6 +14,7 @@ import { TextField } from '../../shared/ui/TextField';
 import { useAccounts, useAccountingSetup } from '../accounting/shared';
 import { orNull, SalesNav, useOrgKey } from './shared';
 import type { CreditNoteSummary, Page, ReceiptSummary } from './types';
+import { useT } from '../../i18n/i18n';
 
 /**
  * Customer refunds: money paid back from a receipt's unallocated amount or a credit note's
@@ -62,10 +63,11 @@ const sourcePath = (type: SourceType, id: string) =>
   type === 'receipt' ? `/sales/receipts/${id}` : `/sales/credit-notes/${id}`;
 
 function StatusBadge({ status }: { status: RefundStatus }) {
+  const t = useT();
   return status === 'RECORDED' ? (
-    <span className="badge badge--posted">Recorded</span>
+    <span className="badge badge--posted">{t('sales.refundPages.recorded')}</span>
   ) : (
-    <span className="badge badge--void">Void</span>
+    <span className="badge badge--void">{t('sales.refundPages.void')}</span>
   );
 }
 
@@ -74,6 +76,7 @@ function StatusBadge({ status }: { status: RefundStatus }) {
 // ---------------------------------------------------------------------------
 
 export function CustomerRefundsPage() {
+  const t = useT();
   const org = useOrgKey();
   const canCreate = usePermission(Permission.ReceiptsCreate);
   const [filters, setFilters] = useState({ status: '', search: '' });
@@ -90,14 +93,14 @@ export function CustomerRefundsPage() {
   return (
     <>
       <PageHeader
-        title="Customer refunds"
-        description="Money paid back to customers from unallocated receipts and unapplied credit notes."
+        title={t('sales.refundPages.customerRefunds')}
+        description={t('sales.refundPages.moneyPaidBackToCustomers')}
       />
       <SalesNav />
       {canCreate ? (
         <p className="actions">
           <Link className="btn" to="/sales/refunds/new">
-            New refund
+            {t('sales.refundPages.newRefund')}
           </Link>
         </p>
       ) : null}
@@ -110,27 +113,27 @@ export function CustomerRefundsPage() {
           }}
         >
           <TextField
-            label="Search"
-            hint="Number, reference or customer"
+            label={t('common.search')}
+            hint={t('sales.refundPages.numberReferenceOrCustomer')}
             value={filters.search}
             onChange={(e) => setFilters({ ...filters, search: e.target.value })}
           />
           <div className="field">
-            <label htmlFor="cr-status">Status</label>
+            <label htmlFor="cr-status">{t('sales.refundPages.status')}</label>
             <select
               id="cr-status"
               value={filters.status}
               onChange={(e) => setFilters({ ...filters, status: e.target.value })}
             >
-              <option value="">All</option>
-              <option value="RECORDED">Recorded</option>
-              <option value="VOID">Void</option>
+              <option value="">{t('common.all')}</option>
+              <option value="RECORDED">{t('sales.refundPages.recorded')}</option>
+              <option value="VOID">{t('sales.refundPages.void')}</option>
             </select>
           </div>
-          <Button type="submit">Search</Button>
+          <Button type="submit">{t('common.search')}</Button>
         </form>
         {list.isPending ? (
-          <Spinner label="Loading…" />
+          <Spinner label={t('common.loading')} />
         ) : list.isError ? (
           <ErrorAlert error={list.error} />
         ) : (
@@ -148,16 +151,17 @@ function RefundTable({
   rows: readonly RefundSummary[];
   showCustomer: boolean;
 }) {
-  if (rows.length === 0) return <p className="muted">No refunds.</p>;
+  const t = useT();
+  if (rows.length === 0) return <p className="muted">{t('sales.refundPages.noRefunds')}</p>;
   return (
     <table className="table">
       <thead>
         <tr>
-          <th>Number</th>
-          {showCustomer ? <th>Customer</th> : null}
-          <th>Date</th>
-          <th className="num">Amount</th>
-          <th>Status</th>
+          <th>{t('sales.refundPages.number')}</th>
+          {showCustomer ? <th>{t('sales.refundPages.customer')}</th> : null}
+          <th>{t('sales.refundPages.date')}</th>
+          <th className="num">{t('sales.refundPages.amount')}</th>
+          <th>{t('sales.refundPages.status')}</th>
         </tr>
       </thead>
       <tbody>
@@ -191,6 +195,7 @@ export function CustomerRefundHistory({
   sourceId: string;
   canRefund: boolean;
 }) {
+  const t = useT();
   const org = useOrgKey();
   const refunds = useQuery({
     queryKey: ['customer-refunds', org, sourceType, sourceId],
@@ -200,13 +205,13 @@ export function CustomerRefundHistory({
       ),
   });
   return (
-    <Card title="Refunds">
+    <Card title={t('sales.refundPages.refunds')}>
       {refunds.isPending ? (
-        <Spinner label="Loading…" />
+        <Spinner label={t('common.loading')} />
       ) : refunds.isError ? (
         <ErrorAlert error={refunds.error} />
       ) : refunds.data.items.length === 0 ? (
-        <p className="muted">Nothing has been refunded from this document.</p>
+        <p className="muted">{t('sales.refundPages.nothingHasBeenRefundedFrom')}</p>
       ) : (
         <RefundTable rows={refunds.data.items} showCustomer={false} />
       )}
@@ -216,7 +221,9 @@ export function CustomerRefundHistory({
             className="btn btn--secondary"
             to={`/sales/refunds/new?sourceType=${sourceType}&sourceId=${sourceId}`}
           >
-            {sourceType === 'receipt' ? 'Refund unallocated amount' : 'Refund credit'}
+            {sourceType === 'receipt'
+              ? t('sales.refundPages.refundUnallocatedAmount')
+              : t('sales.refundPages.refundCredit')}
           </Link>
         </p>
       ) : null}
@@ -270,6 +277,7 @@ function useOpenSources(canCredits: boolean) {
 }
 
 export function RecordCustomerRefundPage() {
+  const t = useT();
   const navigate = useNavigate();
   const org = useOrgKey();
   const queryClient = useQueryClient();
@@ -341,34 +349,41 @@ export function RecordCustomerRefundPage() {
 
   return (
     <>
-      <PageHeader title="New refund" />
+      <PageHeader title={t('sales.refundPages.newRefund')} />
       <SalesNav />
       {sources.isPending ? (
-        <Spinner label="Loading…" />
+        <Spinner label={t('common.loading')} />
       ) : (
         <form className="form" onSubmit={submit}>
           <ErrorAlert error={record.error} />
-          <Card title="Refund details">
+          <Card title={t('sales.refundPages.refundDetails')}>
             <div className="form-grid">
               <div className="field">
-                <label htmlFor="cr-source">Refund from</label>
+                <label htmlFor="cr-source">{t('sales.refundPages.refundFrom')}</label>
                 <select
                   id="cr-source"
                   value={sourceKey}
                   required
                   onChange={(e) => setSourceKey(e.target.value)}
                 >
-                  <option value="">Choose a receipt or credit note</option>
+                  <option value="">{t('sales.refundPages.chooseAReceiptOrCredit')}</option>
                   {(sources.data ?? []).map((s) => (
                     <option key={`${s.type}:${s.id}`} value={`${s.type}:${s.id}`}>
-                      {s.type === 'receipt' ? 'Receipt' : 'Credit note'} {s.label} · available{' '}
-                      {formatAmount(s.available, s.currencyCode)} {s.currencyCode}
+                      {t('sales.refundPages.available', {
+                        value:
+                          s.type === 'receipt'
+                            ? t('sales.refundPages.receipt')
+                            : t('sales.refundPages.creditNote'),
+                        label: s.label,
+                        value2: formatAmount(s.available, s.currencyCode),
+                        currencyCode: s.currencyCode,
+                      })}
                     </option>
                   ))}
                 </select>
                 {(sources.data ?? []).length === 0 ? (
                   <small className="field__hint">
-                    No receipt has an unallocated amount and no credit note has an unapplied amount.
+                    {t('sales.refundPages.noReceiptHasAnUnallocated')}
                   </small>
                 ) : null}
                 {issue('sourceId') ? (
@@ -376,7 +391,7 @@ export function RecordCustomerRefundPage() {
                 ) : null}
               </div>
               <TextField
-                label="Refund date"
+                label={t('sales.refundPages.refundDate')}
                 type="date"
                 value={refundDate}
                 required
@@ -384,7 +399,7 @@ export function RecordCustomerRefundPage() {
                 onChange={(e) => setRefundDate(e.target.value)}
               />
               <TextField
-                label={`Amount${currency ? ` (${currency})` : ''}`}
+                label={t('sales.refundPages.amount2', { value: currency ? ` (${currency})` : '' })}
                 inputMode="decimal"
                 value={amount}
                 required
@@ -392,20 +407,22 @@ export function RecordCustomerRefundPage() {
                 onChange={(e) => setAmount(e.target.value)}
               />
               <div className="field">
-                <label htmlFor="cr-account">Paid from account</label>
+                <label htmlFor="cr-account">{t('sales.refundPages.paidFromAccount')}</label>
                 <select
                   id="cr-account"
                   value={refundAccountId}
                   onChange={(e) => setRefundAccountId(e.target.value)}
                 >
-                  <option value="">Default deposit account</option>
+                  <option value="">{t('sales.refundPages.defaultDepositAccount')}</option>
                   {refundAccounts.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.code} · {a.name} ({a.currencyCode})
                     </option>
                   ))}
                 </select>
-                <small className="field__hint">Bank or cash accounts only.</small>
+                <small className="field__hint">
+                  {t('sales.refundPages.bankOrCashAccountsOnly')}
+                </small>
                 {issue('refundAccountId') ? (
                   <small className="field__error">{issue('refundAccountId')}</small>
                 ) : null}
@@ -413,15 +430,15 @@ export function RecordCustomerRefundPage() {
               {foreign ? (
                 <>
                   <TextField
-                    label="Exchange rate override"
+                    label={t('sales.refundPages.exchangeRateOverride')}
                     inputMode="decimal"
-                    hint="Leave empty to use the table rate on the refund date."
+                    hint={t('sales.refundPages.leaveEmptyToUseThe')}
                     value={rateOverride}
                     error={issue('rateOverride')}
                     onChange={(e) => setRateOverride(e.target.value)}
                   />
                   <TextField
-                    label="Reason for the override"
+                    label={t('sales.refundPages.reasonForTheOverride')}
                     value={rateOverrideReason}
                     error={issue('rateOverrideReason')}
                     onChange={(e) => setRateOverrideReason(e.target.value)}
@@ -429,17 +446,21 @@ export function RecordCustomerRefundPage() {
                 </>
               ) : null}
               <TextField
-                label="Reference"
+                label={t('sales.refundPages.reference')}
                 value={reference}
                 error={issue('reference')}
                 onChange={(e) => setReference(e.target.value)}
               />
             </div>
-            <TextField label="Memo" value={memo} onChange={(e) => setMemo(e.target.value)} />
+            <TextField
+              label={t('sales.refundPages.memo')}
+              value={memo}
+              onChange={(e) => setMemo(e.target.value)}
+            />
           </Card>
           <p className="actions">
             <Button type="submit" busy={record.isPending} disabled={!source}>
-              Record refund
+              {t('sales.refundPages.recordRefund')}
             </Button>
           </p>
         </form>
@@ -453,6 +474,7 @@ export function RecordCustomerRefundPage() {
 // ---------------------------------------------------------------------------
 
 export function CustomerRefundDetailPage() {
+  const t = useT();
   const { id = '' } = useParams();
   const org = useOrgKey();
   const queryClient = useQueryClient();
@@ -473,87 +495,100 @@ export function CustomerRefundDetailPage() {
       }),
     ),
   );
-  if (refund.isPending) return <Spinner label="Loading…" />;
+  if (refund.isPending) return <Spinner label={t('common.loading')} />;
   if (refund.isError) return <ErrorAlert error={refund.error} />;
   const r = refund.data;
   const base = r.baseCurrency;
   return (
     <>
-      <PageHeader title={`Refund ${r.number}`} description={r.customerName ?? undefined} />
+      <PageHeader
+        title={t('sales.refundPages.refund', { number: r.number })}
+        description={r.customerName ?? undefined}
+      />
       <SalesNav />
       <ErrorAlert error={voidRefund.error} />
-      <Card title="Summary" actions={<StatusBadge status={r.status} />}>
+      <Card title={t('sales.refundPages.summary')} actions={<StatusBadge status={r.status} />}>
         <dl className="facts">
-          <dt>Customer</dt>
+          <dt>{t('sales.refundPages.customer')}</dt>
           <dd>
             <Link to={`/sales/customers/${r.customerId}`}>{r.customerName}</Link>
           </dd>
-          <dt>Refunded from</dt>
+          <dt>{t('sales.refundPages.refundedFrom')}</dt>
           <dd>
             <Link to={sourcePath(r.sourceType, r.sourceId)}>
-              {r.sourceType === 'receipt' ? 'Receipt' : 'Credit note'} {r.sourceNumber}
+              {r.sourceType === 'receipt'
+                ? t('sales.refundPages.receipt')
+                : t('sales.refundPages.creditNote')}{' '}
+              {r.sourceNumber}
             </Link>
           </dd>
-          <dt>Date</dt>
+          <dt>{t('sales.refundPages.date')}</dt>
           <dd>{r.refundDate}</dd>
-          <dt>Amount</dt>
+          <dt>{t('sales.refundPages.amount')}</dt>
           <dd>
             {formatAmount(r.amount, r.currencyCode)} {r.currencyCode}
           </dd>
           {r.currencyCode !== base ? (
             <>
-              <dt>Exchange rate</dt>
+              <dt>{t('sales.refundPages.exchangeRate')}</dt>
               <dd>
                 {Number(r.exchangeRate)} ({r.exchangeRateSource})
                 {r.tableRate && r.exchangeRateSource !== 'table'
-                  ? ` · table rate ${Number(r.tableRate)}`
+                  ? t('sales.refundPages.tableRate', { value: Number(r.tableRate) })
                   : ''}
                 {r.rateOverrideReason ? ` — ${r.rateOverrideReason}` : ''}
               </dd>
             </>
           ) : null}
-          <dt>Paid out ({base})</dt>
+          <dt>{t('sales.refundPages.paidOut', { base })}</dt>
           <dd>
             {formatAmount(r.baseAmount, base)} {base}
           </dd>
-          <dt>Released from receivables ({base})</dt>
+          <dt>{t('sales.refundPages.releasedFromReceivables', { base })}</dt>
           <dd>
             {formatAmount(r.baseReleased, base)} {base}
           </dd>
           {Number(r.fxDifference) !== 0 ? (
             <>
-              <dt>Realized FX (gain +, loss −)</dt>
+              <dt>{t('sales.refundPages.realizedFxGainLoss')}</dt>
               <dd>
                 {formatAmount(r.fxDifference, base)} {base}
               </dd>
             </>
           ) : null}
-          <dt>Paid from account</dt>
+          <dt>{t('sales.refundPages.paidFromAccount')}</dt>
           <dd>
             <RefundAccountName id={r.refundAccountId} /> (
-            {r.refundAccountOverridden ? 'overridden' : 'default'})
+            {r.refundAccountOverridden
+              ? t('sales.refundPages.overridden')
+              : t('sales.refundPages.default')}
+            )
           </dd>
           {r.reference ? (
             <>
-              <dt>Reference</dt>
+              <dt>{t('sales.refundPages.reference')}</dt>
               <dd>{r.reference}</dd>
             </>
           ) : null}
           {r.voidReason ? (
             <>
-              <dt>Void reason</dt>
+              <dt>{t('sales.refundPages.voidReason')}</dt>
               <dd>{r.voidReason}</dd>
             </>
           ) : null}
           {canJournals ? (
             <>
-              <dt>Journal</dt>
+              <dt>{t('sales.refundPages.journal')}</dt>
               <dd>
-                <Link to={`/accounting/journals/${r.journalId}`}>Journal</Link>
+                <Link to={`/accounting/journals/${r.journalId}`}>
+                  {t('sales.refundPages.journal')}
+                </Link>
                 {r.voidJournalId ? (
                   <>
                     {' · '}
-                    <Link to={`/accounting/journals/${r.voidJournalId}`}>Void journal</Link>
+                    <Link to={`/accounting/journals/${r.voidJournalId}`}>
+                      {t('sales.refundPages.voidJournal')}
+                    </Link>
                   </>
                 ) : null}
               </dd>
@@ -563,11 +598,8 @@ export function CustomerRefundDetailPage() {
         {r.memo ? <p className="memo">{r.memo}</p> : null}
       </Card>
       {r.status === 'RECORDED' && canVoid ? (
-        <Card title="Void this refund">
-          <p className="muted">
-            Voiding reverses the journal and restores the receipt or credit note to its earlier
-            balance. You will be asked for your password.
-          </p>
+        <Card title={t('sales.refundPages.voidThisRefund')}>
+          <p className="muted">{t('sales.refundPages.voidingReversesTheJournalAnd')}</p>
           <form
             className="form form--inline"
             onSubmit={(e) => {
@@ -581,13 +613,13 @@ export function CustomerRefundDetailPage() {
             }}
           >
             <TextField
-              label="Void reason"
+              label={t('sales.refundPages.voidReason')}
               value={voidReason}
               required
               onChange={(e) => setVoidReason(e.target.value)}
             />
             <Button type="submit" variant="secondary" busy={voidRefund.isPending}>
-              Void
+              {t('sales.refundPages.void')}
             </Button>
           </form>
         </Card>

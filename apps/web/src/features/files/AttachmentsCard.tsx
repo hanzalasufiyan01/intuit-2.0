@@ -18,6 +18,7 @@ import {
   type FileLinkType,
   type StoredFile,
 } from './files';
+import { useT } from '../../i18n/i18n';
 
 /**
  * Files attached to one record (S5-22). Access follows the record: `canChange` uploads,
@@ -36,6 +37,7 @@ export function AttachmentsCard({
   canRemove: boolean;
   removeNote?: string;
 }) {
+  const t = useT();
   const org = useAuth().activeOrganization?.id ?? 'none';
   const queryClient = useQueryClient();
   const key = ['files', org, linkType, linkId];
@@ -52,24 +54,24 @@ export function AttachmentsCard({
   const refresh = () => void queryClient.invalidateQueries({ queryKey: key });
 
   return (
-    <Card title="Attachments">
+    <Card title={t('attachments.title')}>
       {files.isPending ? (
-        <Spinner label="Loading attachments" />
+        <Spinner label={t('attachments.loading')} />
       ) : files.isError ? (
         <ErrorAlert error={files.error} />
       ) : files.data.length === 0 ? (
-        <p className="muted">No attachments.</p>
+        <p className="muted">{t('attachments.none')}</p>
       ) : (
         <div className="table-scroll">
           <table className="table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Size</th>
-                <th>Uploaded by</th>
-                <th>Uploaded</th>
-                {canRemove ? <th aria-label="Actions" /> : null}
+                <th>{t('attachments.name')}</th>
+                <th>{t('attachments.type')}</th>
+                <th>{t('attachments.size')}</th>
+                <th>{t('attachments.uploadedBy')}</th>
+                <th>{t('attachments.uploaded')}</th>
+                {canRemove ? <th aria-label={t('common.actions')} /> : null}
               </tr>
             </thead>
             <tbody>
@@ -91,26 +93,26 @@ export function AttachmentsCard({
                           <Button
                             variant="secondary"
                             busy={remove.isPending}
-                            aria-label={`Confirm remove ${f.name}`}
+                            aria-label={t('attachments.confirmRemoveNamed', { name: f.name })}
                             onClick={() =>
                               remove.mutate(f.id, {
                                 onSuccess: () => (setConfirming(null), refresh()),
                               })
                             }
                           >
-                            Confirm remove
+                            {t('attachments.confirmRemove')}
                           </Button>
                           <Button variant="ghost" onClick={() => setConfirming(null)}>
-                            Cancel
+                            {t('common.cancel')}
                           </Button>
                         </>
                       ) : (
                         <Button
                           variant="ghost"
-                          aria-label={`Remove ${f.name}`}
+                          aria-label={t('attachments.removeNamed', { name: f.name })}
                           onClick={() => setConfirming(f.id)}
                         >
-                          Remove
+                          {t('attachments.remove')}
                         </Button>
                       )}
                     </td>
@@ -129,8 +131,8 @@ export function AttachmentsCard({
         <FileUpload
           accept={ALL_FILE_TYPES}
           maxBytes={MAX_FILE_BYTES}
-          label="Attach a file"
-          hint="PDF, image, CSV or Excel, up to 25 MB."
+          label={t('attachments.attach')}
+          hint={t('attachments.hint')}
           upload={async (file, onProgress) => {
             await uploadFile({ linkType, linkId, file, onProgress });
             refresh();

@@ -9,6 +9,10 @@ export const SALES_VIEW_PERMISSIONS = [
   Permission.ReceiptsView,
   Permission.CustomersView,
   Permission.SalesReportsView,
+  Permission.QuotesView,
+  Permission.RecurringInvoicesView,
+  Permission.SalesOrdersView,
+  Permission.PaymentRemindersView,
   Permission.SalesItemsManage,
   Permission.SalesSettingsManage,
 ] as const;
@@ -49,7 +53,7 @@ export const CATALOG_VIEW_PERMISSIONS = [
 /** The Sales area: its pages render inside the locale (and text-direction) provider (D13). */
 export function SalesSection() {
   return (
-    <LocaleProvider locale="en">
+    <LocaleProvider>
       <Outlet />
     </LocaleProvider>
   );

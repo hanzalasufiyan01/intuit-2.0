@@ -12,9 +12,11 @@ import { Permission, usePermission } from '../../permissions/permissions';
 import { Alert } from '../../shared/ui/Alert';
 import { AccountingPage, useAccounts, useDimensions, useOrgKey } from './shared';
 import type { LedgerResult } from './types';
+import { useT } from '../../i18n/i18n';
 
 /** General Ledger: a view over posted journal lines (base-currency balances). */
 export function LedgerPage() {
+  const t = useT();
   const org = useOrgKey();
   const accounts = useAccounts();
   const canViewDimensions = usePermission(Permission.DimensionsView);
@@ -53,10 +55,7 @@ export function LedgerPage() {
 
   return (
     <>
-      <PageHeader
-        title="General Ledger"
-        description="Only posted journals affect the ledger. Parent accounts roll up their children."
-      />
+      <PageHeader title={t('ledger.title')} description={t('ledger.description')} />
       <AccountingPage>
         <p className="actions">
           <ExportButton domain="general_ledger" params={Object.fromEntries(params)} />
@@ -64,13 +63,13 @@ export function LedgerPage() {
         <Card>
           <div className="form form--inline">
             <div className="field">
-              <label htmlFor="ledger-account">Account</label>
+              <label htmlFor="ledger-account">{t('ledger.account')}</label>
               <select
                 id="ledger-account"
                 value={filter.accountId}
                 onChange={(e) => setFilter({ ...filter, accountId: e.target.value })}
               >
-                <option value="">All accounts</option>
+                <option value="">{t('ledger.allAccounts')}</option>
                 {(accounts.data ?? []).map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.code} {a.name}
@@ -79,13 +78,13 @@ export function LedgerPage() {
               </select>
             </div>
             <TextField
-              label="From"
+              label={t('ledger.from')}
               type="date"
               value={filter.fromDate}
               onChange={(e) => setFilter({ ...filter, fromDate: e.target.value })}
             />
             <TextField
-              label="To"
+              label={t('ledger.to')}
               type="date"
               value={filter.toDate}
               onChange={(e) => setFilter({ ...filter, toDate: e.target.value })}
@@ -98,7 +97,7 @@ export function LedgerPage() {
                   value={dimensionFilter[type.id] ?? ''}
                   onChange={(e) => setDimensionFilter({ ...chosen, [type.id]: e.target.value })}
                 >
-                  <option value="">All</option>
+                  <option value="">{t('ledger.all')}</option>
                   {type.values.map((v) => (
                     <option key={v.id} value={v.id}>
                       {v.name}
@@ -111,23 +110,23 @@ export function LedgerPage() {
         </Card>
         <Card>
           {ledger.isPending ? (
-            <Spinner label="Loading ledger" />
+            <Spinner label={t('ledger.loading')} />
           ) : ledger.isError ? (
             <ErrorAlert error={ledger.error} />
           ) : (
             <>
               {ledger.data.taggedActivityOnly ? (
                 <Alert tone="info">
-                  Tagged activity only:{' '}
-                  {(ledger.data.dimensionFilter ?? [])
-                    .map((d) => `${d.typeName} = ${d.valueName}`)
-                    .join(', ')}
-                  . Untagged lines are excluded, so balances are not complete account balances.
+                  {t('ledger.tagged', {
+                    filters: (ledger.data.dimensionFilter ?? [])
+                      .map((d) => `${d.typeName} = ${d.valueName}`)
+                      .join(', '),
+                  })}
                 </Alert>
               ) : null}
               {ledger.data.openingBalance !== null ? (
                 <p>
-                  Opening balance:{' '}
+                  {t('ledger.opening')}{' '}
                   <strong>
                     {formatAmount(ledger.data.openingBalance, base)} {base}
                   </strong>
@@ -136,14 +135,14 @@ export function LedgerPage() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Date</th>
-                    <th>Journal</th>
-                    <th>Account</th>
-                    <th>Description</th>
-                    <th>Transaction</th>
-                    <th>Debit ({base})</th>
-                    <th>Credit ({base})</th>
-                    {filter.accountId ? <th>Balance</th> : null}
+                    <th>{t('ledger.date')}</th>
+                    <th>{t('ledger.journal')}</th>
+                    <th>{t('ledger.account')}</th>
+                    <th>{t('ledger.descriptionColumn')}</th>
+                    <th>{t('ledger.transaction')}</th>
+                    <th>{t('ledger.debit', { currency: base })}</th>
+                    <th>{t('ledger.credit', { currency: base })}</th>
+                    {filter.accountId ? <th>{t('ledger.balance')}</th> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -170,16 +169,14 @@ export function LedgerPage() {
                 </tbody>
                 <tfoot>
                   <tr>
-                    <th colSpan={5}>Totals</th>
+                    <th colSpan={5}>{t('ledger.totals')}</th>
                     <th>{formatAmount(ledger.data.totals.baseDebit, base)}</th>
                     <th>{formatAmount(ledger.data.totals.baseCredit, base)}</th>
                     {filter.accountId ? <th /> : null}
                   </tr>
                 </tfoot>
               </table>
-              {ledger.data.truncated ? (
-                <p className="muted">Showing the first rows only; narrow the date range.</p>
-              ) : null}
+              {ledger.data.truncated ? <p className="muted">{t('ledger.truncated')}</p> : null}
             </>
           )}
         </Card>

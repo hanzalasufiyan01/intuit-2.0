@@ -5,6 +5,7 @@ import { api } from '../../services/api-client';
 import { ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { downloadExport, useExport, type ExportDomainKey, type ExportView } from './api';
+import { useT } from '../../i18n/i18n';
 
 /**
  * Export action for a list or report screen (S6-44): exports exactly the screen's current
@@ -13,17 +14,19 @@ import { downloadExport, useExport, type ExportDomainKey, type ExportView } from
 export function ExportButton({
   domain,
   params = {},
-  label = 'Export CSV',
+  label,
 }: {
   domain: ExportDomainKey;
   params?: Record<string, unknown>;
   label?: string;
 }) {
+  const t = useT();
+  const csvLabel = label ?? t('export.csv');
   const [exportId, setExportId] = useState<string | null>(null);
   const start = useApiMutation((format: 'csv' | 'xlsx') =>
     api.post<{ export: ExportView; jobId: string }>('/exports', { domain, params, format }),
   );
-  const xlsxLabel = label.includes('CSV') ? label.replace('CSV', 'XLSX') : 'Export XLSX';
+  const xlsxLabel = csvLabel.includes('CSV') ? csvLabel.replace('CSV', 'XLSX') : t('export.xlsx');
   const current = useExport(exportId);
   const download = useApiMutation((id: string) => downloadExport(id));
   const status = current.data?.status;
@@ -37,7 +40,7 @@ export function ExportButton({
           busy={download.isPending}
           onClick={() => download.mutate(current.data!.id)}
         >
-          Download {current.data!.rowCount ?? 0} rows
+          {t('export.download', { count: current.data!.rowCount ?? 0 })}
         </Button>
       ) : (
         <>
@@ -50,15 +53,14 @@ export function ExportButton({
                 start.mutate(format, { onSuccess: (result) => setExportId(result.export.id) })
               }
             >
-              {working ? 'Preparing export…' : format === 'csv' ? label : xlsxLabel}
+              {working ? t('export.preparing') : format === 'csv' ? csvLabel : xlsxLabel}
             </Button>
           ))}
         </>
       )}
       {status === 'failed' ? (
         <span className="alert alert--error" role="alert">
-          {current.data!.error ?? 'The export could not be completed.'}{' '}
-          <Link to="/exports">All exports</Link>
+          {current.data!.error ?? t('export.failed')} <Link to="/exports">{t('export.all')}</Link>
         </span>
       ) : null}
       <ErrorAlert error={start.error ?? download.error} />

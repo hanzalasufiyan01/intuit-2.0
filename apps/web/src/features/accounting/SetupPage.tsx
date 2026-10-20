@@ -11,6 +11,7 @@ import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
 import { AccountingNav, useAccountingSetup, useOrgKey } from './shared';
+import { useT } from '../../i18n/i18n';
 
 function CurrencyInput({
   value,
@@ -23,6 +24,7 @@ function CurrencyInput({
   label: string;
   error?: string | undefined;
 }) {
+  const t = useT();
   return (
     <>
       <TextField
@@ -32,7 +34,7 @@ function CurrencyInput({
         list="currency-options"
         maxLength={3}
         error={error}
-        hint="3-letter ISO 4217 code"
+        hint={t('setup.currencyHint')}
       />
       <datalist id="currency-options">
         {COMMON_CURRENCIES.map((c) => (
@@ -44,6 +46,7 @@ function CurrencyInput({
 }
 
 function ExchangeRates({ baseCurrency }: { baseCurrency: string }) {
+  const t = useT();
   const org = useOrgKey();
   const queryClient = useQueryClient();
   const rates = useQuery({
@@ -64,30 +67,30 @@ function ExchangeRates({ baseCurrency }: { baseCurrency: string }) {
     });
   };
   return (
-    <Card title={`Exchange rates (1 unit = x ${baseCurrency})`}>
+    <Card title={t('setup.ratesTitle', { currency: baseCurrency })}>
       <form className="form form--inline" onSubmit={submit} noValidate>
         <CurrencyInput
-          label="Currency"
+          label={t('setup.rateCurrency')}
           value={form.fromCurrency}
           onChange={(v) => setForm({ ...form, fromCurrency: v })}
           error={record.error?.fieldError('fromCurrency')}
         />
         <TextField
-          label="Date"
+          label={t('setup.rateDate')}
           type="date"
           value={form.rateDate}
           onChange={(e) => setForm({ ...form, rateDate: e.target.value })}
           error={record.error?.fieldError('rateDate')}
         />
         <TextField
-          label="Rate"
+          label={t('setup.rate')}
           inputMode="decimal"
           value={form.rate}
           onChange={(e) => setForm({ ...form, rate: e.target.value })}
           error={record.error?.fieldError('rate')}
         />
         <Button type="submit" busy={record.isPending}>
-          Record rate
+          {t('setup.recordRate')}
         </Button>
       </form>
       <ErrorAlert error={record.error?.issues.length ? null : record.error} />
@@ -95,9 +98,9 @@ function ExchangeRates({ baseCurrency }: { baseCurrency: string }) {
         <table className="table">
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Currency</th>
-              <th>Rate</th>
+              <th>{t('setup.rateDate')}</th>
+              <th>{t('setup.rateCurrency')}</th>
+              <th>{t('setup.rate')}</th>
             </tr>
           </thead>
           <tbody>
@@ -111,13 +114,14 @@ function ExchangeRates({ baseCurrency }: { baseCurrency: string }) {
           </tbody>
         </table>
       ) : (
-        <p className="muted">No rates recorded.</p>
+        <p className="muted">{t('setup.noRates')}</p>
       )}
     </Card>
   );
 }
 
 export function SetupPage() {
+  const t = useT();
   const setup = useAccountingSetup();
   const queryClient = useQueryClient();
   const sensitive = useSensitiveAction();
@@ -136,21 +140,21 @@ export function SetupPage() {
 
   return (
     <>
-      <PageHeader title="Accounting setup" />
+      <PageHeader title={t('setup.title')} />
       <AccountingNav />
       {setup.isPending ? (
-        <Spinner label="Loading setup" />
+        <Spinner label={t('setup.loading')} />
       ) : setup.isError ? (
         <ErrorAlert error={setup.error} />
       ) : setup.data.isSetUp ? (
         <>
-          <Card title="Settings">
+          <Card title={t('setup.settings')}>
             <p>
-              Base currency: <strong>{setup.data.settings?.baseCurrency}</strong>
-              {setup.data.settings?.baseCurrencyLocked ? ' (fixed: journals have been posted)' : ''}
+              {t('setup.baseCurrency')} <strong>{setup.data.settings?.baseCurrency}</strong>
+              {setup.data.settings?.baseCurrencyLocked ? t('setup.locked') : ''}
             </p>
             <p className="muted">
-              Chart of accounts template: {setup.data.settings?.coaTemplateKey}
+              {t('setup.templateUsed', { key: setup.data.settings?.coaTemplateKey ?? '' })}
             </p>
           </Card>
           <Can permission={Permission.AccountingSetup}>
@@ -160,37 +164,38 @@ export function SetupPage() {
       ) : (
         <Can
           permission={Permission.AccountingSetup}
-          fallback={<Alert>Ask an administrator to set up accounting.</Alert>}
+          fallback={<Alert>{t('setup.askAdmin')}</Alert>}
         >
-          <Card title="Set up accounting">
+          <Card title={t('setup.setUp')}>
             <form className="form" onSubmit={submit} noValidate>
               <CurrencyInput
-                label="Base (functional) currency"
+                label={t('setup.baseCurrencyLabel')}
                 value={baseCurrency}
                 onChange={setBaseCurrency}
                 error={mutation.error?.fieldError('baseCurrency')}
               />
               <fieldset className="field">
-                <legend>Chart of accounts template</legend>
-                {setup.data.templates.map((t) => (
-                  <label key={t.key} className="radio">
+                <legend>{t('setup.template')}</legend>
+                {setup.data.templates.map((template) => (
+                  <label key={template.key} className="radio">
                     <input
                       type="radio"
                       name="template"
-                      value={t.key}
-                      checked={templateKey === t.key}
-                      onChange={() => setTemplateKey(t.key)}
+                      value={template.key}
+                      checked={templateKey === template.key}
+                      onChange={() => setTemplateKey(template.key)}
                     />{' '}
-                    {t.name}{' '}
+                    {template.name}{' '}
                     <span className="muted">
-                      — {t.description} ({t.accountCount} accounts)
+                      — {template.description}{' '}
+                      {t('setup.accountCount', { count: template.accountCount })}
                     </span>
                   </label>
                 ))}
               </fieldset>
               <ErrorAlert error={mutation.error?.issues.length ? null : mutation.error} />
               <Button type="submit" busy={mutation.isPending}>
-                Set up accounting
+                {t('setup.setUp')}
               </Button>
             </form>
           </Card>

@@ -16,13 +16,15 @@ import { AttachmentsCard } from '../files/AttachmentsCard';
 import { JournalEditor } from './JournalEditor';
 import { AccountingPage, journalLabel, StatusBadge, useAccounts, useOrgKey } from './shared';
 import type { JournalDetail } from './types';
+import { useT, type MessageKey, type Translate } from '../../i18n/i18n';
 
 export function NewJournalPage() {
+  const t = useT();
   return (
     <>
       <PageHeader
-        title="New journal"
-        description="Drafts may be incomplete; posting requires a balanced double entry."
+        title={t('accounting.journalPages.newJournal')}
+        description={t('accounting.journalPages.draftsMayBeIncompletePosting')}
       />
       <AccountingPage>
         <Card>
@@ -42,7 +44,10 @@ function useJournal(id: string) {
 }
 
 /** Subledger modules whose journals are reversed only by voiding their documents (E2, P4-09). */
-const SUBLEDGER_LABELS: Record<string, string> = { sales: 'Sales', purchases: 'Purchases' };
+const SUBLEDGER_LABELS: Record<string, MessageKey> = {
+  sales: 'accounting.journalPages.subledger.sales',
+  purchases: 'accounting.journalPages.subledger.purchases',
+};
 /** FX and revaluation system journals are never reversed generically (Decision 80). */
 const FX_SYSTEM_TYPES = ['realized_fx', 'revaluation', 'revaluation_reversal'];
 
@@ -50,25 +55,26 @@ const FX_SYSTEM_TYPES = ['realized_fx', 'revaluation', 'revaluation_reversal'];
  * Why the generic reversal does not apply to a journal (the server refuses these with 409
  * SYSTEM_JOURNAL; this only avoids offering an action that cannot succeed), or null.
  */
-export function genericReversalBlock(journal: JournalDetail): string | null {
+export function genericReversalBlock(journal: JournalDetail, t: Translate): string | null {
   const owner =
     (journal.sourceModule ? SUBLEDGER_LABELS[journal.sourceModule] : undefined) ??
     (journal.sourceDocument ? SUBLEDGER_LABELS[journal.sourceDocument.module] : undefined);
   if (owner) {
-    return `This journal belongs to ${owner}; it is reversed by voiding its document there, not here.`;
+    return t('accounting.journalPages.reversalBlockedOwner', { owner: t(owner) });
   }
   if (
     journal.source === 'system' &&
     journal.sourceType &&
     FX_SYSTEM_TYPES.includes(journal.sourceType)
   ) {
-    return 'This FX system journal is corrected through its FX process, not reversed here.';
+    return t('accounting.journalPages.reversalBlockedFx');
   }
   return null;
 }
 
 /** Workflow actions offered only when both the state and the user's permissions allow them. */
 function JournalActions({ journal }: { journal: JournalDetail }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const sensitive = useSensitiveAction();
@@ -121,7 +127,7 @@ function JournalActions({ journal }: { journal: JournalDetail }) {
           : journal.approval.status === 'approved')));
 
   return (
-    <Card title="Actions">
+    <Card title={t('common.actions')}>
       <ErrorAlert
         error={
           act.error?.issues.length
@@ -129,7 +135,12 @@ function JournalActions({ journal }: { journal: JournalDetail }) {
                 act.error.issues
                   .map((i) => {
                     const line = /^lines\.(\d+)/.exec(i.path);
-                    return line ? `Line ${Number(line[1]) + 1}: ${i.message}` : i.message;
+                    return line
+                      ? t('accounting.journalPages.lineIssue', {
+                          line: Number(line[1]) + 1,
+                          message: i.message,
+                        })
+                      : i.message;
                   })
                   .join(' '),
               )
@@ -139,62 +150,62 @@ function JournalActions({ journal }: { journal: JournalDetail }) {
       <div className="actions">
         {journal.status === 'DRAFT' && can.submit ? (
           <Button busy={act.isPending} onClick={() => run('submit')}>
-            Submit
+            {t('accounting.journalPages.submit')}
           </Button>
         ) : null}
         {canPostNow ? (
           <Button busy={act.isPending} onClick={() => run('post', undefined, true)}>
-            Post
+            {t('accounting.journalPages.post')}
           </Button>
         ) : null}
         {pending && can.submit ? (
           <Button variant="secondary" onClick={() => run('withdraw')}>
-            Withdraw to draft
+            {t('accounting.journalPages.withdrawToDraft')}
           </Button>
         ) : null}
         {discardable ? (
           confirmDiscard ? (
             <>
               <Button variant="secondary" busy={act.isPending} onClick={() => run('discard')}>
-                Confirm discard
+                {t('accounting.journalPages.confirmDiscard')}
               </Button>
               <Button variant="ghost" onClick={() => setConfirmDiscard(false)}>
-                Keep
+                {t('accounting.journalPages.keep')}
               </Button>
             </>
           ) : (
             <Button variant="ghost" onClick={() => setConfirmDiscard(true)}>
-              Discard imported draft
+              {t('accounting.journalPages.discardImportedDraft')}
             </Button>
           )
         ) : null}
-        {journal.status === 'POSTED' && can.reverse && genericReversalBlock(journal) === null ? (
+        {journal.status === 'POSTED' && can.reverse && genericReversalBlock(journal, t) === null ? (
           <Button
             variant="secondary"
             onClick={() => setReverseForm({ ...reverseForm, open: true })}
           >
-            Reverse…
+            {t('accounting.journalPages.reverse')}
           </Button>
         ) : null}
       </div>
-      {journal.status === 'POSTED' && can.reverse && genericReversalBlock(journal) !== null ? (
-        <p className="muted">{genericReversalBlock(journal)}</p>
+      {journal.status === 'POSTED' && can.reverse && genericReversalBlock(journal, t) !== null ? (
+        <p className="muted">{genericReversalBlock(journal, t)}</p>
       ) : null}
       {needsApproval && can.approve ? (
         isOwnWork ? (
-          <p className="muted">You prepared or submitted this journal, so you cannot approve it.</p>
+          <p className="muted">{t('accounting.journalPages.youPreparedOrSubmittedThis')}</p>
         ) : (
           <div className="form form--inline">
             <TextField
-              label="Comment"
+              label={t('accounting.journalPages.comment')}
               value={comment}
               onChange={(e) => setComment(e.target.value)}
             />
             <Button busy={act.isPending} onClick={() => run('approve', comment ? { comment } : {})}>
-              Approve
+              {t('accounting.journalPages.approve')}
             </Button>
             <Button variant="secondary" onClick={() => run('reject', comment ? { comment } : {})}>
-              Reject
+              {t('accounting.journalPages.reject')}
             </Button>
           </div>
         )
@@ -215,19 +226,19 @@ function JournalActions({ journal }: { journal: JournalDetail }) {
           }}
         >
           <TextField
-            label="Reason"
+            label={t('accounting.journalPages.reason')}
             value={reverseForm.reason}
             onChange={(e) => setReverseForm({ ...reverseForm, reason: e.target.value })}
           />
           <TextField
-            label="Reversal date"
+            label={t('accounting.journalPages.reversalDate')}
             type="date"
             value={reverseForm.reversalDate}
             onChange={(e) => setReverseForm({ ...reverseForm, reversalDate: e.target.value })}
-            hint="Defaults to the original date"
+            hint={t('accounting.journalPages.defaultsToTheOriginalDate')}
           />
           <Button type="submit" busy={act.isPending}>
-            Reverse journal
+            {t('accounting.journalPages.reverseJournal')}
           </Button>
         </form>
       ) : null}
@@ -236,6 +247,7 @@ function JournalActions({ journal }: { journal: JournalDetail }) {
 }
 
 export function JournalDetailPage() {
+  const t = useT();
   const { id = '' } = useParams();
   const journal = useJournal(id);
   const accounts = useAccounts();
@@ -244,10 +256,14 @@ export function JournalDetailPage() {
   const queryClient = useQueryClient();
   const accountName = (accountId: string | null) => {
     const a = accounts.data?.find((x) => x.id === accountId);
-    return a ? `${a.code} ${a.name}` : accountId ? 'Unknown account' : '(no account)';
+    return a
+      ? `${a.code} ${a.name}`
+      : accountId
+        ? t('accounting.journalPages.unknownAccount')
+        : t('accounting.journalPages.noAccount');
   };
 
-  if (journal.isPending) return <Spinner label="Loading journal" />;
+  if (journal.isPending) return <Spinner label={t('accounting.journalPages.loadingJournal')} />;
   if (journal.isError) return <ErrorAlert error={journal.error} />;
   const j = journal.data;
 
@@ -257,74 +273,100 @@ export function JournalDetailPage() {
       <AccountingPage>
         <Card>
           <p>
-            <StatusBadge status={j.status} /> {j.entryDate} · {j.currency}
-            {j.exchangeRate ? ` · rate ${j.exchangeRate} (${j.exchangeRateSource})` : ''}
-            {j.reference ? ` · ref ${j.reference}` : ''} · source: {j.source}
-            {j.sourceModule ? ` (${j.sourceModule} ${j.sourceType ?? ''} ${j.sourceId ?? ''})` : ''}
+            <StatusBadge status={j.status} />{' '}
+            {t('accounting.journalPages.source', {
+              entryDate: j.entryDate,
+              currency: j.currency,
+              value: j.exchangeRate
+                ? t('accounting.journalPages.rate', {
+                    exchangeRate: j.exchangeRate,
+                    exchangeRateSource: j.exchangeRateSource,
+                  })
+                : '',
+              value2: j.reference
+                ? t('accounting.journalPages.ref', { reference: j.reference })
+                : '',
+              source: j.source,
+              value3: j.sourceModule
+                ? ` (${j.sourceModule} ${j.sourceType ?? ''} ${j.sourceId ?? ''})`
+                : '',
+            })}
           </p>
           {j.sourceDocument ? (
             <p className="muted">
               {j.sourceDocument.relation === 'reversal'
-                ? 'Reverses the posting of '
-                : 'Posted from '}
+                ? t('accounting.journalPages.reversesThePostingOf')
+                : t('accounting.journalPages.postedFrom')}
               <Link to={j.sourceDocument.path}>{j.sourceDocument.label}</Link>.
             </p>
           ) : j.sourceType === 'opening_balance' && j.sourceId ? (
             <p className="muted">
-              Posted from{' '}
+              {t('accounting.journalPages.postedFrom2')}{' '}
               <Link to={`/accounting/opening-balances/${j.sourceId}`}>
-                an opening balance batch
+                {t('accounting.journalPages.anOpeningBalanceBatch')}
               </Link>
-              ; it is reversed only with the whole batch.
+              {t('accounting.journalPages.itIsReversedOnlyWith')}
             </p>
           ) : null}
           {j.sourceModule === 'data_exchange' && j.sourceId ? (
             <p className="muted">
-              Imported from <Link to={`/imports/${j.sourceId}`}>an import</Link>.
+              {t('accounting.journalPages.importedFrom')}{' '}
+              <Link to={`/imports/${j.sourceId}`}>{t('accounting.journalPages.anImport')}</Link>.
             </p>
           ) : null}
           {j.status === 'DISCARDED' ? (
             <Alert tone="info">
-              This imported draft was discarded
-              {j.discardedAt ? ` on ${new Date(j.discardedAt).toLocaleString()}` : ''}. It is kept
-              for the record and can no longer change.
+              {t('accounting.journalPages.thisImportedDraftWasDiscarded', {
+                value: j.discardedAt
+                  ? t('accounting.journalPages.on', {
+                      value: new Date(j.discardedAt).toLocaleString(),
+                    })
+                  : '',
+              })}
             </Alert>
           ) : null}
           {j.reversedByJournalId ? (
             <Alert tone="info">
-              Reversed by{' '}
-              <Link to={`/accounting/journals/${j.reversedByJournalId}`}>this journal</Link>:{' '}
-              {j.reversalReason}
+              {t('accounting.journalPages.reversedBy')}{' '}
+              <Link to={`/accounting/journals/${j.reversedByJournalId}`}>
+                {t('accounting.journalPages.thisJournal')}
+              </Link>
+              : {j.reversalReason}
             </Alert>
           ) : null}
           {j.reversesJournalId ? (
             <Alert tone="info">
-              Reverses <Link to={`/accounting/journals/${j.reversesJournalId}`}>this journal</Link>:{' '}
-              {j.reversalReason}
+              {t('accounting.journalPages.reverses')}{' '}
+              <Link to={`/accounting/journals/${j.reversesJournalId}`}>
+                {t('accounting.journalPages.thisJournal')}
+              </Link>
+              : {j.reversalReason}
             </Alert>
           ) : null}
           {j.approval ? (
             <p className="muted">
-              Approval: {j.approval.status} —{' '}
-              {j.approval.steps
-                .map((s) => `${s.name} ${s.approvals}/${s.requiredApprovals}`)
-                .join(', ')}
+              {t('accounting.journalPages.approval', {
+                status: j.approval.status,
+                value: j.approval.steps
+                  .map((s) => `${s.name} ${s.approvals}/${s.requiredApprovals}`)
+                  .join(', '),
+              })}
             </p>
           ) : null}
           {(j.status === 'DRAFT' || j.status === 'PENDING_APPROVAL') && !j.approval ? (
             <div className="approval-requirement" data-testid="approval-requirement">
               <p>
                 {j.approvalRequiredForPosting
-                  ? 'Approval is required before posting'
-                  : 'No approval is required to post this journal'}{' '}
-                <span className="muted">({describeFacts(j.approvalFacts)})</span>
+                  ? t('accounting.journalPages.approvalIsRequiredBeforePosting')
+                  : t('accounting.journalPages.noApprovalIsRequiredTo')}{' '}
+                <span className="muted">({describeFacts(j.approvalFacts, t)})</span>
               </p>
               <AppliedSteps steps={j.approvalSteps} baseCurrency={j.approvalFacts.baseCurrency} />
             </div>
           ) : null}
         </Card>
         {editing && j.status === 'DRAFT' ? (
-          <Card title="Edit draft">
+          <Card title={t('accounting.journalPages.editDraft')}>
             <JournalEditor
               journal={j}
               onSaved={() => {
@@ -335,11 +377,11 @@ export function JournalDetailPage() {
           </Card>
         ) : (
           <Card
-            title="Lines"
+            title={t('accounting.journalPages.lines')}
             actions={
               j.status === 'DRAFT' && canEdit ? (
                 <Button variant="secondary" onClick={() => setEditing(true)}>
-                  Edit draft
+                  {t('accounting.journalPages.editDraft')}
                 </Button>
               ) : null
             }
@@ -348,13 +390,21 @@ export function JournalDetailPage() {
               <thead>
                 <tr>
                   <th>#</th>
-                  <th>Account</th>
-                  <th>Description</th>
-                  <th>Dimensions</th>
-                  <th>Debit</th>
-                  <th>Credit</th>
-                  {j.baseCurrency ? <th>Base debit ({j.baseCurrency})</th> : null}
-                  {j.baseCurrency ? <th>Base credit ({j.baseCurrency})</th> : null}
+                  <th>{t('accounting.journalPages.account')}</th>
+                  <th>{t('accounting.journalPages.description')}</th>
+                  <th>{t('accounting.journalPages.dimensions')}</th>
+                  <th>{t('accounting.journalPages.debit')}</th>
+                  <th>{t('accounting.journalPages.credit')}</th>
+                  {j.baseCurrency ? (
+                    <th>
+                      {t('accounting.journalPages.baseDebit', { baseCurrency: j.baseCurrency })}
+                    </th>
+                  ) : null}
+                  {j.baseCurrency ? (
+                    <th>
+                      {t('accounting.journalPages.baseCredit', { baseCurrency: j.baseCurrency })}
+                    </th>
+                  ) : null}
                 </tr>
               </thead>
               <tbody>
@@ -364,7 +414,9 @@ export function JournalDetailPage() {
                     <td>{accountName(l.accountId)}</td>
                     <td>
                       {l.description}
-                      {l.kind === 'base_only' ? <span className="muted"> (base only)</span> : null}
+                      {l.kind === 'base_only' ? (
+                        <span className="muted"> {t('accounting.journalPages.baseOnly')}</span>
+                      ) : null}
                     </td>
                     <td>
                       {(l.dimensions ?? []).map((d) => (
@@ -390,7 +442,7 @@ export function JournalDetailPage() {
           linkId={j.id}
           canChange={canEdit}
           canRemove={canEdit && j.status === 'DRAFT'}
-          removeNote="Attachments stay with the journal once it leaves draft."
+          removeNote={t('accounting.journalPages.attachmentsStayWithTheJournal')}
         />
       </AccountingPage>
     </>

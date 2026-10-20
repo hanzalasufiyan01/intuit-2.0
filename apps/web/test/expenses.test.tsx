@@ -208,6 +208,54 @@ describe('expense detail', () => {
     expect(posted.body).toEqual({ version: 1 });
   });
 
+  it('asks for a reason when the supplier reference is already used, then posts with it', async () => {
+    const user = userEvent.setup();
+    let attempts = 0;
+    const calls = stubApi(
+      common(CREATE, {
+        'GET /purchases/expenses/e1': ok(
+          detail({
+            warnings: [
+              {
+                code: 'DUPLICATE_VENDOR_REFERENCE',
+                message:
+                  'Another expense or bill from this vendor has the same supplier reference.',
+              },
+            ],
+          }),
+        ),
+        'POST /purchases/expenses/e1/post': () => {
+          attempts += 1;
+          return attempts === 1
+            ? {
+                status: 409,
+                body: {
+                  error: {
+                    code: 'DUPLICATE_VENDOR_REFERENCE',
+                    message:
+                      'Another expense from this vendor already uses supplier reference R-1.',
+                    requestId: 'r',
+                  },
+                },
+              }
+            : { status: 200, body: { data: detail({ status: 'POSTED', number: 'EXP-00002' }) } };
+        },
+      }),
+    );
+    renderAt('/purchases/expenses/e1');
+    await user.click(await screen.findByRole('button', { name: 'Post expense' }));
+    expect(await screen.findByText('Possible duplicate')).toBeTruthy();
+    await user.type(
+      screen.getByLabelText('Reason to post a duplicate supplier invoice number'),
+      'Second receipt',
+    );
+    await user.click(screen.getByRole('button', { name: /Post anyway/i }));
+    await waitFor(() => {
+      const posts = calls.filter((c) => c.method === 'POST');
+      expect(posts.at(-1)?.body).toEqual({ version: 1, duplicateReason: 'Second receipt' });
+    });
+  });
+
   it('disables posting until a required approval is ready, and offers submit', async () => {
     stubApi(
       common(CREATE, {

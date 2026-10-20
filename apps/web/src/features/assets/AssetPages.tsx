@@ -12,6 +12,7 @@ import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
 import { useAccounts } from '../accounting/shared';
+import { useT } from '../../i18n/i18n';
 
 /**
  * Fixed assets: the register, categories, depreciation runs, disposal and transfers. The server
@@ -106,16 +107,17 @@ function useOrgKey() {
 }
 
 export function AssetsSection() {
+  const t = useT();
   return (
     <>
-      <nav className="subnav" aria-label="Fixed assets">
+      <nav className="subnav" aria-label={t('assets.assetPages.fixedAssets')}>
         <NavLink to="/assets" end>
-          Register
+          {t('assets.assetPages.register')}
         </NavLink>
         <Can permission={Permission.FixedAssetsView}>
-          <NavLink to="/assets/depreciation">Depreciation</NavLink>
-          <NavLink to="/assets/categories">Categories</NavLink>
-          <NavLink to="/assets/reports">Reports</NavLink>
+          <NavLink to="/assets/depreciation">{t('assets.assetPages.depreciation')}</NavLink>
+          <NavLink to="/assets/categories">{t('assets.assetPages.categories')}</NavLink>
+          <NavLink to="/assets/reports">{t('assets.assetPages.reports')}</NavLink>
         </Can>
       </nav>
       <Outlet />
@@ -128,6 +130,7 @@ export function AssetsSection() {
 // ---------------------------------------------------------------------------
 
 export function AssetsPage() {
+  const t = useT();
   const org = useOrgKey();
   const queryClient = useQueryClient();
   const canManage = usePermission(Permission.FixedAssetsManage);
@@ -202,16 +205,16 @@ export function AssetsPage() {
   return (
     <>
       <PageHeader
-        title="Fixed assets"
-        description="The register of what the business owns, its cost, accumulated depreciation and book value."
+        title={t('assets.assetPages.fixedAssets')}
+        description={t('assets.assetPages.theRegisterOfWhatThe')}
       />
       <Card>
         <div className="field">
-          <label htmlFor="asset-status">Show</label>
+          <label htmlFor="asset-status">{t('assets.assetPages.show')}</label>
           <select id="asset-status" value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="">All</option>
-            <option value="ACTIVE">In use</option>
-            <option value="DISPOSED">Disposed of</option>
+            <option value="">{t('common.all')}</option>
+            <option value="ACTIVE">{t('assets.assetPages.inUse')}</option>
+            <option value="DISPOSED">{t('assets.assetPages.disposedOf')}</option>
           </select>
         </div>
         {list.isPending ? (
@@ -219,18 +222,18 @@ export function AssetsPage() {
         ) : list.isError ? (
           <ErrorAlert error={list.error} />
         ) : list.data.items.length === 0 ? (
-          <p className="muted">No fixed assets yet.</p>
+          <p className="muted">{t('assets.assetPages.noFixedAssetsYet')}</p>
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Number</th>
-                <th>Name</th>
-                <th>Category</th>
-                <th className="num">Cost</th>
-                <th className="num">Accumulated</th>
-                <th className="num">Book value</th>
-                <th>Status</th>
+                <th>{t('assets.assetPages.number')}</th>
+                <th>{t('assets.assetPages.name')}</th>
+                <th>{t('assets.assetPages.category')}</th>
+                <th className="num">{t('assets.assetPages.cost')}</th>
+                <th className="num">{t('assets.assetPages.accumulated')}</th>
+                <th className="num">{t('assets.assetPages.bookValue')}</th>
+                <th>{t('assets.assetPages.status')}</th>
               </tr>
             </thead>
             <tbody>
@@ -248,7 +251,9 @@ export function AssetsPage() {
                     <span
                       className={`badge badge--${a.status === 'ACTIVE' ? 'posted' : 'reversed'}`}
                     >
-                      {a.status === 'ACTIVE' ? 'In use' : 'Disposed'}
+                      {a.status === 'ACTIVE'
+                        ? t('assets.assetPages.inUse')
+                        : t('assets.assetPages.disposed')}
                     </span>
                   </td>
                 </tr>
@@ -258,10 +263,10 @@ export function AssetsPage() {
         )}
       </Card>
       {canManage ? (
-        <Card title="Register an asset">
+        <Card title={t('assets.assetPages.registerAnAsset')}>
           <form onSubmit={submit} className="form-grid">
             <TextField
-              label="Name"
+              label={t('assets.assetPages.name')}
               value={form.name}
               required
               maxLength={200}
@@ -269,14 +274,14 @@ export function AssetsPage() {
               error={error?.fieldError('name')}
             />
             <div className="field">
-              <label htmlFor="asset-category">Category</label>
+              <label htmlFor="asset-category">{t('assets.assetPages.category')}</label>
               <select
                 id="asset-category"
                 value={form.categoryId}
                 required
                 onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
               >
-                <option value="">Choose…</option>
+                <option value="">{t('common.choose')}</option>
                 {(categories.data?.items ?? [])
                   .filter((c) => c.status === 'ACTIVE')
                   .map((c) => (
@@ -287,7 +292,7 @@ export function AssetsPage() {
               </select>
             </div>
             <TextField
-              label="Acquired on"
+              label={t('assets.assetPages.acquiredOn')}
               type="date"
               value={form.acquisitionDate}
               required
@@ -295,7 +300,7 @@ export function AssetsPage() {
               error={error?.fieldError('acquisitionDate')}
             />
             <TextField
-              label="Cost"
+              label={t('assets.assetPages.cost')}
               value={form.cost}
               required
               inputMode="decimal"
@@ -303,21 +308,21 @@ export function AssetsPage() {
               error={error?.fieldError('cost')}
             />
             <TextField
-              label="Salvage value"
+              label={t('assets.assetPages.salvageValue')}
               value={form.salvageValue}
               inputMode="decimal"
               onChange={(e) => setForm({ ...form, salvageValue: e.target.value })}
               error={error?.fieldError('salvageValue')}
             />
             <TextField
-              label="Life in months"
+              label={t('assets.assetPages.lifeInMonths')}
               value={form.lifeMonths}
               inputMode="numeric"
               onChange={(e) => setForm({ ...form, lifeMonths: e.target.value })}
-              hint="Defaults to the category."
+              hint={t('assets.assetPages.defaultsToTheCategory')}
             />
             <div className="field">
-              <label htmlFor="asset-credit">Paid from</label>
+              <label htmlFor="asset-credit">{t('assets.assetPages.paidFrom')}</label>
               <select
                 id="asset-credit"
                 value={form.creditAccountId}
@@ -325,7 +330,7 @@ export function AssetsPage() {
                 disabled={Boolean(form.sourceBillId)}
                 onChange={(e) => setForm({ ...form, creditAccountId: e.target.value })}
               >
-                <option value="">Choose…</option>
+                <option value="">{t('common.choose')}</option>
                 {funding.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.code} {a.name}
@@ -340,13 +345,13 @@ export function AssetsPage() {
             </div>
             {canBills ? (
               <div className="field">
-                <label htmlFor="asset-bill">Capitalized by a bill</label>
+                <label htmlFor="asset-bill">{t('assets.assetPages.capitalizedByABill')}</label>
                 <select
                   id="asset-bill"
                   value={form.sourceBillId}
                   onChange={(e) => setForm({ ...form, sourceBillId: e.target.value })}
                 >
-                  <option value="">No bill: post the acquisition</option>
+                  <option value="">{t('assets.assetPages.noBillPostTheAcquisition')}</option>
                   {(bills.data?.items ?? []).map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.number} · {b.vendorName} · {b.total}
@@ -354,8 +359,7 @@ export function AssetsPage() {
                   ))}
                 </select>
                 <small className="field__hint">
-                  Choose the bill that already debited the asset account so the cost is not posted
-                  twice.
+                  {t('assets.assetPages.chooseTheBillThatAlready')}
                 </small>
                 {error?.fieldError('sourceBillId') ? (
                   <small className="field__error" role="alert">
@@ -366,15 +370,15 @@ export function AssetsPage() {
             ) : null}
             {error?.code === 'DUPLICATE_CAPITALIZATION' && !form.sourceBillId ? (
               <TextField
-                label="Different purchase? Say why"
+                label={t('assets.assetPages.differentPurchaseSayWhy')}
                 value={form.duplicateOverrideReason}
-                hint="A matching bill exists. Only confirm if this is a separate purchase."
+                hint={t('assets.assetPages.aMatchingBillExistsOnly')}
                 onChange={(e) => setForm({ ...form, duplicateOverrideReason: e.target.value })}
               />
             ) : null}
             <div>
               <Button type="submit" busy={create.isPending}>
-                Register asset
+                {t('assets.assetPages.registerAsset')}
               </Button>
             </div>
           </form>
@@ -390,6 +394,7 @@ export function AssetsPage() {
 // ---------------------------------------------------------------------------
 
 export function AssetPage() {
+  const t = useT();
   const { id = '' } = useParams();
   const org = useOrgKey();
   const queryClient = useQueryClient();
@@ -425,7 +430,7 @@ export function AssetPage() {
     ),
   );
   const voidDisposal = useApiMutation((d: { id: string; version: number }) => {
-    const reason = window.prompt('Why is this disposal voided?');
+    const reason = window.prompt(t('assets.assetPages.whyIsThisDisposalVoided'));
     if (!reason?.trim()) return Promise.resolve(null);
     return sensitive(() =>
       api.post(`/fixed-assets/disposals/${d.id}/void`, {
@@ -442,16 +447,21 @@ export function AssetPage() {
     <>
       <PageHeader
         title={`${a.number} — ${a.name}`}
-        description={`${a.categoryName ?? ''} · cost ${formatAmount(a.cost, 'MVR')} · book value ${formatAmount(a.bookValue, 'MVR')} · ${a.lifeMonths} months`}
+        description={t('assets.assetPages.costBookValueMonths', {
+          categoryName: a.categoryName ?? '',
+          value: formatAmount(a.cost, 'MVR'),
+          value2: formatAmount(a.bookValue, 'MVR'),
+          lifeMonths: a.lifeMonths,
+        })}
       />
       <p>
-        <Link to="/assets">← Register</Link>{' '}
+        <Link to="/assets">{t('assets.assetPages.register2')}</Link>{' '}
         <span className={`badge badge--${a.status === 'ACTIVE' ? 'posted' : 'reversed'}`}>
-          {a.status === 'ACTIVE' ? 'In use' : 'Disposed'}
+          {a.status === 'ACTIVE' ? t('assets.assetPages.inUse') : t('assets.assetPages.disposed')}
         </span>
       </p>
       {canDispose && a.status === 'ACTIVE' ? (
-        <Card title="Dispose of this asset">
+        <Card title={t('assets.assetPages.disposeOfThisAsset')}>
           {disposing ? (
             <form
               className="form-grid"
@@ -466,27 +476,27 @@ export function AssetPage() {
               }}
             >
               <TextField
-                label="Disposal date"
+                label={t('assets.assetPages.disposalDate')}
                 type="date"
                 value={disposal.disposalDate}
                 required
                 onChange={(e) => setDisposal({ ...disposal, disposalDate: e.target.value })}
               />
               <TextField
-                label="Proceeds"
+                label={t('assets.assetPages.proceeds')}
                 value={disposal.proceeds}
                 inputMode="decimal"
                 onChange={(e) => setDisposal({ ...disposal, proceeds: e.target.value })}
-                hint="Leave empty for a write-off."
+                hint={t('assets.assetPages.leaveEmptyForAWrite')}
               />
               <div className="field">
-                <label htmlFor="disposal-account">Proceeds go to</label>
+                <label htmlFor="disposal-account">{t('assets.assetPages.proceedsGoTo')}</label>
                 <select
                   id="disposal-account"
                   value={disposal.proceedsAccountId}
                   onChange={(e) => setDisposal({ ...disposal, proceedsAccountId: e.target.value })}
                 >
-                  <option value="">None</option>
+                  <option value="">{t('common.none')}</option>
                   {(accounts.data ?? [])
                     .filter((x) => x.status === 'ACTIVE' && x.isLeaf && !x.isControlAccount)
                     .map((x) => (
@@ -498,13 +508,13 @@ export function AssetPage() {
               </div>
               <div>
                 <Button type="submit" busy={dispose.isPending}>
-                  Post disposal
+                  {t('assets.assetPages.postDisposal')}
                 </Button>
               </div>
             </form>
           ) : (
             <Button variant="secondary" onClick={() => setDisposing(true)}>
-              Dispose…
+              {t('assets.assetPages.dispose')}
             </Button>
           )}
           {dispose.isError ? <ErrorAlert error={dispose.error} /> : null}
@@ -512,28 +522,31 @@ export function AssetPage() {
       ) : null}
       {active ? (
         <Alert tone="info">
-          Disposed of on {active.date}: proceeds {formatAmount(active.proceeds, 'MVR')}, gain or
-          loss {formatAmount(active.gainLoss, 'MVR')}.{' '}
+          {t('assets.assetPages.disposedOfOnProceedsGain', {
+            date: active.date,
+            value: formatAmount(active.proceeds, 'MVR'),
+            value2: formatAmount(active.gainLoss, 'MVR'),
+          })}{' '}
           {canVoid ? (
             <Button
               variant="ghost"
               onClick={() => voidDisposal.mutate(active, { onSuccess: refresh })}
             >
-              Void the disposal
+              {t('assets.assetPages.voidTheDisposal')}
             </Button>
           ) : null}
         </Alert>
       ) : null}
       {voidDisposal.isError ? <ErrorAlert error={voidDisposal.error} /> : null}
-      <Card title="Depreciation schedule">
+      <Card title={t('assets.assetPages.depreciationSchedule')}>
         <table className="table">
           <thead>
             <tr>
-              <th>Month end</th>
-              <th className="num">Depreciation</th>
-              <th className="num">Accumulated</th>
-              <th className="num">Book value</th>
-              <th>Booked</th>
+              <th>{t('assets.assetPages.monthEnd')}</th>
+              <th className="num">{t('assets.assetPages.depreciation')}</th>
+              <th className="num">{t('assets.assetPages.accumulated')}</th>
+              <th className="num">{t('assets.assetPages.bookValue')}</th>
+              <th>{t('assets.assetPages.booked')}</th>
             </tr>
           </thead>
           <tbody>
@@ -543,7 +556,7 @@ export function AssetPage() {
                 <td className="num">{formatAmount(row.amount, 'MVR')}</td>
                 <td className="num">{formatAmount(row.accumulated, 'MVR')}</td>
                 <td className="num">{formatAmount(row.bookValue, 'MVR')}</td>
-                <td>{row.booked ? 'Yes' : ''}</td>
+                <td>{row.booked ? t('assets.assetPages.yes') : ''}</td>
               </tr>
             ))}
           </tbody>
@@ -558,6 +571,7 @@ export function AssetPage() {
 // ---------------------------------------------------------------------------
 
 export function DepreciationPage() {
+  const t = useT();
   const org = useOrgKey();
   const queryClient = useQueryClient();
   const sensitive = useSensitiveAction();
@@ -579,7 +593,7 @@ export function DepreciationPage() {
     ),
   );
   const voidRun = useApiMutation((r: Run) => {
-    const reason = window.prompt('Why is this run voided?');
+    const reason = window.prompt(t('assets.assetPages.whyIsThisRunVoided'));
     if (!reason?.trim()) return Promise.resolve(null);
     return sensitive(() =>
       api.post(`/fixed-assets/depreciation/runs/${r.id}/void`, {
@@ -598,10 +612,10 @@ export function DepreciationPage() {
   return (
     <>
       <PageHeader
-        title="Depreciation"
-        description="Book the depreciation owing up to a month end. Months not yet run are caught up in one run."
+        title={t('assets.assetPages.depreciation')}
+        description={t('assets.assetPages.bookTheDepreciationOwingUp')}
       />
-      <Card title="Run depreciation">
+      <Card title={t('assets.assetPages.runDepreciation')}>
         <form
           className="form-grid"
           onSubmit={(event) => {
@@ -610,7 +624,7 @@ export function DepreciationPage() {
           }}
         >
           <TextField
-            label="Month end"
+            label={t('assets.assetPages.monthEnd')}
             type="date"
             value={monthEnd}
             required
@@ -618,7 +632,7 @@ export function DepreciationPage() {
           />
           <div>
             <Button type="submit" busy={preview.isPending}>
-              Preview
+              {t('assets.assetPages.preview')}
             </Button>
           </div>
         </form>
@@ -626,15 +640,17 @@ export function DepreciationPage() {
         {p ? (
           <>
             {p.lines.length === 0 ? (
-              <p className="muted">Nothing is owing up to {p.monthEnd}.</p>
+              <p className="muted">
+                {t('assets.assetPages.nothingIsOwingUpTo', { monthEnd: p.monthEnd })}
+              </p>
             ) : (
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Asset</th>
-                    <th>Category</th>
-                    <th className="num">Depreciation</th>
-                    <th className="num">Book value after</th>
+                    <th>{t('assets.assetPages.asset')}</th>
+                    <th>{t('assets.assetPages.category')}</th>
+                    <th className="num">{t('assets.assetPages.depreciation')}</th>
+                    <th className="num">{t('assets.assetPages.bookValueAfter')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -651,7 +667,7 @@ export function DepreciationPage() {
                 </tbody>
                 <tfoot>
                   <tr>
-                    <th colSpan={2}>Total</th>
+                    <th colSpan={2}>{t('assets.assetPages.total')}</th>
                     <th className="num">{formatAmount(p.total, 'MVR')}</th>
                     <th />
                   </tr>
@@ -660,8 +676,9 @@ export function DepreciationPage() {
             )}
             {!p.canRun ? (
               <Alert tone="info">
-                Depreciation has already run through {p.latestRunMonthEnd}. Run a later month, or
-                void the later runs first.
+                {t('assets.assetPages.depreciationHasAlreadyRunThrough', {
+                  latestRunMonthEnd: p.latestRunMonthEnd,
+                })}
               </Alert>
             ) : null}
             {canRun ? (
@@ -670,25 +687,25 @@ export function DepreciationPage() {
                 disabled={!p.canRun || p.lines.length === 0}
                 onClick={() => run.mutate(undefined, { onSuccess: refresh })}
               >
-                Post depreciation
+                {t('assets.assetPages.postDepreciation')}
               </Button>
             ) : null}
             {run.isError ? <ErrorAlert error={run.error} /> : null}
           </>
         ) : null}
       </Card>
-      <Card title="Runs">
+      <Card title={t('assets.assetPages.runs')}>
         {runs.isPending ? (
           <Spinner />
         ) : runs.data?.items.length ? (
           <table className="table">
             <thead>
               <tr>
-                <th>Number</th>
-                <th>Month end</th>
-                <th className="num">Total</th>
-                <th className="num">Assets</th>
-                <th>Status</th>
+                <th>{t('assets.assetPages.number')}</th>
+                <th>{t('assets.assetPages.monthEnd')}</th>
+                <th className="num">{t('assets.assetPages.total')}</th>
+                <th className="num">{t('assets.assetPages.assets')}</th>
+                <th>{t('assets.assetPages.status')}</th>
                 <th />
               </tr>
             </thead>
@@ -699,14 +716,18 @@ export function DepreciationPage() {
                   <td>{r.monthEnd}</td>
                   <td className="num">{formatAmount(r.total, 'MVR')}</td>
                   <td className="num">{r.assetCount}</td>
-                  <td>{r.status === 'POSTED' ? 'Posted' : 'Void'}</td>
+                  <td>
+                    {r.status === 'POSTED'
+                      ? t('assets.assetPages.posted')
+                      : t('assets.assetPages.void')}
+                  </td>
                   <td>
                     {canVoid && r.id === latestId ? (
                       <Button
                         variant="ghost"
                         onClick={() => voidRun.mutate(r, { onSuccess: refresh })}
                       >
-                        Void
+                        {t('assets.assetPages.void')}
                       </Button>
                     ) : null}
                   </td>
@@ -715,7 +736,7 @@ export function DepreciationPage() {
             </tbody>
           </table>
         ) : (
-          <p className="muted">No depreciation has run yet.</p>
+          <p className="muted">{t('assets.assetPages.noDepreciationHasRunYet')}</p>
         )}
         {voidRun.isError ? <ErrorAlert error={voidRun.error} /> : null}
       </Card>
@@ -728,6 +749,7 @@ export function DepreciationPage() {
 // ---------------------------------------------------------------------------
 
 export function AssetCategoriesPage() {
+  const t = useT();
   const org = useOrgKey();
   const queryClient = useQueryClient();
   const canManage = usePermission(Permission.FixedAssetsManage);
@@ -773,7 +795,7 @@ export function AssetCategoriesPage() {
         required
         onChange={(e) => setForm({ ...form, [key]: e.target.value })}
       >
-        <option value="">Choose…</option>
+        <option value="">{t('common.choose')}</option>
         {usable(type).map((a) => (
           <option key={a.id} value={a.id}>
             {a.code} {a.name}
@@ -786,8 +808,8 @@ export function AssetCategoriesPage() {
   return (
     <>
       <PageHeader
-        title="Asset categories"
-        description="Each category names the accounts its assets post to."
+        title={t('assets.assetPages.assetCategories')}
+        description={t('assets.assetPages.eachCategoryNamesTheAccounts')}
       />
       <Card>
         {categories.isPending ? (
@@ -796,11 +818,11 @@ export function AssetCategoriesPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Cost</th>
-                <th>Accumulated depreciation</th>
-                <th>Expense</th>
-                <th className="num">Life (months)</th>
+                <th>{t('assets.assetPages.name')}</th>
+                <th>{t('assets.assetPages.cost')}</th>
+                <th>{t('assets.assetPages.accumulatedDepreciation')}</th>
+                <th>{t('assets.assetPages.expense')}</th>
+                <th className="num">{t('assets.assetPages.lifeMonths')}</th>
               </tr>
             </thead>
             <tbody>
@@ -816,11 +838,11 @@ export function AssetCategoriesPage() {
             </tbody>
           </table>
         ) : (
-          <p className="muted">No categories yet.</p>
+          <p className="muted">{t('assets.assetPages.noCategoriesYet')}</p>
         )}
       </Card>
       {canManage ? (
-        <Card title="New category">
+        <Card title={t('assets.assetPages.newCategory')}>
           <form
             className="form-grid"
             onSubmit={(event) => {
@@ -834,18 +856,18 @@ export function AssetCategoriesPage() {
             }}
           >
             <TextField
-              label="Name"
+              label={t('assets.assetPages.name')}
               value={form.name}
               required
               maxLength={100}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               error={error?.fieldError('name')}
             />
-            {select('Asset account (cost)', 'costAccountId', 'ASSET')}
-            {select('Accumulated depreciation account', 'accumulatedAccountId', 'ASSET')}
-            {select('Depreciation expense account', 'expenseAccountId', 'EXPENSE')}
+            {select(t('assets.assetPages.costAccount'), 'costAccountId', 'ASSET')}
+            {select(t('assets.assetPages.accumulatedAccount'), 'accumulatedAccountId', 'ASSET')}
+            {select(t('assets.assetPages.expenseAccount'), 'expenseAccountId', 'EXPENSE')}
             <TextField
-              label="Default life (months)"
+              label={t('assets.assetPages.defaultLifeMonths')}
               value={form.defaultLifeMonths}
               required
               inputMode="numeric"
@@ -853,7 +875,7 @@ export function AssetCategoriesPage() {
             />
             <div>
               <Button type="submit" busy={create.isPending}>
-                Add category
+                {t('assets.assetPages.addCategory')}
               </Button>
             </div>
           </form>
@@ -869,6 +891,7 @@ export function AssetCategoriesPage() {
 // ---------------------------------------------------------------------------
 
 export function AssetReportsPage() {
+  const t = useT();
   const org = useOrgKey();
   const [asOf, setAsOf] = useState(today());
   const accounts = useAccounts(usePermission(Permission.AccountsView));
@@ -907,16 +930,16 @@ export function AssetReportsPage() {
   };
   return (
     <>
-      <PageHeader title="Fixed asset reports" />
+      <PageHeader title={t('assets.assetPages.fixedAssetReports')} />
       <Card>
         <TextField
-          label="As of"
+          label={t('assets.assetPages.asOf')}
           type="date"
           value={asOf}
           onChange={(e) => setAsOf(e.target.value)}
         />
       </Card>
-      <Card title="Register">
+      <Card title={t('assets.assetPages.register')}>
         {register.isPending ? (
           <Spinner />
         ) : register.isError ? (
@@ -925,11 +948,11 @@ export function AssetReportsPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>Asset</th>
-                <th>Category</th>
-                <th className="num">Cost</th>
-                <th className="num">Accumulated</th>
-                <th className="num">Book value</th>
+                <th>{t('assets.assetPages.asset')}</th>
+                <th>{t('assets.assetPages.category')}</th>
+                <th className="num">{t('assets.assetPages.cost')}</th>
+                <th className="num">{t('assets.assetPages.accumulated')}</th>
+                <th className="num">{t('assets.assetPages.bookValue')}</th>
               </tr>
             </thead>
             <tbody>
@@ -947,7 +970,7 @@ export function AssetReportsPage() {
             </tbody>
             <tfoot>
               <tr>
-                <th colSpan={2}>Total</th>
+                <th colSpan={2}>{t('assets.assetPages.total')}</th>
                 <th className="num">{formatAmount(register.data.totals.cost, 'MVR')}</th>
                 <th className="num">
                   {formatAmount(register.data.totals.accumulatedDepreciation, 'MVR')}
@@ -958,7 +981,7 @@ export function AssetReportsPage() {
           </table>
         )}
       </Card>
-      <Card title="Against the general ledger">
+      <Card title={t('assets.assetPages.againstTheGeneralLedger')}>
         {reconciliation.isPending ? (
           <Spinner />
         ) : reconciliation.isError ? (
@@ -967,10 +990,10 @@ export function AssetReportsPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>Account</th>
-                <th className="num">Register</th>
-                <th className="num">Ledger</th>
-                <th className="num">Difference</th>
+                <th>{t('assets.assetPages.account')}</th>
+                <th className="num">{t('assets.assetPages.register')}</th>
+                <th className="num">{t('assets.assetPages.ledger')}</th>
+                <th className="num">{t('assets.assetPages.difference')}</th>
               </tr>
             </thead>
             <tbody>

@@ -42,7 +42,8 @@ export type ExportDomainKey =
   | 'ap_aging'
   | 'purchases_by_vendor'
   | 'payment_register'
-  | 'expenses';
+  | 'expenses'
+  | 'expense_trend';
 
 export type ImportStatus =
   | 'awaiting_file'
@@ -158,19 +159,6 @@ export const OPEN_IMPORT_STATUSES: readonly ImportStatus[] = [
   'validated',
   'needs_review',
 ];
-
-export const STATUS_LABELS: Record<ImportStatus, string> = {
-  awaiting_file: 'Waiting for file',
-  ready: 'Ready to map',
-  validating: 'Validating',
-  validated: 'Ready to review',
-  failed_file: 'File rejected',
-  committing: 'Importing',
-  committed: 'Imported',
-  needs_review: 'Needs review',
-  cancelled: 'Cancelled',
-  expired: 'Expired',
-};
 
 export function useOrg() {
   return useAuth().activeOrganization?.id ?? 'none';

@@ -21,6 +21,7 @@ import type {
   Reconciliation,
   ReconciliationPreview,
 } from './types';
+import { useT } from '../../i18n/i18n';
 
 /**
  * Reconciliation, transfers, rules and bank entries. A reconciliation compares the matched
@@ -34,6 +35,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 // ---------------------------------------------------------------------------
 
 export function ReconcilePage() {
+  const t = useT();
   const { id = '' } = useParams();
   const org = useOrgKey();
   const queryClient = useQueryClient();
@@ -61,7 +63,7 @@ export function ReconcilePage() {
     }),
   );
   const reopen = useApiMutation((r: Reconciliation) => {
-    const reason = window.prompt('Why is this reconciliation reopened?');
+    const reason = window.prompt(t('banking.bankingPages.whyIsThisReconciliationReopened'));
     if (!reason?.trim()) return Promise.resolve(null);
     return sensitive(() =>
       api.post(`/banking/reconciliations/${r.id}/reopen`, {
@@ -89,23 +91,23 @@ export function ReconcilePage() {
   return (
     <>
       <PageHeader
-        title={`Reconcile ${a.name}`}
-        description="Enter the closing balance of the statement. It balances when the matched transactions explain it."
+        title={t('banking.bankingPages.reconcile', { name: a.name })}
+        description={t('banking.bankingPages.enterTheClosingBalanceOf')}
       />
       <p>
         <Link to={`/banking/accounts/${id}`}>← {a.name}</Link>
       </p>
-      <Card title="Statement">
+      <Card title={t('banking.bankingPages.statement')}>
         <form onSubmit={submit} className="form-grid">
           <TextField
-            label="Statement date"
+            label={t('banking.bankingPages.statementDate')}
             type="date"
             value={statementDate}
             required
             onChange={(e) => setStatementDate(e.target.value)}
           />
           <TextField
-            label={`Closing balance (${a.currencyCode})`}
+            label={t('banking.bankingPages.closingBalance', { currencyCode: a.currencyCode })}
             value={statementBalance}
             required
             inputMode="decimal"
@@ -113,7 +115,7 @@ export function ReconcilePage() {
           />
           <div>
             <Button type="submit" busy={preview.isPending}>
-              Check
+              {t('banking.bankingPages.check')}
             </Button>
           </div>
         </form>
@@ -124,33 +126,48 @@ export function ReconcilePage() {
               <tbody>
                 <tr>
                   <td>
-                    Opening balance
-                    {p.openingFrom ? ` (statement of ${p.openingFrom.statementDate})` : ''}
+                    {t('banking.bankingPages.openingBalance', {
+                      value: p.openingFrom
+                        ? t('banking.bankingPages.statementOf', {
+                            statementDate: p.openingFrom.statementDate,
+                          })
+                        : '',
+                    })}
                   </td>
                   <td className="num">{formatAmount(p.openingBalance, a.currencyCode)}</td>
                 </tr>
                 <tr>
-                  <td>Matched transactions ({p.items.length})</td>
+                  <td>
+                    {t('banking.bankingPages.matchedTransactions', { count: p.items.length })}
+                  </td>
                   <td className="num">{formatAmount(p.clearedTotal, a.currencyCode)}</td>
                 </tr>
                 <tr>
-                  <td>Statement closing balance</td>
+                  <td>{t('banking.bankingPages.statementClosingBalance')}</td>
                   <td className="num">{formatAmount(p.statementBalance, a.currencyCode)}</td>
                 </tr>
                 <tr>
-                  <th>Difference</th>
+                  <th>{t('banking.bankingPages.difference')}</th>
                   <th className="num">{formatAmount(p.difference, a.currencyCode)}</th>
                 </tr>
                 <tr>
-                  <td className="muted">Book balance on that date</td>
+                  <td className="muted">{t('banking.bankingPages.bookBalanceOnThatDate')}</td>
                   <td className="num muted">{formatAmount(p.bookBalance, a.currencyCode)}</td>
                 </tr>
               </tbody>
             </table>
             {p.unmatchedCount ? (
               <Alert tone="info">
-                {p.unmatchedCount} transaction{p.unmatchedCount === 1 ? ' is' : 's are'} not matched
-                yet. <Link to={`/banking/accounts/${id}`}>Match or categorize them.</Link>
+                {t('banking.bankingPages.transactionNotMatchedYet', {
+                  unmatchedCount: p.unmatchedCount,
+                  value:
+                    p.unmatchedCount === 1
+                      ? t('banking.bankingPages.is')
+                      : t('banking.bankingPages.sAre'),
+                })}{' '}
+                <Link to={`/banking/accounts/${id}`}>
+                  {t('banking.bankingPages.matchOrCategorizeThem')}
+                </Link>
               </Alert>
             ) : null}
             {canReconcile ? (
@@ -159,24 +176,24 @@ export function ReconcilePage() {
                 disabled={!p.canComplete}
                 onClick={() => complete.mutate(undefined, { onSuccess: refresh })}
               >
-                Finish reconciliation
+                {t('banking.bankingPages.finishReconciliation')}
               </Button>
             ) : null}
             {complete.isError ? <ErrorAlert error={complete.error} /> : null}
           </>
         ) : null}
       </Card>
-      <Card title="History">
+      <Card title={t('banking.bankingPages.history')}>
         {history.isPending ? (
           <Spinner />
         ) : history.data?.items.length ? (
           <table className="table">
             <thead>
               <tr>
-                <th>Statement date</th>
-                <th className="num">Closing balance</th>
-                <th className="num">Transactions</th>
-                <th>Status</th>
+                <th>{t('banking.bankingPages.statementDate')}</th>
+                <th className="num">{t('banking.bankingPages.closingBalance2')}</th>
+                <th className="num">{t('banking.bankingPages.transactions')}</th>
+                <th>{t('banking.bankingPages.status')}</th>
                 <th />
               </tr>
             </thead>
@@ -187,7 +204,9 @@ export function ReconcilePage() {
                   <td className="num">{formatAmount(r.statementBalance, a.currencyCode)}</td>
                   <td className="num">{r.itemCount}</td>
                   <td>
-                    {r.status === 'COMPLETED' ? 'Completed' : `Reopened: ${r.reopenReason ?? ''}`}
+                    {r.status === 'COMPLETED'
+                      ? t('banking.bankingPages.completed')
+                      : t('banking.bankingPages.reopened', { reopenReason: r.reopenReason ?? '' })}
                   </td>
                   <td>
                     {canReconcile && r.id === latestId ? (
@@ -196,7 +215,7 @@ export function ReconcilePage() {
                         busy={reopen.isPending}
                         onClick={() => reopen.mutate(r, { onSuccess: refresh })}
                       >
-                        Reopen
+                        {t('banking.bankingPages.reopen')}
                       </Button>
                     ) : null}
                   </td>
@@ -205,7 +224,7 @@ export function ReconcilePage() {
             </tbody>
           </table>
         ) : (
-          <p className="muted">No reconciliations yet.</p>
+          <p className="muted">{t('banking.bankingPages.noReconciliationsYet')}</p>
         )}
         {reopen.isError ? <ErrorAlert error={reopen.error} /> : null}
       </Card>
@@ -218,6 +237,7 @@ export function ReconcilePage() {
 // ---------------------------------------------------------------------------
 
 export function TransfersPage() {
+  const translate = useT();
   const org = useOrgKey();
   const queryClient = useQueryClient();
   const canCreate = usePermission(Permission.BankingTransfersCreate);
@@ -255,7 +275,7 @@ export function TransfersPage() {
     ),
   );
   const voidIt = useApiMutation((t: BankTransfer) => {
-    const reason = window.prompt('Why is this transfer voided?');
+    const reason = window.prompt(translate('banking.bankingPages.whyIsThisTransferVoided'));
     if (!reason?.trim()) return Promise.resolve(null);
     return sensitive(() =>
       api.post(`/banking/transfers/${t.id}/void`, { version: t.version, reason: reason.trim() }),
@@ -278,14 +298,14 @@ export function TransfersPage() {
   return (
     <>
       <PageHeader
-        title="Transfers"
-        description="Move money between your own bank accounts. A transfer posts to the ledger; it is not income or expense."
+        title={translate('banking.bankingPages.transfers')}
+        description={translate('banking.bankingPages.moveMoneyBetweenYourOwn')}
       />
       {canCreate ? (
-        <Card title="New transfer">
+        <Card title={translate('banking.bankingPages.newTransfer')}>
           <form onSubmit={submit} className="form-grid">
             <TextField
-              label="Date"
+              label={translate('banking.bankingPages.date')}
               type="date"
               value={form.transferDate}
               required
@@ -293,14 +313,14 @@ export function TransfersPage() {
               error={error?.fieldError('transferDate')}
             />
             <div className="field">
-              <label htmlFor="transfer-from">From</label>
+              <label htmlFor="transfer-from">{translate('banking.bankingPages.from')}</label>
               <select
                 id="transfer-from"
                 value={form.fromBankingAccountId}
                 required
                 onChange={(e) => setForm({ ...form, fromBankingAccountId: e.target.value })}
               >
-                <option value="">Choose…</option>
+                <option value="">{translate('common.choose')}</option>
                 {active.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name} ({a.currencyCode})
@@ -309,14 +329,14 @@ export function TransfersPage() {
               </select>
             </div>
             <div className="field">
-              <label htmlFor="transfer-to">To</label>
+              <label htmlFor="transfer-to">{translate('banking.bankingPages.to')}</label>
               <select
                 id="transfer-to"
                 value={form.toBankingAccountId}
                 required
                 onChange={(e) => setForm({ ...form, toBankingAccountId: e.target.value })}
               >
-                <option value="">Choose…</option>
+                <option value="">{translate('common.choose')}</option>
                 {active
                   .filter((a) => a.id !== form.fromBankingAccountId)
                   .map((a) => (
@@ -332,7 +352,9 @@ export function TransfersPage() {
               ) : null}
             </div>
             <TextField
-              label={`Amount sent${from ? ` (${from.currencyCode})` : ''}`}
+              label={translate('banking.bankingPages.amountSent', {
+                value: from ? ` (${from.currencyCode})` : '',
+              })}
               value={form.fromAmount}
               required
               inputMode="decimal"
@@ -341,48 +363,50 @@ export function TransfersPage() {
             />
             {crossCurrency ? (
               <TextField
-                label={`Amount received${to ? ` (${to.currencyCode})` : ''}`}
+                label={translate('banking.bankingPages.amountReceived', {
+                  value: to ? ` (${to.currencyCode})` : '',
+                })}
                 value={form.toAmount}
                 required
                 inputMode="decimal"
                 onChange={(e) => setForm({ ...form, toAmount: e.target.value })}
-                hint="The exchange rate is implied by the two amounts."
+                hint={translate('banking.bankingPages.theExchangeRateIsImplied')}
                 error={error?.fieldError('toAmount')}
               />
             ) : null}
             <TextField
-              label="Memo"
+              label={translate('banking.bankingPages.memo')}
               value={form.memo}
               maxLength={500}
               onChange={(e) => setForm({ ...form, memo: e.target.value })}
             />
             <div>
               <Button type="submit" busy={create.isPending}>
-                Record transfer
+                {translate('banking.bankingPages.recordTransfer')}
               </Button>
             </div>
           </form>
           {create.isError && !error?.issues.length ? <ErrorAlert error={create.error} /> : null}
         </Card>
       ) : null}
-      <Card title="Recorded transfers">
+      <Card title={translate('banking.bankingPages.recordedTransfers')}>
         {list.isPending ? (
           <Spinner />
         ) : list.isError ? (
           <ErrorAlert error={list.error} />
         ) : list.data.items.length === 0 ? (
-          <p className="muted">No transfers yet.</p>
+          <p className="muted">{translate('banking.bankingPages.noTransfersYet')}</p>
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Number</th>
-                <th>Date</th>
-                <th>From</th>
-                <th>To</th>
-                <th className="num">Sent</th>
-                <th className="num">Received</th>
-                <th>Status</th>
+                <th>{translate('banking.bankingPages.number')}</th>
+                <th>{translate('banking.bankingPages.date')}</th>
+                <th>{translate('banking.bankingPages.from')}</th>
+                <th>{translate('banking.bankingPages.to')}</th>
+                <th className="num">{translate('banking.bankingPages.sent')}</th>
+                <th className="num">{translate('banking.bankingPages.received')}</th>
+                <th>{translate('banking.bankingPages.status')}</th>
                 <th />
               </tr>
             </thead>
@@ -405,7 +429,9 @@ export function TransfersPage() {
                     <span
                       className={`badge badge--${t.status === 'POSTED' ? 'posted' : 'reversed'}`}
                     >
-                      {t.status === 'POSTED' ? 'Posted' : 'Void'}
+                      {t.status === 'POSTED'
+                        ? translate('banking.bankingPages.posted')
+                        : translate('banking.bankingPages.void')}
                     </span>
                   </td>
                   <td>
@@ -415,7 +441,7 @@ export function TransfersPage() {
                         busy={voidIt.isPending}
                         onClick={() => voidIt.mutate(t, { onSuccess: refresh })}
                       >
-                        Void
+                        {translate('banking.bankingPages.void')}
                       </Button>
                     ) : null}
                   </td>
@@ -435,6 +461,7 @@ export function TransfersPage() {
 // ---------------------------------------------------------------------------
 
 export function BankEntryPage() {
+  const t = useT();
   const { id = '' } = useParams();
   const org = useOrgKey();
   const queryClient = useQueryClient();
@@ -445,7 +472,7 @@ export function BankEntryPage() {
     queryFn: () => api.get<BankEntry>(`/banking/entries/${id}`),
   });
   const voidIt = useApiMutation((e: BankEntry) => {
-    const reason = window.prompt('Why is this entry voided?');
+    const reason = window.prompt(t('banking.bankingPages.whyIsThisEntryVoided'));
     if (!reason?.trim()) return Promise.resolve(null);
     return sensitive(() =>
       api.post(`/banking/entries/${e.id}/void`, { version: e.version, reason: reason.trim() }),
@@ -456,31 +483,46 @@ export function BankEntryPage() {
   const e = entry.data;
   return (
     <>
-      <PageHeader title={`Bank entry ${e.number}`} description={e.memo || undefined} />
+      <PageHeader
+        title={t('banking.bankingPages.bankEntry', { number: e.number })}
+        description={e.memo || undefined}
+      />
       <p>
-        <Link to={`/banking/accounts/${e.bankingAccountId}`}>← Bank account</Link>
+        <Link to={`/banking/accounts/${e.bankingAccountId}`}>
+          {t('banking.bankingPages.bankAccount')}
+        </Link>
       </p>
       <Card>
         <table className="table">
           <tbody>
             <tr>
-              <th>Date</th>
+              <th>{t('banking.bankingPages.date')}</th>
               <td>{e.date}</td>
             </tr>
             <tr>
-              <th>{e.direction === 'in' ? 'Received' : 'Paid'}</th>
+              <th>
+                {e.direction === 'in'
+                  ? t('banking.bankingPages.received')
+                  : t('banking.bankingPages.paid')}
+              </th>
               <td>
                 {formatAmount(e.amount, e.currencyCode)} {e.currencyCode}
               </td>
             </tr>
             <tr>
-              <th>Status</th>
-              <td>{e.status === 'POSTED' ? 'Posted' : `Void: ${e.voidReason ?? ''}`}</td>
+              <th>{t('banking.bankingPages.status')}</th>
+              <td>
+                {e.status === 'POSTED'
+                  ? t('banking.bankingPages.posted')
+                  : t('banking.bankingPages.void2', { voidReason: e.voidReason ?? '' })}
+              </td>
             </tr>
             <tr>
-              <th>Journal</th>
+              <th>{t('banking.bankingPages.journal')}</th>
               <td>
-                <Link to={`/accounting/journals/${e.journalId}`}>Open the journal</Link>
+                <Link to={`/accounting/journals/${e.journalId}`}>
+                  {t('banking.bankingPages.openTheJournal')}
+                </Link>
               </td>
             </tr>
           </tbody>
@@ -496,7 +538,7 @@ export function BankEntryPage() {
               })
             }
           >
-            Void entry
+            {t('banking.bankingPages.voidEntry')}
           </Button>
         ) : null}
         {voidIt.isError ? <ErrorAlert error={voidIt.error} /> : null}
@@ -510,6 +552,7 @@ export function BankEntryPage() {
 // ---------------------------------------------------------------------------
 
 export function BankRulesPage() {
+  const t = useT();
   const org = useOrgKey();
   const queryClient = useQueryClient();
   const canManage = usePermission(Permission.BankingRulesManage);
@@ -561,14 +604,14 @@ export function BankRulesPage() {
   return (
     <>
       <PageHeader
-        title="Bank rules"
-        description="A rule suggests a category for an unmatched transaction. Rules never post anything by themselves; the lowest priority number wins."
+        title={t('banking.bankingPages.bankRules')}
+        description={t('banking.bankingPages.aRuleSuggestsACategory')}
       />
       {canManage ? (
-        <Card title="New rule">
+        <Card title={t('banking.bankingPages.newRule')}>
           <form onSubmit={submit} className="form-grid">
             <TextField
-              label="Name"
+              label={t('banking.bankingPages.name')}
               value={form.name}
               required
               maxLength={100}
@@ -576,33 +619,33 @@ export function BankRulesPage() {
               error={error?.fieldError('name')}
             />
             <div className="field">
-              <label htmlFor="rule-direction">Money</label>
+              <label htmlFor="rule-direction">{t('banking.bankingPages.money')}</label>
               <select
                 id="rule-direction"
                 value={form.direction}
                 onChange={(e) => setForm({ ...form, direction: e.target.value })}
               >
-                <option value="any">In or out</option>
-                <option value="out">Out</option>
-                <option value="in">In</option>
+                <option value="any">{t('banking.bankingPages.inOrOut')}</option>
+                <option value="out">{t('banking.bankingPages.out')}</option>
+                <option value="in">{t('banking.bankingPages.in')}</option>
               </select>
             </div>
             <TextField
-              label="Description contains"
+              label={t('banking.bankingPages.descriptionContains')}
               value={form.descriptionContains}
               maxLength={200}
               onChange={(e) => setForm({ ...form, descriptionContains: e.target.value })}
               error={error?.fieldError('descriptionContains')}
             />
             <div className="field">
-              <label htmlFor="rule-category">Suggest the account</label>
+              <label htmlFor="rule-category">{t('banking.bankingPages.suggestTheAccount')}</label>
               <select
                 id="rule-category"
                 value={form.categoryAccountId}
                 required
                 onChange={(e) => setForm({ ...form, categoryAccountId: e.target.value })}
               >
-                <option value="">Choose an account…</option>
+                <option value="">{t('banking.bankingPages.chooseAnAccount')}</option>
                 {options.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.code} {a.name}
@@ -616,7 +659,7 @@ export function BankRulesPage() {
               ) : null}
             </div>
             <TextField
-              label="Priority"
+              label={t('banking.bankingPages.priority')}
               type="number"
               min={1}
               max={10000}
@@ -625,29 +668,29 @@ export function BankRulesPage() {
             />
             <div>
               <Button type="submit" busy={create.isPending}>
-                Add rule
+                {t('banking.bankingPages.addRule')}
               </Button>
             </div>
           </form>
           {create.isError && !error?.issues.length ? <ErrorAlert error={create.error} /> : null}
         </Card>
       ) : null}
-      <Card title="Rules">
+      <Card title={t('banking.bankingPages.rules')}>
         {list.isPending ? (
           <Spinner />
         ) : list.isError ? (
           <ErrorAlert error={list.error} />
         ) : list.data.items.length === 0 ? (
-          <p className="muted">No rules yet.</p>
+          <p className="muted">{t('banking.bankingPages.noRulesYet')}</p>
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Priority</th>
-                <th>Name</th>
-                <th>When</th>
-                <th>Suggests</th>
-                <th>Status</th>
+                <th>{t('banking.bankingPages.priority')}</th>
+                <th>{t('banking.bankingPages.name')}</th>
+                <th>{t('banking.bankingPages.when')}</th>
+                <th>{t('banking.bankingPages.suggests')}</th>
+                <th>{t('banking.bankingPages.status')}</th>
                 <th />
               </tr>
             </thead>
@@ -658,12 +701,22 @@ export function BankRulesPage() {
                   <td>{r.name}</td>
                   <td>
                     {[
-                      r.direction === 'any' ? null : `money ${r.direction}`,
+                      r.direction === 'any'
+                        ? null
+                        : r.direction === 'in'
+                          ? t('banking.bankingPages.ruleMoneyIn')
+                          : t('banking.bankingPages.ruleMoneyOut'),
                       r.descriptionContains
-                        ? `description contains “${r.descriptionContains}”`
+                        ? t('banking.bankingPages.ruleDescriptionContains', {
+                            text: r.descriptionContains,
+                          })
                         : null,
-                      r.minAmount ? `at least ${r.minAmount}` : null,
-                      r.maxAmount ? `at most ${r.maxAmount}` : null,
+                      r.minAmount
+                        ? t('banking.bankingPages.ruleAtLeast', { amount: r.minAmount })
+                        : null,
+                      r.maxAmount
+                        ? t('banking.bankingPages.ruleAtMost', { amount: r.maxAmount })
+                        : null,
                     ]
                       .filter(Boolean)
                       .join(', ')}
@@ -684,7 +737,7 @@ export function BankRulesPage() {
                           )
                         }
                       >
-                        {r.status === 'ACTIVE' ? 'Archive' : 'Restore'}
+                        {r.status === 'ACTIVE' ? t('common.archive') : t('common.restore')}
                       </Button>
                     ) : null}
                   </td>

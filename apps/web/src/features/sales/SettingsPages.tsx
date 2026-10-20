@@ -308,6 +308,9 @@ export function TaxCodesPage() {
     name: '',
     taxAccountId: '',
     inputTaxAccountId: '',
+    treatment: 'standard' as TaxCode['treatment'],
+    taxType: '',
+    reportingCategory: '',
     rate: '',
     effectiveFrom: '',
   });
@@ -316,6 +319,9 @@ export function TaxCodesPage() {
       api.post<TaxCode>('/tax/codes', {
         ...form,
         inputTaxAccountId: form.inputTaxAccountId || null,
+        taxType: form.taxType.trim() || null,
+        reportingCategory: form.reportingCategory.trim() || null,
+        rate: form.treatment === 'standard' ? form.rate : '0',
         description: '',
       }),
     ),
@@ -369,6 +375,11 @@ export function TaxCodesPage() {
             title={`${code.code} · ${code.name}`}
             actions={<StatusBadge status={code.status} />}
           >
+            <p className="muted">
+              {t('sales.tax.treatment')}: {t(`sales.tax.treatment.${code.treatment ?? 'standard'}`)}
+              {code.taxType ? ` · ${code.taxType}` : ''}
+              {code.reportingCategory ? ` · ${code.reportingCategory}` : ''}
+            </p>
             <p className="muted">
               {t('sales.tax.inputAccount')}:{' '}
               {code.inputTaxAccountId
@@ -536,6 +547,9 @@ export function TaxCodesPage() {
                     name: '',
                     taxAccountId: '',
                     inputTaxAccountId: '',
+                    treatment: 'standard',
+                    taxType: '',
+                    reportingCategory: '',
                     rate: '',
                     effectiveFrom: '',
                   });
@@ -590,11 +604,39 @@ export function TaxCodesPage() {
                 </select>
                 <small className="field__hint">{t('sales.tax.inputHint')}</small>
               </div>
+              <div className="field">
+                <label htmlFor="tax-treatment">{t('sales.tax.treatment')}</label>
+                <select
+                  id="tax-treatment"
+                  value={form.treatment}
+                  onChange={(e) =>
+                    setForm({ ...form, treatment: e.target.value as TaxCode['treatment'] })
+                  }
+                >
+                  {(['standard', 'zero_rated', 'exempt', 'out_of_scope'] as const).map((v) => (
+                    <option key={v} value={v}>
+                      {t(`sales.tax.treatment.${v}`)}
+                    </option>
+                  ))}
+                </select>
+                <small className="field__hint">{t('sales.tax.treatmentHint')}</small>
+              </div>
+              <TextField
+                label={t('sales.tax.taxType')}
+                value={form.taxType}
+                onChange={(e) => setForm({ ...form, taxType: e.target.value })}
+              />
+              <TextField
+                label={t('sales.tax.reportingCategory')}
+                value={form.reportingCategory}
+                onChange={(e) => setForm({ ...form, reportingCategory: e.target.value })}
+              />
               <TextField
                 label={t('sales.tax.rate')}
                 inputMode="decimal"
-                value={form.rate}
+                value={form.treatment === 'standard' ? form.rate : '0'}
                 required
+                disabled={form.treatment !== 'standard'}
                 onChange={(e) => setForm({ ...form, rate: e.target.value })}
               />
               <TextField

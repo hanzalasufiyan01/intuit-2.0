@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../auth/auth-context';
+import { useT } from '../i18n/i18n';
 import { ErrorAlert } from '../shared/ui/Alert';
 
 /**
@@ -9,6 +10,7 @@ import { ErrorAlert } from '../shared/ui/Alert';
  */
 export function OrganizationSwitcher() {
   const { session, activeOrganization, switchOrganization } = useAuth();
+  const t = useT();
   const navigate = useNavigate();
   const [error, setError] = useState<unknown>(null);
   const [pending, setPending] = useState(false);
@@ -33,20 +35,20 @@ export function OrganizationSwitcher() {
 
   return (
     <div className="field">
-      <label htmlFor="organization-switcher">Organization</label>
+      <label htmlFor="organization-switcher">{t('shell.organization')}</label>
       <select
         id="organization-switcher"
         value={activeOrganization?.id ?? ''}
         disabled={pending}
         onChange={(e) => void onChange(e.target.value)}
       >
-        {activeOrganization ? null : <option value="">Select an organization</option>}
+        {activeOrganization ? null : <option value="">{t('shell.selectOrganization')}</option>}
         {session.organizations.map((org) => (
           <option key={org.id} value={org.id}>
             {org.name}
           </option>
         ))}
-        <option value="__new">+ New organization…</option>
+        <option value="__new">{t('shell.newOrganization')}</option>
       </select>
       <ErrorAlert error={error} />
     </div>

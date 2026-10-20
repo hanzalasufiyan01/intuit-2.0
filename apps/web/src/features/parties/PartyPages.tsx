@@ -23,6 +23,7 @@ import {
   type PartyRole,
   type PartySummary,
 } from './types';
+import { useT } from '../../i18n/i18n';
 
 const useOrg = () => useAuth().activeOrganization?.id ?? 'none';
 
@@ -31,6 +32,7 @@ const useOrg = () => useAuth().activeOrganization?.id ?? 'none';
 // ---------------------------------------------------------------------------
 
 export function PartiesPage() {
+  const t = useT();
   const org = useOrg();
   const [filters, setFilters] = useState({ search: '', role: '', status: 'active' });
   const [applied, setApplied] = useState(filters);
@@ -51,20 +53,23 @@ export function PartiesPage() {
   const items = list.data?.pages.flatMap((p) => p.items) ?? [];
   return (
     <>
-      <PageHeader title="Contacts" description="Customers, vendors, employees and other parties." />
+      <PageHeader
+        title={t('parties.partyPages.contacts')}
+        description={t('parties.partyPages.customersVendorsEmployeesAndOther')}
+      />
       <p className="actions">
-        <ExportButton domain="parties" label="Export contacts (CSV)" />
+        <ExportButton domain="parties" label={t('parties.partyPages.exportContactsCsv')} />
         <ExportButton
           domain="parties"
           params={{ layout: 'contacts' }}
-          label="Export contact persons (CSV)"
+          label={t('parties.partyPages.exportContactPersonsCsv')}
         />
       </p>
       <Card
         actions={
           <Can permission={Permission.PartiesCreate}>
             <Link className="button" to="/parties/new">
-              New contact
+              {t('parties.partyPages.newContact')}
             </Link>
           </Can>
         }
@@ -77,19 +82,19 @@ export function PartiesPage() {
           }}
         >
           <TextField
-            label="Search"
+            label={t('common.search')}
             value={filters.search}
-            placeholder="Name, reference, email or TIN"
+            placeholder={t('parties.partyPages.nameReferenceEmailOrTin')}
             onChange={(e) => setFilters({ ...filters, search: e.target.value })}
           />
           <div className="field">
-            <label htmlFor="party-role-filter">Role</label>
+            <label htmlFor="party-role-filter">{t('parties.partyPages.role')}</label>
             <select
               id="party-role-filter"
               value={filters.role}
               onChange={(e) => setFilters({ ...filters, role: e.target.value })}
             >
-              <option value="">All roles</option>
+              <option value="">{t('parties.partyPages.allRoles')}</option>
               {PARTY_ROLES.map((r) => (
                 <option key={r} value={r}>
                   {ROLE_LABELS[r]}
@@ -98,36 +103,36 @@ export function PartiesPage() {
             </select>
           </div>
           <div className="field">
-            <label htmlFor="party-status-filter">Status</label>
+            <label htmlFor="party-status-filter">{t('parties.partyPages.status')}</label>
             <select
               id="party-status-filter"
               value={filters.status}
               onChange={(e) => setFilters({ ...filters, status: e.target.value })}
             >
-              <option value="active">Active</option>
-              <option value="archived">Archived</option>
-              <option value="all">All</option>
+              <option value="active">{t('parties.partyPages.active')}</option>
+              <option value="archived">{t('parties.partyPages.archived')}</option>
+              <option value="all">{t('common.all')}</option>
             </select>
           </div>
-          <Button type="submit">Search</Button>
+          <Button type="submit">{t('common.search')}</Button>
         </form>
       </Card>
       <Card>
         {list.isPending ? (
-          <Spinner label="Loading contacts" />
+          <Spinner label={t('parties.partyPages.loadingContacts')} />
         ) : list.isError ? (
           <ErrorAlert error={list.error} />
         ) : items.length === 0 ? (
-          <p className="muted">No contacts found.</p>
+          <p className="muted">{t('parties.partyPages.noContactsFound')}</p>
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Reference</th>
-                <th>Roles</th>
-                <th>Email</th>
-                <th>Status</th>
+                <th>{t('parties.partyPages.name')}</th>
+                <th>{t('parties.partyPages.reference')}</th>
+                <th>{t('parties.partyPages.roles')}</th>
+                <th>{t('parties.partyPages.email')}</th>
+                <th>{t('parties.partyPages.status')}</th>
               </tr>
             </thead>
             <tbody>
@@ -141,9 +146,11 @@ export function PartiesPage() {
                   <td>{p.email}</td>
                   <td>
                     {p.status === 'ARCHIVED' ? (
-                      <span className="badge badge--archived">archived</span>
+                      <span className="badge badge--archived">
+                        {t('parties.partyPages.archived2')}
+                      </span>
                     ) : (
-                      'Active'
+                      t('parties.partyPages.active')
                     )}
                   </td>
                 </tr>
@@ -157,7 +164,7 @@ export function PartiesPage() {
             busy={list.isFetchingNextPage}
             onClick={() => void list.fetchNextPage()}
           >
-            Load more
+            {t('common.loadMore')}
           </Button>
         ) : null}
       </Card>
@@ -223,6 +230,7 @@ function HeaderFields({
   onChange: (next: HeaderDraft) => void;
   error: ApiError | null;
 }) {
+  const t = useT();
   const text = (key: Exclude<keyof HeaderDraft, 'kind' | 'roles'>, label: string) => (
     <TextField
       label={label}
@@ -235,33 +243,35 @@ function HeaderFields({
     <>
       <div className="form form--inline">
         <div className="field">
-          <label htmlFor="party-kind">Kind</label>
+          <label htmlFor="party-kind">{t('parties.partyPages.kind')}</label>
           <select
             id="party-kind"
             value={draft.kind}
             onChange={(e) => onChange({ ...draft, kind: e.target.value as PartyKind })}
           >
-            <option value="organization">Organization</option>
-            <option value="individual">Individual</option>
+            <option value="organization">{t('parties.partyPages.organization')}</option>
+            <option value="individual">{t('parties.partyPages.individual')}</option>
           </select>
         </div>
-        {text('displayName', 'Display name')}
-        {draft.kind === 'organization' ? text('companyName', 'Company name') : null}
+        {text('displayName', t('parties.partyPages.field.displayName'))}
+        {draft.kind === 'organization'
+          ? text('companyName', t('parties.partyPages.field.companyName'))
+          : null}
         {draft.kind === 'individual' ? (
           <>
-            {text('firstName', 'First name')}
-            {text('lastName', 'Last name')}
+            {text('firstName', t('parties.partyPages.field.firstName'))}
+            {text('lastName', t('parties.partyPages.field.lastName'))}
           </>
         ) : null}
-        {text('reference', 'Reference')}
-        {text('tin', 'TIN')}
-        {text('email', 'Email')}
-        {text('phone', 'Phone')}
-        {text('website', 'Website')}
+        {text('reference', t('parties.partyPages.field.reference'))}
+        {text('tin', t('parties.partyPages.field.tin'))}
+        {text('email', t('parties.partyPages.field.email'))}
+        {text('phone', t('parties.partyPages.field.phone'))}
+        {text('website', t('parties.partyPages.field.website'))}
       </div>
       <div className="choice-grid">
         <div>
-          <strong>Roles</strong>
+          <strong>{t('parties.partyPages.roles')}</strong>
           {PARTY_ROLES.map((role) => (
             <label key={role} className="checkbox">
               <input
@@ -282,7 +292,7 @@ function HeaderFields({
         </div>
       </div>
       <TextField
-        label="Notes"
+        label={t('parties.partyPages.notes')}
         value={draft.notes}
         onChange={(e) => onChange({ ...draft, notes: e.target.value })}
       />
@@ -291,15 +301,17 @@ function HeaderFields({
 }
 
 function DuplicateNotice({ warnings }: { warnings: DuplicateWarning[] | undefined }) {
+  const t = useT();
   const match = warnings?.find((w) => w.code === 'POSSIBLE_DUPLICATE');
   if (!match) return null;
   return (
     <Alert tone="info">
-      Possible duplicate: {match.message}{' '}
+      {t('parties.partyPages.possibleDuplicate', { message: match.message })}{' '}
       {match.matches.map((m, i) => (
         <span key={m.partyId}>
           {i > 0 ? ', ' : ''}
-          <Link to={`/parties/${m.partyId}`}>view match</Link> ({m.matchedOn.join(', ')})
+          <Link to={`/parties/${m.partyId}`}>{t('parties.partyPages.viewMatch')}</Link> (
+          {m.matchedOn.join(', ')})
         </span>
       ))}
     </Alert>
@@ -307,6 +319,7 @@ function DuplicateNotice({ warnings }: { warnings: DuplicateWarning[] | undefine
 }
 
 export function NewPartyPage() {
+  const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState(headerFrom());
@@ -323,14 +336,14 @@ export function NewPartyPage() {
   };
   return (
     <>
-      <PageHeader title="New contact" />
+      <PageHeader title={t('parties.partyPages.newContact')} />
       <Card>
         <form className="form" onSubmit={submit} noValidate>
           <HeaderFields draft={draft} onChange={setDraft} error={create.error} />
           <ErrorAlert error={create.error?.issues.length ? null : create.error} />
           <div className="actions">
             <Button type="submit" busy={create.isPending}>
-              Create contact
+              {t('parties.partyPages.createContact')}
             </Button>
           </div>
         </form>
@@ -357,6 +370,7 @@ function ContactsCard({
   party: PartyDetail;
   onSaved: (p: PartyDetail) => void;
 }) {
+  const t = useT();
   const canUpdate = usePermission(Permission.PartiesUpdate);
   const empty = {
     firstName: '',
@@ -387,14 +401,14 @@ function ContactsCard({
         }),
   );
   return (
-    <Card title="Contact persons">
+    <Card title={t('parties.partyPages.contactPersons')}>
       <table className="table">
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Job title</th>
-            <th>Email</th>
-            <th>Phone</th>
+            <th>{t('parties.partyPages.name')}</th>
+            <th>{t('parties.partyPages.jobTitle')}</th>
+            <th>{t('parties.partyPages.email')}</th>
+            <th>{t('parties.partyPages.phone')}</th>
             <th />
           </tr>
         </thead>
@@ -403,8 +417,12 @@ function ContactsCard({
             <tr key={c.id}>
               <td>
                 {[c.firstName, c.lastName].filter(Boolean).join(' ')}
-                {c.isPrimary ? <span className="badge"> primary</span> : null}
-                {c.receivesDocuments ? <span className="muted"> · receives documents</span> : null}
+                {c.isPrimary ? (
+                  <span className="badge"> {t('parties.partyPages.primary')}</span>
+                ) : null}
+                {c.receivesDocuments ? (
+                  <span className="muted"> {t('parties.partyPages.receivesDocuments')}</span>
+                ) : null}
               </td>
               <td>{c.jobTitle}</td>
               <td>{c.email}</td>
@@ -417,7 +435,7 @@ function ContactsCard({
                       change.mutate({ contact: c, action: 'primary' }, { onSuccess: onSaved })
                     }
                   >
-                    Make primary
+                    {t('parties.partyPages.makePrimary')}
                   </Button>
                 ) : null}
                 {canUpdate ? (
@@ -427,7 +445,7 @@ function ContactsCard({
                       change.mutate({ contact: c, action: 'remove' }, { onSuccess: onSaved })
                     }
                   >
-                    Remove
+                    {t('common.remove')}
                   </Button>
                 ) : null}
               </td>
@@ -439,36 +457,36 @@ function ContactsCard({
       {canUpdate ? (
         <form
           className="form form--inline"
-          aria-label="Add contact person"
+          aria-label={t('parties.partyPages.addContactPerson')}
           onSubmit={(e) => {
             e.preventDefault();
             add.mutate(undefined, { onSuccess: (p) => (setForm(empty), onSaved(p)) });
           }}
         >
           <TextField
-            label="Contact first name"
+            label={t('parties.partyPages.contactFirstName')}
             value={form.firstName}
             onChange={(e) => setForm({ ...form, firstName: e.target.value })}
             error={add.error?.fieldError('firstName')}
           />
           <TextField
-            label="Contact last name"
+            label={t('parties.partyPages.contactLastName')}
             value={form.lastName}
             onChange={(e) => setForm({ ...form, lastName: e.target.value })}
           />
           <TextField
-            label="Contact job title"
+            label={t('parties.partyPages.contactJobTitle')}
             value={form.jobTitle}
             onChange={(e) => setForm({ ...form, jobTitle: e.target.value })}
           />
           <TextField
-            label="Contact email"
+            label={t('parties.partyPages.contactEmail')}
             value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })}
             error={add.error?.fieldError('email')}
           />
           <TextField
-            label="Contact phone"
+            label={t('parties.partyPages.contactPhone')}
             value={form.phone}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
           />
@@ -478,7 +496,7 @@ function ContactsCard({
               checked={form.isPrimary}
               onChange={(e) => setForm({ ...form, isPrimary: e.target.checked })}
             />{' '}
-            Primary
+            {t('parties.partyPages.primary2')}
           </label>
           <label className="checkbox">
             <input
@@ -486,10 +504,10 @@ function ContactsCard({
               checked={form.receivesDocuments}
               onChange={(e) => setForm({ ...form, receivesDocuments: e.target.checked })}
             />{' '}
-            Receives documents
+            {t('parties.partyPages.receivesDocuments2')}
           </label>
           <Button type="submit" busy={add.isPending}>
-            Add contact person
+            {t('parties.partyPages.addContactPerson')}
           </Button>
           <ErrorAlert error={add.error?.issues.length ? null : add.error} />
         </form>
@@ -505,6 +523,7 @@ function AddressesCard({
   party: PartyDetail;
   onSaved: (p: PartyDetail) => void;
 }) {
+  const t = useT();
   const canUpdate = usePermission(Permission.PartiesUpdate);
   const empty = {
     kind: 'billing' as PartyAddress['kind'],
@@ -539,13 +558,13 @@ function AddressesCard({
         }),
   );
   return (
-    <Card title="Addresses">
+    <Card title={t('parties.partyPages.addresses')}>
       <table className="table">
         <thead>
           <tr>
-            <th>Kind</th>
-            <th>Address</th>
-            <th>Country</th>
+            <th>{t('parties.partyPages.kind')}</th>
+            <th>{t('parties.partyPages.address')}</th>
+            <th>{t('parties.partyPages.country')}</th>
             <th />
           </tr>
         </thead>
@@ -553,8 +572,12 @@ function AddressesCard({
           {party.addresses.map((a) => (
             <tr key={a.id}>
               <td>
-                {a.kind === 'billing' ? 'Billing' : 'Delivery'}
-                {a.isDefault ? <span className="badge"> default</span> : null}
+                {a.kind === 'billing'
+                  ? t('parties.partyPages.billing')
+                  : t('parties.partyPages.delivery')}
+                {a.isDefault ? (
+                  <span className="badge"> {t('parties.partyPages.default')}</span>
+                ) : null}
               </td>
               <td>
                 {[a.label, a.line1, a.line2, a.city, a.region, a.postalCode]
@@ -570,7 +593,7 @@ function AddressesCard({
                       change.mutate({ address: a, action: 'default' }, { onSuccess: onSaved })
                     }
                   >
-                    Make default
+                    {t('parties.partyPages.makeDefault')}
                   </Button>
                 ) : null}
                 {canUpdate ? (
@@ -580,7 +603,7 @@ function AddressesCard({
                       change.mutate({ address: a, action: 'remove' }, { onSuccess: onSaved })
                     }
                   >
-                    Remove
+                    {t('common.remove')}
                   </Button>
                 ) : null}
               </td>
@@ -592,57 +615,57 @@ function AddressesCard({
       {canUpdate ? (
         <form
           className="form form--inline"
-          aria-label="Add address"
+          aria-label={t('parties.partyPages.addAddress')}
           onSubmit={(e) => {
             e.preventDefault();
             add.mutate(undefined, { onSuccess: (p) => (setForm(empty), onSaved(p)) });
           }}
         >
           <div className="field">
-            <label htmlFor="address-kind">Address kind</label>
+            <label htmlFor="address-kind">{t('parties.partyPages.addressKind')}</label>
             <select
               id="address-kind"
               value={form.kind}
               onChange={(e) => setForm({ ...form, kind: e.target.value as PartyAddress['kind'] })}
             >
-              <option value="billing">Billing</option>
-              <option value="delivery">Delivery</option>
+              <option value="billing">{t('parties.partyPages.billing')}</option>
+              <option value="delivery">{t('parties.partyPages.delivery')}</option>
             </select>
           </div>
           <TextField
-            label="Address label"
+            label={t('parties.partyPages.addressLabel')}
             value={form.label}
             onChange={(e) => setForm({ ...form, label: e.target.value })}
           />
           <TextField
-            label="Address line 1"
+            label={t('parties.partyPages.addressLine1')}
             value={form.line1}
             onChange={(e) => setForm({ ...form, line1: e.target.value })}
             error={add.error?.fieldError('line1')}
           />
           <TextField
-            label="Address line 2"
+            label={t('parties.partyPages.addressLine2')}
             value={form.line2}
             onChange={(e) => setForm({ ...form, line2: e.target.value })}
           />
           <TextField
-            label="City"
+            label={t('parties.partyPages.city')}
             value={form.city}
             onChange={(e) => setForm({ ...form, city: e.target.value })}
           />
           <TextField
-            label="Region / atoll"
+            label={t('parties.partyPages.regionAtoll')}
             value={form.region}
             onChange={(e) => setForm({ ...form, region: e.target.value })}
           />
           <TextField
-            label="Postal code"
+            label={t('parties.partyPages.postalCode')}
             value={form.postalCode}
             onChange={(e) => setForm({ ...form, postalCode: e.target.value })}
           />
           <CountrySelect
             id="address-country"
-            label="Country"
+            label={t('parties.partyPages.country')}
             value={form.countryCode}
             onChange={(countryCode) => setForm({ ...form, countryCode })}
             error={add.error?.fieldError('countryCode')}
@@ -653,10 +676,10 @@ function AddressesCard({
               checked={form.isDefault}
               onChange={(e) => setForm({ ...form, isDefault: e.target.checked })}
             />{' '}
-            Default
+            {t('parties.partyPages.default2')}
           </label>
           <Button type="submit" busy={add.isPending}>
-            Add address
+            {t('parties.partyPages.addAddress')}
           </Button>
           <ErrorAlert error={add.error?.issues.length ? null : add.error} />
         </form>
@@ -666,6 +689,7 @@ function AddressesCard({
 }
 
 export function PartyDetailPage() {
+  const t = useT();
   const { id = '' } = useParams();
   const queryClient = useQueryClient();
   const party = useParty(id);
@@ -690,19 +714,23 @@ export function PartyDetailPage() {
     api.post<PartyDetail>(`/parties/${id}/${action}`, {}),
   );
 
-  if (party.isPending) return <Spinner label="Loading contact" />;
+  if (party.isPending) return <Spinner label={t('parties.partyPages.loadingContact')} />;
   if (party.isError) return <ErrorAlert error={party.error} />;
   const p = party.data;
   return (
     <>
       <PageHeader
         title={p.displayName}
-        description={p.roles.map((r) => ROLE_LABELS[r]).join(', ') || 'No roles'}
+        description={
+          p.roles.map((r) => ROLE_LABELS[r]).join(', ') || t('parties.partyPages.noRoles')
+        }
       />
-      {p.status === 'ARCHIVED' ? <Alert tone="info">This contact is archived.</Alert> : null}
+      {p.status === 'ARCHIVED' ? (
+        <Alert tone="info">{t('parties.partyPages.thisContactIsArchived')}</Alert>
+      ) : null}
       <DuplicateNotice warnings={warnings} />
       <Card
-        title="Details"
+        title={t('parties.partyPages.details')}
         actions={
           <>
             {canUpdate && !editing ? (
@@ -710,7 +738,7 @@ export function PartyDetailPage() {
                 variant="secondary"
                 onClick={() => (setDraft(headerFrom(p)), setEditing(true))}
               >
-                Edit
+                {t('common.edit')}
               </Button>
             ) : null}
             {canArchive ? (
@@ -721,7 +749,7 @@ export function PartyDetailPage() {
                   status.mutate(p.status === 'ACTIVE' ? 'archive' : 'restore', { onSuccess: saved })
                 }
               >
-                {p.status === 'ACTIVE' ? 'Archive' : 'Restore'}
+                {p.status === 'ACTIVE' ? t('common.archive') : t('common.restore')}
               </Button>
             ) : null}
           </>
@@ -746,7 +774,7 @@ export function PartyDetailPage() {
               <Alert>
                 {update.error.message}{' '}
                 <Button variant="ghost" onClick={() => (void party.refetch(), setEditing(false))}>
-                  Reload
+                  {t('parties.partyPages.reload')}
                 </Button>
               </Alert>
             ) : (
@@ -754,26 +782,30 @@ export function PartyDetailPage() {
             )}
             <div className="actions">
               <Button type="submit" busy={update.isPending}>
-                Save
+                {t('common.save')}
               </Button>
               <Button variant="ghost" onClick={() => setEditing(false)}>
-                Cancel
+                {t('common.cancel')}
               </Button>
             </div>
           </form>
         ) : (
           <dl className="details">
-            <dt>Kind</dt>
-            <dd>{p.kind === 'organization' ? 'Organization' : 'Individual'}</dd>
+            <dt>{t('parties.partyPages.kind')}</dt>
+            <dd>
+              {p.kind === 'organization'
+                ? t('parties.partyPages.organization')
+                : t('parties.partyPages.individual')}
+            </dd>
             {p.companyName ? (
               <>
-                <dt>Company</dt>
+                <dt>{t('parties.partyPages.company')}</dt>
                 <dd>{p.companyName}</dd>
               </>
             ) : null}
             {p.reference ? (
               <>
-                <dt>Reference</dt>
+                <dt>{t('parties.partyPages.reference')}</dt>
                 <dd>{p.reference}</dd>
               </>
             ) : null}
@@ -785,25 +817,25 @@ export function PartyDetailPage() {
             ) : null}
             {p.email ? (
               <>
-                <dt>Email</dt>
+                <dt>{t('parties.partyPages.email')}</dt>
                 <dd>{p.email}</dd>
               </>
             ) : null}
             {p.phone ? (
               <>
-                <dt>Phone</dt>
+                <dt>{t('parties.partyPages.phone')}</dt>
                 <dd>{p.phone}</dd>
               </>
             ) : null}
             {p.website ? (
               <>
-                <dt>Website</dt>
+                <dt>{t('parties.partyPages.website')}</dt>
                 <dd>{p.website}</dd>
               </>
             ) : null}
             {p.notes ? (
               <>
-                <dt>Notes</dt>
+                <dt>{t('parties.partyPages.notes')}</dt>
                 <dd>{p.notes}</dd>
               </>
             ) : null}

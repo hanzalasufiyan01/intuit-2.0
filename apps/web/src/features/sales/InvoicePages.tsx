@@ -16,6 +16,8 @@ import { ExportButton } from '../data-exchange/ExportButton';
 import { AttachmentsCard } from '../files/AttachmentsCard';
 import { DocumentEditor } from './DocumentEditor';
 import { ApprovalPanel, LinesTable, OutputPanel, TotalsTable } from './DocumentParts';
+import { DocumentWarehouse } from '../inventory/WarehousePages';
+import { ShareLinksPanel } from './ExtraPages';
 import { issueHint, SalesNav, StatusBadge, useOrgKey } from './shared';
 import type { InvoiceDetail, InvoiceSummary, Page } from './types';
 
@@ -459,6 +461,10 @@ export function InvoiceDetailPage() {
       {inv.status === 'ISSUED' || inv.status === 'VOID' ? (
         <OutputPanel path="invoices" id={id} canSend={inv.status === 'ISSUED' && can.issue} />
       ) : null}
+
+      {inv.status === 'DRAFT' && can.edit ? <DocumentWarehouse type="invoice" id={id} /> : null}
+
+      {inv.status === 'ISSUED' ? <ShareLinksPanel invoiceId={id} /> : null}
 
       {inv.status === 'ISSUED' && can.void ? (
         <Card title={t('sales.invoices.voidTitle')}>

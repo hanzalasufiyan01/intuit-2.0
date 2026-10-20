@@ -21,6 +21,7 @@ import {
   type AccountSubtype,
   type AccountType,
 } from './types';
+import { useT, type Translate } from '../../i18n/i18n';
 
 /** Subtype picker limited to the subtypes of the account's nature (Decision 53). */
 function SubtypeField({
@@ -36,18 +37,19 @@ function SubtypeField({
   onChange: (value: AccountSubtype | '') => void;
   error?: string | undefined;
 }) {
+  const tr = useT();
   return (
     <div className="field">
-      <label htmlFor={id}>Subtype</label>
+      <label htmlFor={id}>{tr('accounting.accountsPage.subtype')}</label>
       <select
         id={id}
         value={value}
         onChange={(e) => onChange(e.target.value as AccountSubtype | '')}
       >
-        <option value="">Unclassified</option>
+        <option value="">{tr('accounting.accountsPage.unclassified')}</option>
         {ACCOUNT_SUBTYPES[type].map((t) => (
           <option key={t} value={t}>
-            {SUBTYPE_LABELS[t]}
+            {tr(SUBTYPE_LABELS[t])}
           </option>
         ))}
       </select>
@@ -70,21 +72,25 @@ function MonetaryField({
   checked: boolean;
   onChange: (checked: boolean) => void;
 }) {
+  const t = useT();
   if (subtype && ALWAYS_MONETARY.includes(subtype)) {
-    return <span className="muted">Monetary</span>;
+    return <span className="muted">{t('accounting.accountsPage.monetary')}</span>;
   }
   if (!subtype || !OPTIONALLY_MONETARY.includes(subtype)) return null;
   return (
     <label className="checkbox">
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />{' '}
-      Monetary (revalued in foreign currency)
+      {t('accounting.accountsPage.monetaryRevaluedInForeignCurrency')}
     </label>
   );
 }
 
-function classificationLabel(account: Account): string {
-  if (!account.subtype) return 'Unclassified';
-  return SUBTYPE_LABELS[account.subtype] + (account.isMonetary ? ' · monetary' : '');
+function classificationLabel(account: Account, t: Translate): string {
+  if (!account.subtype) return t('accounting.accountsPage.unclassified');
+  return (
+    t(SUBTYPE_LABELS[account.subtype]) +
+    (account.isMonetary ? t('accounting.accountsPage.monetarySuffix') : '')
+  );
 }
 
 /** Accounts in tree order (parents first), with their depth. */
@@ -107,6 +113,7 @@ function treeOrder(accounts: Account[]): { account: Account; depth: number }[] {
 }
 
 function CreateAccountForm({ accounts }: { accounts: Account[] }) {
+  const tr = useT();
   const org = useOrgKey();
   const queryClient = useQueryClient();
   const baseCurrency = useAccountingSetup().data?.settings?.baseCurrency ?? '';
@@ -147,19 +154,19 @@ function CreateAccountForm({ accounts }: { accounts: Account[] }) {
   return (
     <form className="form form--inline" onSubmit={submit} noValidate>
       <TextField
-        label="Code"
+        label={tr('accounting.accountsPage.code')}
         value={form.code}
         onChange={(e) => setForm({ ...form, code: e.target.value })}
         error={mutation.error?.fieldError('code')}
       />
       <TextField
-        label="Name"
+        label={tr('accounting.accountsPage.name')}
         value={form.name}
         onChange={(e) => setForm({ ...form, name: e.target.value })}
         error={mutation.error?.fieldError('name')}
       />
       <div className="field">
-        <label htmlFor="account-type">Type</label>
+        <label htmlFor="account-type">{tr('accounting.accountsPage.type')}</label>
         <select
           id="account-type"
           value={form.type}
@@ -181,13 +188,13 @@ function CreateAccountForm({ accounts }: { accounts: Account[] }) {
         </select>
       </div>
       <div className="field">
-        <label htmlFor="account-parent">Parent</label>
+        <label htmlFor="account-parent">{tr('accounting.accountsPage.parent')}</label>
         <select
           id="account-parent"
           value={form.parentId}
           onChange={(e) => setForm({ ...form, parentId: e.target.value })}
         >
-          <option value="">(none)</option>
+          <option value="">{tr('accounting.accountsPage.none')}</option>
           {parents.map((a) => (
             <option key={a.id} value={a.id}>
               {a.code} {a.name}
@@ -203,10 +210,10 @@ function CreateAccountForm({ accounts }: { accounts: Account[] }) {
         error={mutation.error?.fieldError('subtype')}
       />
       <TextField
-        label="Currency"
+        label={tr('accounting.accountsPage.currency')}
         value={form.currencyCode}
         placeholder={baseCurrency}
-        hint="Leave empty for the base currency."
+        hint={tr('accounting.accountsPage.leaveEmptyForTheBase')}
         maxLength={3}
         onChange={(e) => setForm({ ...form, currencyCode: e.target.value })}
         error={mutation.error?.fieldError('currencyCode')}
@@ -217,7 +224,7 @@ function CreateAccountForm({ accounts }: { accounts: Account[] }) {
         onChange={(isMonetary) => setForm({ ...form, isMonetary })}
       />
       <Button type="submit" busy={mutation.isPending}>
-        Add account
+        {tr('accounting.accountsPage.addAccount')}
       </Button>
       <ErrorAlert error={mutation.error?.issues.length ? null : mutation.error} />
     </form>
@@ -225,6 +232,7 @@ function CreateAccountForm({ accounts }: { accounts: Account[] }) {
 }
 
 function AccountRow({ account, depth }: { account: Account; depth: number }) {
+  const t = useT();
   const org = useOrgKey();
   const queryClient = useQueryClient();
   const sensitive = useSensitiveAction();
@@ -269,7 +277,7 @@ function AccountRow({ account, depth }: { account: Account; depth: number }) {
             }}
           >
             <TextField
-              label="Name"
+              label={t('accounting.accountsPage.name')}
               value={edit.name}
               onChange={(e) => setEdit({ ...edit, name: e.target.value })}
             />
@@ -281,7 +289,7 @@ function AccountRow({ account, depth }: { account: Account; depth: number }) {
               error={rename.error?.fieldError('subtype')}
             />
             <TextField
-              label="Currency"
+              label={t('accounting.accountsPage.currency')}
               value={edit.currencyCode}
               maxLength={3}
               onChange={(e) => setEdit({ ...edit, currencyCode: e.target.value })}
@@ -293,30 +301,37 @@ function AccountRow({ account, depth }: { account: Account; depth: number }) {
               onChange={(isMonetary) => setEdit({ ...edit, isMonetary })}
             />
             <Button type="submit" busy={rename.isPending}>
-              Save
+              {t('common.save')}
             </Button>
           </form>
         ) : (
           <>
-            {account.name} {account.isLeaf ? null : <span className="muted">(group)</span>}
+            {account.name}{' '}
+            {account.isLeaf ? null : (
+              <span className="muted">{t('accounting.accountsPage.group')}</span>
+            )}
           </>
         )}
         {error ? <ErrorAlert error={error} /> : null}
       </td>
       <td>{account.type}</td>
       <td>
-        {classificationLabel(account)}
-        {account.isControlAccount ? <span className="muted"> · control</span> : null}
+        {classificationLabel(account, t)}
+        {account.isControlAccount ? (
+          <span className="muted"> {t('accounting.accountsPage.control')}</span>
+        ) : null}
       </td>
       <td>{account.currencyCode}</td>
       <td>
         <StatusBadge status={account.status} />{' '}
-        {account.isSystem ? <span className="muted">system</span> : null}
+        {account.isSystem ? (
+          <span className="muted">{t('accounting.accountsPage.system')}</span>
+        ) : null}
       </td>
       <td className="actions">
         {canUpdate && !editing ? (
           <Button variant="ghost" onClick={() => setEditing(true)}>
-            Edit
+            {t('common.edit')}
           </Button>
         ) : null}
         {canArchive && account.status === 'ACTIVE' ? (
@@ -325,7 +340,7 @@ function AccountRow({ account, depth }: { account: Account; depth: number }) {
             busy={archive.isPending}
             onClick={() => archive.mutate(undefined, { onSuccess: refresh })}
           >
-            Archive
+            {t('common.archive')}
           </Button>
         ) : null}
         {canDelete && !account.usedInPostedJournals && account.isLeaf ? (
@@ -335,14 +350,16 @@ function AccountRow({ account, depth }: { account: Account; depth: number }) {
             onClick={() => {
               if (
                 window.confirm(
-                  `Delete account ${account.code}? Draft journal lines using it will lose their account.`,
+                  t('accounting.accountsPage.deleteAccountDraftJournalLines', {
+                    code: account.code,
+                  }),
                 )
               ) {
                 remove.mutate(undefined, { onSuccess: refresh });
               }
             }}
           >
-            Delete
+            {t('common.delete')}
           </Button>
         ) : null}
       </td>
@@ -351,38 +368,39 @@ function AccountRow({ account, depth }: { account: Account; depth: number }) {
 }
 
 export function AccountsPage() {
+  const t = useT();
   const accounts = useAccounts();
   const rows = useMemo(() => treeOrder(accounts.data ?? []), [accounts.data]);
   return (
     <>
       <PageHeader
-        title="Chart of Accounts"
-        description="Only leaf accounts receive postings; parent accounts group them for reporting."
+        title={t('accounting.accountsPage.chartOfAccounts')}
+        description={t('accounting.accountsPage.onlyLeafAccountsReceivePostings')}
       />
       <AccountingPage>
         <p className="actions">
           <ExportButton domain="chart_of_accounts" />
         </p>
         <Can permission={Permission.AccountsCreate}>
-          <Card title="New account">
+          <Card title={t('accounting.accountsPage.newAccount')}>
             <CreateAccountForm accounts={accounts.data ?? []} />
           </Card>
         </Can>
         <Card>
           {accounts.isPending ? (
-            <Spinner label="Loading accounts" />
+            <Spinner label={t('accounting.accountsPage.loadingAccounts')} />
           ) : accounts.isError ? (
             <ErrorAlert error={accounts.error} />
           ) : (
             <table className="table">
               <thead>
                 <tr>
-                  <th>Code</th>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Classification</th>
-                  <th>Currency</th>
-                  <th>Status</th>
+                  <th>{t('accounting.accountsPage.code')}</th>
+                  <th>{t('accounting.accountsPage.name')}</th>
+                  <th>{t('accounting.accountsPage.type')}</th>
+                  <th>{t('accounting.accountsPage.classification')}</th>
+                  <th>{t('accounting.accountsPage.currency')}</th>
+                  <th>{t('accounting.accountsPage.status')}</th>
                   <th />
                 </tr>
               </thead>

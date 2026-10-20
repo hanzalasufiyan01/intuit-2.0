@@ -7,6 +7,7 @@ import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
 import { AccountingPage, journalLabel, StatusBadge, useOrgKey } from './shared';
 import type { Journal, Period } from './types';
+import { useT } from '../../i18n/i18n';
 
 interface Dashboard {
   isSetUp: boolean;
@@ -24,7 +25,8 @@ interface Dashboard {
 }
 
 function JournalList({ journals }: { journals: Journal[] }) {
-  if (journals.length === 0) return <p className="muted">None.</p>;
+  const t = useT();
+  if (journals.length === 0) return <p className="muted">{t('acct.dash.none')}</p>;
   return (
     <ul className="plain-list">
       {journals.map((j) => (
@@ -43,6 +45,7 @@ function JournalList({ journals }: { journals: Journal[] }) {
 }
 
 export function AccountingDashboardPage() {
+  const t = useT();
   const org = useOrgKey();
   const dashboard = useQuery({
     queryKey: ['accounting-dashboard', org],
@@ -51,27 +54,26 @@ export function AccountingDashboardPage() {
 
   return (
     <>
-      <PageHeader
-        title="Accounting"
-        description="General ledger foundation for this organization."
-      />
+      <PageHeader title={t('acct.dash.title')} description={t('acct.dash.description')} />
       <AccountingPage>
         {dashboard.isPending ? (
-          <Spinner label="Loading accounting dashboard" />
+          <Spinner label={t('acct.dash.loading')} />
         ) : dashboard.isError ? (
           <ErrorAlert error={dashboard.error} />
         ) : (
           <>
             <div className="grid">
-              <Card title="Current fiscal year">
+              <Card title={t('acct.dash.fiscalYear')}>
                 <p>
                   {dashboard.data.fiscalYear
                     ? dashboard.data.fiscalYear.name
-                    : 'No fiscal year covers today.'}
+                    : t('acct.dash.noFiscalYear')}
                 </p>
-                <p className="muted">Base currency: {dashboard.data.baseCurrency}</p>
+                <p className="muted">
+                  {t('acct.dash.baseCurrency', { currency: dashboard.data.baseCurrency ?? '' })}
+                </p>
               </Card>
-              <Card title="Current period">
+              <Card title={t('acct.dash.period')}>
                 {dashboard.data.period ? (
                   <p>
                     {dashboard.data.period.name}{' '}
@@ -82,18 +84,20 @@ export function AccountingDashboardPage() {
                     </span>
                   </p>
                 ) : (
-                  <p className="muted">No period.</p>
+                  <p className="muted">{t('acct.dash.noPeriod')}</p>
                 )}
               </Card>
               {dashboard.data.journals ? (
-                <Card title="Workload">
+                <Card title={t('acct.dash.workload')}>
                   <p>
                     <Link to="/accounting/journals/drafts">
-                      {dashboard.data.journals.draftCount} draft(s)
+                      {t('acct.dash.drafts', { count: dashboard.data.journals.draftCount })}
                     </Link>
                     <br />
                     <Link to="/accounting/journals/approvals">
-                      {dashboard.data.journals.pendingApprovalCount} pending approval
+                      {t('acct.dash.pending', {
+                        count: dashboard.data.journals.pendingApprovalCount,
+                      })}
                     </Link>
                   </p>
                 </Card>
@@ -101,13 +105,13 @@ export function AccountingDashboardPage() {
             </div>
             {dashboard.data.journals ? (
               <>
-                <Card title="Pending approvals">
+                <Card title={t('acct.dash.pendingCard')}>
                   <JournalList journals={dashboard.data.journals.pendingApprovals} />
                 </Card>
-                <Card title="Draft journals">
+                <Card title={t('acct.dash.draftCard')}>
                   <JournalList journals={dashboard.data.journals.drafts} />
                 </Card>
-                <Card title="Recent posted activity">
+                <Card title={t('acct.dash.recentCard')}>
                   <JournalList journals={dashboard.data.journals.recentPosted} />
                 </Card>
               </>

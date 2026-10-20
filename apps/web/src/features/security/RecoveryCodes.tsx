@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useT } from '../../i18n/i18n';
 import { Alert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 
@@ -9,12 +10,13 @@ import { Button } from '../../shared/ui/Button';
 export function RecoveryCodesDisplay({
   codes,
   onDone,
-  doneLabel = 'Continue',
+  doneLabel,
 }: {
   codes: string[];
   onDone(): void;
   doneLabel?: string;
 }) {
+  const t = useT();
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
   const text = `Intuit 2.0 recovery codes\nEach code works once.\n\n${codes.join('\n')}\n`;
@@ -38,11 +40,8 @@ export function RecoveryCodesDisplay({
 
   return (
     <div className="stack">
-      <Alert tone="info">
-        Save these recovery codes somewhere safe. Each one lets you sign in once if you lose your
-        authenticator app. They will not be shown again.
-      </Alert>
-      <ul className="recovery-codes" aria-label="Recovery codes">
+      <Alert tone="info">{t('security.recovery.warning')}</Alert>
+      <ul className="recovery-codes" aria-label={t('security.recovery.listLabel')}>
         {codes.map((code) => (
           <li key={code}>
             <code>{code}</code>
@@ -51,18 +50,18 @@ export function RecoveryCodesDisplay({
       </ul>
       <div className="actions">
         <Button variant="secondary" onClick={() => void copy()}>
-          {copied ? 'Copied' : 'Copy codes'}
+          {copied ? t('security.recovery.copied') : t('security.recovery.copy')}
         </Button>
         <Button variant="secondary" onClick={download}>
-          Download .txt
+          {t('security.recovery.download')}
         </Button>
       </div>
       <label className="checkbox">
-        <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />I have
-        saved my recovery codes
+        <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
+        {t('security.recovery.saved')}
       </label>
       <Button onClick={onDone} disabled={!saved}>
-        {doneLabel}
+        {doneLabel ?? t('security.recovery.continue')}
       </Button>
     </div>
   );

@@ -164,6 +164,58 @@ describe('adjustments page', () => {
   });
 });
 
+describe('returns page', () => {
+  it('posts a customer return against an issued credit note', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi(
+      common(WORK, {
+        'GET /inventory/returns/returnable/c1': ok({
+          creditNoteId: 'c1',
+          number: 'CN-00001',
+          items: [{ itemId: 'i1', credited: '3', returned: '0', remaining: '3' }],
+        }),
+        'GET /inventory/returns': ok({ items: [] }),
+        'GET /sales/credit-notes': ok({
+          items: [
+            { id: 'c1', number: 'CN-00001', status: 'ISSUED' },
+            { id: 'c2', number: 'CN-00002', status: 'DRAFT' },
+          ],
+        }),
+        'POST /inventory/returns': ok({
+          id: 'r1',
+          number: 'RET-00001',
+          status: 'POSTED',
+          lines: [],
+        }),
+      }),
+    );
+    renderAt('/inventory/returns');
+    await user.type(await screen.findByLabelText('Reason'), 'Customer sent it back');
+    expect(screen.queryByRole('option', { name: 'CN-00002' })).toBeNull();
+    await user.selectOptions(await screen.findByLabelText('Credit note'), 'c1');
+    await user.selectOptions(await screen.findByLabelText('Item'), 'i1');
+    await user.type(screen.getByLabelText('Quantity returned'), '2');
+    await user.click(screen.getByRole('button', { name: 'Post return' }));
+    await waitFor(() => {
+      const call = calls.find(
+        (c) => c.method === 'POST' && c.url.pathname.endsWith('/inventory/returns'),
+      );
+      expect(call?.body).toMatchObject({
+        creditNoteId: 'c1',
+        reason: 'Customer sent it back',
+        lines: [{ itemId: 'i1', quantity: '2' }],
+      });
+    });
+  });
+
+  it('hides the form from a viewer', async () => {
+    stubApi(common(VIEW, { 'GET /inventory/returns': ok({ items: [] }) }));
+    renderAt('/inventory/returns');
+    expect(await screen.findByText('No returns yet.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Post return' })).toBeNull();
+  });
+});
+
 describe('valuation page', () => {
   it('shows the stock value against the ledger and explains a difference', async () => {
     stubApi(

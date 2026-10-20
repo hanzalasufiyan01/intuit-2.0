@@ -13,7 +13,9 @@ import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
 import { ExportButton } from '../data-exchange/ExportButton';
 import { orNull, SalesNav, StatusBadge, useOrgKey } from './shared';
+import { StatementLinksPanel } from './StatementPages';
 import type { CustomerDetail, CustomerSummary, Page } from './types';
+import { CustomerClassificationCards } from './ClassificationPages';
 
 export function CustomersPage() {
   const t = useT();
@@ -443,6 +445,8 @@ export function CustomerDetailPage() {
           </ul>
         )}
       </Card>
+      <CustomerClassificationCards customerId={detail.id} />
+      <StatementLinksPanel customerId={detail.id} />
     </>
   );
 }

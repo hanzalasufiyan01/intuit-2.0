@@ -27,8 +27,13 @@ import {
   TransfersPage,
 } from '../features/banking/BankingPages';
 import { BankingSection } from '../features/banking/BankingSection';
+import { ExpiringLotsPage, LandedCostsPage } from '../features/inventory/AdvancedPages';
+import { BundlesPage } from '../features/inventory/BundlePages';
+import { StockTransfersPage, WarehousesPage } from '../features/inventory/WarehousePages';
+import { CountDetailPage, CountsPage } from '../features/inventory/CountPages';
 import {
   AdjustmentsPage,
+  ReturnsPage,
   InventorySection,
   InventorySettingsPage,
   StockItemPage,
@@ -96,6 +101,17 @@ import {
   ProfitAndLossPage,
   TrialBalancePage,
 } from '../features/reports/ReportPages';
+import {
+  InventoryReportsPage,
+  SalesTrendPage,
+  TaxLiabilityPage,
+  CashBasisProfitLossPage,
+  ClaimsByClaimantPage,
+  ProfitLossByDimensionPage,
+  SalesByDimensionPage,
+} from '../features/reports/ManagementReportPages';
+import { CashFlowPage, ChangesInEquityPage } from '../features/reports/StatementPages';
+import { ExpenseTrendPage } from '../features/reports/ExpenseTrendPage';
 import { FiscalYearsPage, PeriodsPage } from '../features/accounting/PeriodPages';
 import { SetupPage } from '../features/accounting/SetupPage';
 import { ApprovalPoliciesPage } from '../features/approvals/ApprovalPoliciesPage';
@@ -105,6 +121,44 @@ import { AcceptInvitationPage } from '../features/invitations/AcceptInvitationPa
 import { MembersPage } from '../features/members/MembersPage';
 import { CreateOrganizationPage } from '../features/organizations/CreateOrganizationPage';
 import { CompanyProfilePage } from '../features/organizations/CompanyProfilePage';
+import {
+  AppointmentsPage,
+  ClinicReportsPage,
+  ClinicSection,
+  ClinicSetupPage,
+  PatientDetailPage,
+  PatientsPage,
+} from '../features/clinic/ClinicPages';
+import { ClinicPrivacyPage } from '../features/clinic/ClinicPrivacyPages';
+import { IntegrationsPage, WebhooksPage } from '../features/integrations/IntegrationPages';
+import { QuoteDetailPage, QuotesPage, RecurringInvoicesPage } from '../features/quotes/QuotePages';
+import {
+  MyTimePage,
+  ProjectDetailPage,
+  ProjectsPage,
+  ProjectsSection,
+  ProjectSummaryPage,
+  TimeApprovalsPage,
+} from '../features/projects/ProjectPages';
+import {
+  ComponentsPage,
+  EmployeesPage,
+  ModulesPage,
+  MyPayslipsPage,
+  PayRunDetailPage,
+  PayRunsPage,
+  PayrollSection,
+  PayrollSettingsPage,
+} from '../features/payroll/PayrollPages';
+import { AdvancesPage, LeavePage } from '../features/payroll/LeaveAdvancePages';
+import { PayrollRegisterPage } from '../features/payroll/RegisterPage';
+import { ClassificationPage } from '../features/sales/ClassificationPages';
+import { ExpensePoliciesPage } from '../features/purchases/ExpensePolicyPages';
+import { PettyCashPage } from '../features/banking/PettyCashPage';
+import { ReservationsPage } from '../features/sales/DeliveryPages';
+import { OwnershipPage } from '../features/organizations/OwnershipPage';
+import { BranchAccessPage } from '../features/organizations/BranchAccessPage';
+import { GroupsPage } from '../features/organizations/GroupsPage';
 import { NewPartyPage, PartiesPage, PartyDetailPage } from '../features/parties/PartyPages';
 import { RolesPage } from '../features/roles/RolesPage';
 import { AccountSecurityPage } from '../features/security/AccountSecurityPage';
@@ -137,6 +191,14 @@ import {
   ReceiptsPage,
   RecordReceiptPage,
 } from '../features/sales/ReceiptPages';
+import {
+  PublicInvoicePage,
+  RemindersPage,
+  SalesOrderDetailPage,
+  SalesOrdersPage,
+} from '../features/sales/ExtraPages';
+import { PublicStatementPage } from '../features/sales/StatementPages';
+import { MockCheckoutPage, OnlinePaymentsPage } from '../features/sales/PaymentPages';
 import { SalesReportsPage } from '../features/sales/ReportsPage';
 import { SalesHomePage } from '../features/sales/SalesHomePage';
 import {
@@ -148,6 +210,7 @@ import {
 } from '../features/sales/SalesSection';
 import { SalesSettingsPage, TaxCodesPage } from '../features/sales/SettingsPages';
 import { Permission } from '../permissions/permissions';
+import { PurchaseSuggestionsPage } from '../features/inventory/PurchaseSuggestionsPage';
 import { RequireAnyPermission, RequirePermission } from '../permissions/RequirePermission';
 import { AppLayout } from './AppLayout';
 import { RouteError } from './RouteError';
@@ -156,6 +219,21 @@ export const routes: RouteObject[] = [
   {
     errorElement: <RouteError />,
     children: [
+      {
+        // The customer-facing, signed-out view of one shared invoice (FP-28).
+        path: '/p/invoice/:token',
+        element: <PublicInvoicePage />,
+      },
+      {
+        // The signed-out customer statement (customer portal v1).
+        path: '/p/statement/:token',
+        element: <PublicStatementPage />,
+      },
+      {
+        // The simulated payment provider's checkout page (development and test only).
+        path: '/mock-pay/:ref',
+        element: <MockCheckoutPage />,
+      },
       {
         path: '/login',
         element: (
@@ -225,6 +303,123 @@ export const routes: RouteObject[] = [
                 <OrganizationSecurityPage />
               </RequirePermission>
             ),
+          },
+          {
+            path: 'settings/integrations',
+            element: (
+              <RequirePermission permission={Permission.ApiTokensView}>
+                <IntegrationsPage />
+              </RequirePermission>
+            ),
+          },
+          {
+            path: 'settings/webhooks',
+            element: (
+              <RequirePermission permission={Permission.WebhooksView}>
+                <WebhooksPage />
+              </RequirePermission>
+            ),
+          },
+          {
+            path: 'settings/modules',
+            element: (
+              <RequirePermission permission={Permission.OrganizationRead}>
+                <ModulesPage />
+              </RequirePermission>
+            ),
+          },
+          {
+            // Payroll (FP-25): the module must be switched on; the server enforces it too.
+            path: 'payroll',
+            element: <PayrollSection />,
+            children: [
+              { path: 'my-payslips', element: <MyPayslipsPage /> },
+              { path: 'leave', element: <LeavePage /> },
+              {
+                path: 'advances',
+                element: (
+                  <RequirePermission permission={Permission.PayrollAdvancesManage}>
+                    <AdvancesPage />
+                  </RequirePermission>
+                ),
+              },
+              ...(
+                [
+                  ['', Permission.PayrollView, <PayRunsPage key="runs" />],
+                  ['runs/:id', Permission.PayrollView, <PayRunDetailPage key="run" />],
+                  ['employees', Permission.PayrollView, <EmployeesPage key="employees" />],
+                  ['components', Permission.PayrollView, <ComponentsPage key="components" />],
+                  ['register', Permission.PayrollView, <PayrollRegisterPage key="register" />],
+                  ['settings', Permission.PayrollView, <PayrollSettingsPage key="settings" />],
+                ] as const
+              ).map(([path, permission, page]) => ({
+                ...(path === '' ? { index: true } : { path }),
+                element: <RequirePermission permission={permission}>{page}</RequirePermission>,
+              })),
+            ],
+          },
+          {
+            // Clinic (FP-27, ADR 0013): the module must be switched on; the server enforces it too.
+            path: 'clinic',
+            element: <ClinicSection />,
+            children: [
+              ...(
+                [
+                  [
+                    '',
+                    Permission.ClinicAppointmentsManage,
+                    <AppointmentsPage key="appointments" />,
+                  ],
+                  ['setup', Permission.ClinicAppointmentsManage, <ClinicSetupPage key="setup" />],
+                  ['patients', Permission.ClinicPatientsView, <PatientsPage key="patients" />],
+                  [
+                    'patients/:id',
+                    Permission.ClinicPatientsView,
+                    <PatientDetailPage key="patient" />,
+                  ],
+                  ['reports', Permission.ClinicReportsView, <ClinicReportsPage key="reports" />],
+                  ['privacy', Permission.ClinicPatientsManage, <ClinicPrivacyPage key="privacy" />],
+                ] as const
+              ).map(([path, permission, page]) => ({
+                ...(path === '' ? { index: true } : { path }),
+                element: <RequirePermission permission={permission}>{page}</RequirePermission>,
+              })),
+            ],
+          },
+          {
+            // Projects (FP-26): the module must be switched on; the server enforces it too.
+            path: 'projects',
+            element: <ProjectsSection />,
+            children: [
+              { path: 'time', element: <MyTimePage /> },
+              ...(
+                [
+                  ['', Permission.ProjectsView, <ProjectsPage key="list" />],
+                  ['approvals', Permission.ProjectsView, <TimeApprovalsPage key="approvals" />],
+                  ['summary', Permission.ProjectsView, <ProjectSummaryPage key="summary" />],
+                  [':id', Permission.ProjectsView, <ProjectDetailPage key="detail" />],
+                ] as const
+              ).map(([path, permission, page]) => ({
+                ...(path === '' ? { index: true } : { path }),
+                element: <RequirePermission permission={permission}>{page}</RequirePermission>,
+              })),
+            ],
+          },
+          {
+            path: 'settings/branch-access',
+            element: (
+              <RequirePermission permission={Permission.MembersRead}>
+                <BranchAccessPage />
+              </RequirePermission>
+            ),
+          },
+          {
+            path: 'settings/groups',
+            element: <GroupsPage />,
+          },
+          {
+            path: 'settings/ownership',
+            element: <OwnershipPage />,
           },
           {
             path: 'settings/company-profile',
@@ -396,6 +591,46 @@ export const routes: RouteObject[] = [
                 ),
               },
               {
+                path: 'reports/profit-and-loss-cash-basis',
+                element: (
+                  <RequirePermission permission={Permission.ReportsView}>
+                    <CashBasisProfitLossPage />
+                  </RequirePermission>
+                ),
+              },
+              {
+                path: 'reports/expense-trend',
+                element: (
+                  <RequirePermission permission={Permission.ReportsView}>
+                    <ExpenseTrendPage />
+                  </RequirePermission>
+                ),
+              },
+              {
+                path: 'reports/profit-and-loss-by-dimension',
+                element: (
+                  <RequirePermission permission={Permission.DimensionsView}>
+                    <ProfitLossByDimensionPage />
+                  </RequirePermission>
+                ),
+              },
+              {
+                path: 'reports/sales-by-dimension',
+                element: (
+                  <RequirePermission permission={Permission.SalesReportsView}>
+                    <SalesByDimensionPage />
+                  </RequirePermission>
+                ),
+              },
+              {
+                path: 'reports/tax-liability',
+                element: (
+                  <RequirePermission permission={Permission.SalesReportsView}>
+                    <TaxLiabilityPage />
+                  </RequirePermission>
+                ),
+              },
+              {
                 path: 'ledger',
                 element: (
                   <RequirePermission permission={Permission.LedgerView}>
@@ -408,6 +643,8 @@ export const routes: RouteObject[] = [
                   ['trial-balance', <TrialBalancePage key="tb" />],
                   ['profit-and-loss', <ProfitAndLossPage key="pl" />],
                   ['balance-sheet', <BalanceSheetPage key="bs" />],
+                  ['cash-flow', <CashFlowPage key="cf" />],
+                  ['changes-in-equity', <ChangesInEquityPage key="eq" />],
                 ] as const
               ).map(([path, page]) => ({
                 path: `reports/${path}`,
@@ -491,11 +728,37 @@ export const routes: RouteObject[] = [
                     <CustomerDetailPage key="customer" />,
                   ],
                   ['reports', Permission.SalesReportsView, <SalesReportsPage key="reports" />],
+                  ['trend', Permission.SalesReportsView, <SalesTrendPage key="trend" />],
+                  ['quotes', Permission.QuotesView, <QuotesPage key="quotes" />],
+                  ['orders', Permission.SalesOrdersView, <SalesOrdersPage key="orders" />],
+                  ['orders/:id', Permission.SalesOrdersView, <SalesOrderDetailPage key="order" />],
+                  ['reminders', Permission.PaymentRemindersView, <RemindersPage key="reminders" />],
+                  [
+                    'online-payments',
+                    Permission.PaymentsView,
+                    <OnlinePaymentsPage key="online-payments" />,
+                  ],
+                  ['quotes/:id', Permission.QuotesView, <QuoteDetailPage key="quote" />],
+                  [
+                    'recurring',
+                    Permission.RecurringInvoicesView,
+                    <RecurringInvoicesPage key="recurring" />,
+                  ],
                 ] as const
               ).map(([path, permission, page]) => ({
                 path,
                 element: <RequirePermission permission={permission}>{page}</RequirePermission>,
               })),
+              {
+                path: 'classification',
+                element: (
+                  <RequireAnyPermission
+                    permissions={[Permission.CustomersView, ...CATALOG_VIEW_PERMISSIONS]}
+                  >
+                    <ClassificationPage />
+                  </RequireAnyPermission>
+                ),
+              },
               {
                 path: 'items',
                 element: (
@@ -663,6 +926,14 @@ export const routes: RouteObject[] = [
                 path,
                 element: <RequirePermission permission={permission}>{page}</RequirePermission>,
               })),
+              {
+                path: 'expense-policies',
+                element: (
+                  <RequirePermission permission={Permission.ExpensesView}>
+                    <ExpensePoliciesPage />
+                  </RequirePermission>
+                ),
+              },
               // Phase 4A-4: Purchases settings and numbering (P4-07, P4-51).
               {
                 path: 'settings',
@@ -703,6 +974,11 @@ export const routes: RouteObject[] = [
                     <BankEntryPage key="entry" />,
                   ],
                   ['rules', Permission.BankingTransactionsView, <BankRulesPage key="rules" />],
+                  [
+                    'petty-cash',
+                    Permission.BankingTransactionsView,
+                    <PettyCashPage key="petty-cash" />,
+                  ],
                 ] as const
               ).map(([path, permission, page]) => ({
                 ...(path === '' ? { index: true } : { path }),
@@ -719,6 +995,11 @@ export const routes: RouteObject[] = [
                 [
                   ['', Permission.ExpenseClaimsView, <ClaimsPage key="claims" />],
                   ['new', Permission.ExpenseClaimsCreate, <NewClaimPage key="new-claim" />],
+                  [
+                    'by-claimant',
+                    Permission.ExpenseClaimsView,
+                    <ClaimsByClaimantPage key="by-claimant" />,
+                  ],
                   [
                     'settings',
                     Permission.ExpenseClaimsView,
@@ -769,6 +1050,33 @@ export const routes: RouteObject[] = [
                   ['', Permission.InventoryView, <StockPage key="stock" />],
                   ['items/:itemId', Permission.InventoryView, <StockItemPage key="item" />],
                   ['adjustments', Permission.InventoryView, <AdjustmentsPage key="adjustments" />],
+                  ['returns', Permission.InventoryView, <ReturnsPage key="returns" />],
+                  ['bundles', Permission.InventoryView, <BundlesPage key="bundles" />],
+                  ['warehouses', Permission.InventoryView, <WarehousesPage key="warehouses" />],
+                  [
+                    'reservations',
+                    Permission.InventoryView,
+                    <ReservationsPage key="reservations" />,
+                  ],
+                  ['lots', Permission.InventoryView, <ExpiringLotsPage key="lots" />],
+                  [
+                    'landed-costs',
+                    Permission.InventoryView,
+                    <LandedCostsPage key="landed-costs" />,
+                  ],
+                  [
+                    'transfers',
+                    Permission.InventoryView,
+                    <StockTransfersPage key="inv-transfers" />,
+                  ],
+                  ['counts', Permission.InventoryCountsManage, <CountsPage key="counts" />],
+                  ['counts/:id', Permission.InventoryCountsManage, <CountDetailPage key="count" />],
+                  ['reports', Permission.InventoryView, <InventoryReportsPage key="reports" />],
+                  [
+                    'purchase-suggestions',
+                    Permission.InventoryView,
+                    <PurchaseSuggestionsPage key="purchase-suggestions" />,
+                  ],
                   ['valuation', Permission.InventoryView, <ValuationPage key="valuation" />],
                   ['settings', Permission.InventoryView, <InventorySettingsPage key="settings" />],
                 ] as const

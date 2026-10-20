@@ -14,9 +14,11 @@ import {
   uploadFile,
 } from '../files/files';
 import type { OrganizationProfile } from '../parties/types';
+import { useT } from '../../i18n/i18n';
 
 /** Company logo (S4-03, K-6, S5-11, S5-12): PNG, JPEG or WebP, separate from the profile save. */
 export function LogoCard({ profile }: { profile: OrganizationProfile }) {
+  const t = useT();
   const org = useAuth().activeOrganization?.id ?? 'none';
   const queryClient = useQueryClient();
   const canEdit = usePermission(Permission.OrganizationUpdate);
@@ -45,29 +47,29 @@ export function LogoCard({ profile }: { profile: OrganizationProfile }) {
 
   return (
     <Card
-      title="Company logo"
+      title={t('logo.title')}
       actions={
         canEdit && fileId ? (
           <Button variant="ghost" busy={setLogo.isPending} onClick={() => apply(null)}>
-            Remove logo
+            {t('logo.remove')}
           </Button>
         ) : null
       }
     >
       {fileId && preview.data ? (
-        <img className="company-logo" src={preview.data.url} alt="Company logo" />
+        <img className="company-logo" src={preview.data.url} alt={t('logo.title')} />
       ) : fileId ? null : (
-        <p className="muted">No logo.</p>
+        <p className="muted">{t('logo.none')}</p>
       )}
       {canEdit ? (
         profile.version === 0 ? (
-          <p className="muted">Save the company profile before adding a logo.</p>
+          <p className="muted">{t('logo.saveProfileFirst')}</p>
         ) : (
           <FileUpload
             accept={IMAGE_FILE_TYPES}
             maxBytes={MAX_FILE_BYTES}
-            label={fileId ? 'Replace logo' : 'Upload logo'}
-            hint="PNG, JPEG or WebP, up to 25 MB."
+            label={fileId ? t('logo.replace') : t('logo.upload')}
+            hint={t('logo.hint')}
             upload={async (file, onProgress) => {
               const stored = await uploadFile({
                 linkType: 'organization_logo',

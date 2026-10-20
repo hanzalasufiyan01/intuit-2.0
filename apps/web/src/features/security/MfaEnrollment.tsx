@@ -7,6 +7,7 @@ import { ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { TextField } from '../../shared/ui/TextField';
 import { RecoveryCodesDisplay } from './RecoveryCodes';
+import { useT } from '../../i18n/i18n';
 
 /** Groups a base32 secret in blocks of four for manual entry (S7-13). */
 function grouped(secret: string): string {
@@ -24,6 +25,7 @@ export function MfaEnrollment({
   replacing?: boolean;
   onFinished(): void;
 }) {
+  const t = useT();
   const { updateSession } = useAuth();
   const sensitive = useSensitiveAction();
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
@@ -90,14 +92,10 @@ export function MfaEnrollment({
   if (!enrollment) {
     return (
       <div className="stack">
-        <p>
-          {replacing
-            ? 'Set up a new authenticator app. The current one stops working when the new one is confirmed.'
-            : 'Use an authenticator app such as Google Authenticator, Microsoft Authenticator or 1Password to create six-digit sign-in codes.'}
-        </p>
+        <p>{replacing ? t('mfaEnroll.introReplace') : t('mfaEnroll.intro')}</p>
         <ErrorAlert error={start.error} />
         <Button onClick={begin} busy={start.isPending}>
-          {replacing ? 'Set up a new authenticator' : 'Set up two-step verification'}
+          {replacing ? t('mfaEnroll.beginReplace') : t('mfaEnroll.begin')}
         </Button>
       </div>
     );
@@ -106,17 +104,19 @@ export function MfaEnrollment({
   return (
     <form className="stack" onSubmit={submit} noValidate>
       <ol className="steps-list">
-        <li>Scan this QR code with your authenticator app.</li>
+        <li>{t('mfaEnroll.scan')}</li>
       </ol>
-      <img className="qr-code" src={enrollment.qrCode} alt="QR code for your authenticator app" />
+      <img className="qr-code" src={enrollment.qrCode} alt={t('mfaEnroll.qrAlt')} />
       <details>
-        <summary>Can’t scan it? Enter the key instead</summary>
+        <summary>{t('mfaEnroll.cantScan')}</summary>
         <p className="muted">
-          Account <strong>{enrollment.account}</strong>, issuer <strong>{enrollment.issuer}</strong>
-          , time-based, 6 digits.
+          {t('mfaEnroll.keyDetails', {
+            account: enrollment.account,
+            issuer: enrollment.issuer,
+          })}
         </p>
         <p>
-          <code className="secret-key" aria-label="Setup key">
+          <code className="secret-key" aria-label={t('mfaEnroll.setupKey')}>
             {grouped(enrollment.secret)}
           </code>{' '}
           <Button
@@ -128,13 +128,13 @@ export function MfaEnrollment({
                 .catch(() => setCopied(false))
             }
           >
-            {copied ? 'Copied' : 'Copy key'}
+            {copied ? t('mfaEnroll.copied') : t('mfaEnroll.copyKey')}
           </Button>
         </p>
       </details>
       <ErrorAlert error={verify.error} />
       <TextField
-        label="Enter the six-digit code from the app"
+        label={t('mfaEnroll.codeLabel')}
         inputMode="numeric"
         autoComplete="one-time-code"
         pattern="[0-9 ]*"
@@ -145,14 +145,14 @@ export function MfaEnrollment({
       />
       <div className="actions">
         <Button type="submit" busy={verify.isPending}>
-          Confirm
+          {t('mfaEnroll.confirm')}
         </Button>
         <Button variant="secondary" onClick={() => setEnrollment(null)}>
-          Cancel
+          {t('mfaEnroll.cancel')}
         </Button>
       </div>
       <p className="muted">
-        This setup expires at {new Date(enrollment.expiresAt).toLocaleTimeString()}.
+        {t('mfaEnroll.expires', { time: new Date(enrollment.expiresAt).toLocaleTimeString() })}
       </p>
     </form>
   );

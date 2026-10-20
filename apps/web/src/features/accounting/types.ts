@@ -1,4 +1,5 @@
 import type { AppliedStep, ApprovalFacts } from '../approvals/conditions';
+import type { MessageKey } from '../../i18n/i18n';
 /** Accounting API shapes (mirrors /api/v1/accounting responses). Amounts are decimal strings. */
 
 export type AccountType = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE';
@@ -36,23 +37,24 @@ export type AccountSubtype =
   | 'COST_OF_SALES'
   | 'OPERATING_EXPENSE'
   | 'OTHER_EXPENSE';
-export const SUBTYPE_LABELS: Record<AccountSubtype, string> = {
-  BANK: 'Bank',
-  CASH: 'Cash',
-  ACCOUNTS_RECEIVABLE: 'Accounts Receivable',
-  OTHER_CURRENT_ASSET: 'Other Current Asset',
-  FIXED_ASSET: 'Fixed Asset',
-  OTHER_ASSET: 'Other Asset',
-  ACCOUNTS_PAYABLE: 'Accounts Payable',
-  CREDIT_CARD: 'Credit Card',
-  OTHER_CURRENT_LIABILITY: 'Other Current Liability',
-  LONG_TERM_LIABILITY: 'Long-Term Liability',
-  EQUITY: 'Equity',
-  OPERATING_REVENUE: 'Operating Revenue',
-  OTHER_INCOME: 'Other Income',
-  COST_OF_SALES: 'Cost of Sales',
-  OPERATING_EXPENSE: 'Operating Expense',
-  OTHER_EXPENSE: 'Other Expense',
+/** Catalog keys of the subtype names (translate with `t(SUBTYPE_LABELS[subtype])`). */
+export const SUBTYPE_LABELS: Record<AccountSubtype, MessageKey> = {
+  BANK: 'accounting.subtype.BANK',
+  CASH: 'accounting.subtype.CASH',
+  ACCOUNTS_RECEIVABLE: 'accounting.subtype.ACCOUNTS_RECEIVABLE',
+  OTHER_CURRENT_ASSET: 'accounting.subtype.OTHER_CURRENT_ASSET',
+  FIXED_ASSET: 'accounting.subtype.FIXED_ASSET',
+  OTHER_ASSET: 'accounting.subtype.OTHER_ASSET',
+  ACCOUNTS_PAYABLE: 'accounting.subtype.ACCOUNTS_PAYABLE',
+  CREDIT_CARD: 'accounting.subtype.CREDIT_CARD',
+  OTHER_CURRENT_LIABILITY: 'accounting.subtype.OTHER_CURRENT_LIABILITY',
+  LONG_TERM_LIABILITY: 'accounting.subtype.LONG_TERM_LIABILITY',
+  EQUITY: 'accounting.subtype.EQUITY',
+  OPERATING_REVENUE: 'accounting.subtype.OPERATING_REVENUE',
+  OTHER_INCOME: 'accounting.subtype.OTHER_INCOME',
+  COST_OF_SALES: 'accounting.subtype.COST_OF_SALES',
+  OPERATING_EXPENSE: 'accounting.subtype.OPERATING_EXPENSE',
+  OTHER_EXPENSE: 'accounting.subtype.OTHER_EXPENSE',
 };
 /** Always monetary (Decision 53). */
 export const ALWAYS_MONETARY: readonly AccountSubtype[] = [
@@ -96,13 +98,6 @@ export type Designation =
   | 'UNREALIZED_FX_GAIN_LOSS'
   | 'ROUNDING_DIFFERENCE'
   | 'OPENING_BALANCE_EQUITY';
-export const DESIGNATION_LABELS: Record<Designation, string> = {
-  RETAINED_EARNINGS: 'Retained Earnings',
-  REALIZED_FX_GAIN_LOSS: 'Realized FX Gain/Loss',
-  UNREALIZED_FX_GAIN_LOSS: 'Unrealized FX Gain/Loss',
-  ROUNDING_DIFFERENCE: 'Rounding Differences',
-  OPENING_BALANCE_EQUITY: 'Opening Balance Equity',
-};
 export interface DesignationEntry {
   designation: Designation;
   accountId: string | null;

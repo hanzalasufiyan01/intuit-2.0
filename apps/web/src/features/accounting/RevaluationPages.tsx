@@ -13,6 +13,7 @@ import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
 import type { ApprovalRequestSummary } from './types';
 import { AccountingPage, useOrgKey } from './shared';
+import { useT, type MessageKey } from '../../i18n/i18n';
 
 /**
  * Foreign-currency revaluation (Phase 4B-10; ADR 0004 P4-52, Decision 9): preview the calculation
@@ -100,15 +101,16 @@ interface Preview {
   totals: { gain: string; loss: string; net: string };
 }
 
-const STATUS_LABEL: Record<RunStatus, string> = {
-  DRAFT: 'Draft',
-  PENDING_APPROVAL: 'Awaiting approval',
-  POSTED: 'Posted',
-  REVERSED: 'Cancelled',
+const STATUS_LABEL: Record<RunStatus, MessageKey> = {
+  DRAFT: 'accounting.revaluationPages.status.DRAFT',
+  PENDING_APPROVAL: 'accounting.revaluationPages.status.PENDING_APPROVAL',
+  POSTED: 'accounting.revaluationPages.status.POSTED',
+  REVERSED: 'accounting.revaluationPages.status.REVERSED',
 };
 
 function StatusLabel({ status }: { status: RunStatus }) {
-  return <span className={`badge badge--${status.toLowerCase()}`}>{STATUS_LABEL[status]}</span>;
+  const t = useT();
+  return <span className={`badge badge--${status.toLowerCase()}`}>{t(STATUS_LABEL[status])}</span>;
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -118,6 +120,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 // ---------------------------------------------------------------------------
 
 export function RevaluationsPage() {
+  const t = useT();
   const org = useOrgKey();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -146,10 +149,10 @@ export function RevaluationsPage() {
   return (
     <AccountingPage>
       <PageHeader
-        title="Revaluation"
-        description="Revalue foreign-currency balances and open documents at a closing rate. Each run posts a base-only journal and its reversal the next day."
+        title={t('accounting.revaluationPages.revaluation')}
+        description={t('accounting.revaluationPages.revalueForeignCurrencyBalancesAnd')}
       />
-      <Card title="New revaluation">
+      <Card title={t('accounting.revaluationPages.newRevaluation')}>
         <form
           className="form form--inline"
           onSubmit={(e) => {
@@ -158,14 +161,14 @@ export function RevaluationsPage() {
           }}
         >
           <TextField
-            label="Revaluation date"
+            label={t('accounting.revaluationPages.revaluationDate')}
             type="date"
             value={date}
             required
             onChange={(e) => setDate(e.target.value)}
           />
           <Button type="submit" busy={preview.isPending}>
-            Preview
+            {t('accounting.revaluationPages.preview')}
           </Button>
         </form>
         <ErrorAlert error={preview.error ?? post.error ?? submit.error} />
@@ -182,19 +185,28 @@ export function RevaluationsPage() {
               </Alert>
             ))}
             {result.lines.length === 0 && result.errors.length === 0 ? (
-              <p className="muted">Nothing to revalue at {result.revaluationDate}.</p>
+              <p className="muted">
+                {t('accounting.revaluationPages.nothingToRevalueAt', {
+                  revaluationDate: result.revaluationDate,
+                })}
+              </p>
             ) : null}
             {result.lines.length > 0 ? (
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Account</th>
-                    <th>Currency</th>
-                    <th className="num">Foreign balance</th>
-                    <th className="num">Carrying ({runs.data?.[0]?.baseCurrency ?? 'base'})</th>
-                    <th className="num">Rate</th>
-                    <th className="num">Revalued</th>
-                    <th className="num">Adjustment</th>
+                    <th>{t('accounting.revaluationPages.account')}</th>
+                    <th>{t('accounting.revaluationPages.currency')}</th>
+                    <th className="num">{t('accounting.revaluationPages.foreignBalance')}</th>
+                    <th className="num">
+                      {t('accounting.revaluationPages.carrying', {
+                        baseCurrency:
+                          runs.data?.[0]?.baseCurrency ?? t('accounting.revaluationPages.base'),
+                      })}
+                    </th>
+                    <th className="num">{t('accounting.revaluationPages.rate')}</th>
+                    <th className="num">{t('accounting.revaluationPages.revalued')}</th>
+                    <th className="num">{t('accounting.revaluationPages.adjustment')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -202,7 +214,9 @@ export function RevaluationsPage() {
                     <tr key={l.lineNumber}>
                       <td>
                         {l.accountCode}
-                        {l.exposureKind === 'DOCUMENT' ? ' (documents)' : ''}
+                        {l.exposureKind === 'DOCUMENT'
+                          ? t('accounting.revaluationPages.documents')
+                          : ''}
                       </td>
                       <td>{l.currency}</td>
                       <td className="num">{formatAmount(l.foreignBalance, l.currency)}</td>
@@ -216,7 +230,11 @@ export function RevaluationsPage() {
               </table>
             ) : null}
             <p>
-              Gain {result.totals.gain} · Loss {result.totals.loss} · Net {result.totals.net}
+              {t('accounting.revaluationPages.gainLossNet', {
+                gain: result.totals.gain,
+                loss: result.totals.loss,
+                net: result.totals.net,
+              })}
             </p>
             {canPost && !blocked && result.lines.length > 0 ? (
               <p className="actions">
@@ -225,14 +243,14 @@ export function RevaluationsPage() {
                     busy={submit.isPending}
                     onClick={() => submit.mutate(result.revaluationDate, { onSuccess: opened })}
                   >
-                    Submit for approval
+                    {t('accounting.revaluationPages.submitForApproval')}
                   </Button>
                 ) : (
                   <Button
                     busy={post.isPending}
                     onClick={() => post.mutate(result.revaluationDate, { onSuccess: opened })}
                   >
-                    Post revaluation
+                    {t('accounting.revaluationPages.postRevaluation')}
                   </Button>
                 )}
               </p>
@@ -240,23 +258,23 @@ export function RevaluationsPage() {
           </>
         ) : null}
       </Card>
-      <Card title="Revaluation runs">
+      <Card title={t('accounting.revaluationPages.revaluationRuns')}>
         {runs.isPending ? (
-          <Spinner label="Loading" />
+          <Spinner label={t('accounting.revaluationPages.loading')} />
         ) : runs.isError ? (
           <ErrorAlert error={runs.error} />
         ) : runs.data.length === 0 ? (
-          <p className="muted">No revaluations yet.</p>
+          <p className="muted">{t('accounting.revaluationPages.noRevaluationsYet')}</p>
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Status</th>
-                <th className="num">Gain</th>
-                <th className="num">Loss</th>
-                <th className="num">Net</th>
-                <th className="num">Lines</th>
+                <th>{t('accounting.revaluationPages.date')}</th>
+                <th>{t('accounting.revaluationPages.status')}</th>
+                <th className="num">{t('accounting.revaluationPages.gain')}</th>
+                <th className="num">{t('accounting.revaluationPages.loss')}</th>
+                <th className="num">{t('accounting.revaluationPages.net')}</th>
+                <th className="num">{t('accounting.revaluationPages.lines')}</th>
               </tr>
             </thead>
             <tbody>
@@ -287,6 +305,7 @@ export function RevaluationsPage() {
 // ---------------------------------------------------------------------------
 
 export function RevaluationDetailPage() {
+  const t = useT();
   const { id = '' } = useParams();
   const org = useOrgKey();
   const navigate = useNavigate();
@@ -337,7 +356,7 @@ export function RevaluationDetailPage() {
     ),
   );
 
-  if (run.isPending) return <Spinner label="Loading" />;
+  if (run.isPending) return <Spinner label={t('accounting.revaluationPages.loading')} />;
   if (run.isError) return <ErrorAlert error={run.error} />;
   const r = run.data;
   const request = (requests.data ?? []).find(
@@ -350,35 +369,42 @@ export function RevaluationDetailPage() {
   return (
     <AccountingPage>
       <PageHeader
-        title={`Revaluation at ${r.revaluationDate}`}
-        description={`Reversal on ${r.reversalDate ?? ''}`}
+        title={t('accounting.revaluationPages.revaluationAt', {
+          revaluationDate: r.revaluationDate,
+        })}
+        description={t('accounting.revaluationPages.reversalOn', {
+          reversalDate: r.reversalDate ?? '',
+        })}
       />
       <ErrorAlert error={postApproved.error ?? withdraw.error ?? cancel.error ?? decide.error} />
       {conflict ? (
         <Alert tone="info">
-          This run was changed by someone else.{' '}
+          {t('accounting.revaluationPages.thisRunWasChangedBy')}{' '}
           <Button variant="ghost" onClick={() => void run.refetch()}>
-            Reload
+            {t('accounting.revaluationPages.reload')}
           </Button>
         </Alert>
       ) : null}
-      <Card title="Summary" actions={<StatusLabel status={r.status} />}>
+      <Card
+        title={t('accounting.revaluationPages.summary')}
+        actions={<StatusLabel status={r.status} />}
+      >
         <dl className="facts">
-          <dt>Gain</dt>
+          <dt>{t('accounting.revaluationPages.gain')}</dt>
           <dd>
             {r.totalGain} {r.baseCurrency}
           </dd>
-          <dt>Loss</dt>
+          <dt>{t('accounting.revaluationPages.loss')}</dt>
           <dd>
             {r.totalLoss} {r.baseCurrency}
           </dd>
-          <dt>Net adjustment</dt>
+          <dt>{t('accounting.revaluationPages.netAdjustment')}</dt>
           <dd>
             {r.netAdjustment} {r.baseCurrency}
           </dd>
           {r.reversalReason ? (
             <>
-              <dt>Cancelled because</dt>
+              <dt>{t('accounting.revaluationPages.cancelledBecause')}</dt>
               <dd>{r.reversalReason}</dd>
             </>
           ) : null}
@@ -387,8 +413,8 @@ export function RevaluationDetailPage() {
           <>
             <p>
               {r.approval?.readyToIssue
-                ? 'Approved. Posting repeats the calculation and must give the same result.'
-                : 'Waiting for approval before it can be posted.'}
+                ? t('accounting.revaluationPages.approvedPostingRepeatsTheCalculation')
+                : t('accounting.revaluationPages.waitingForApprovalBeforeIt')}
             </p>
             <div className="actions">
               {canPost ? (
@@ -397,7 +423,7 @@ export function RevaluationDetailPage() {
                   busy={postApproved.isPending}
                   onClick={() => postApproved.mutate(undefined, { onSuccess: refresh })}
                 >
-                  Post revaluation
+                  {t('accounting.revaluationPages.postRevaluation')}
                 </Button>
               ) : null}
               {canPost ? (
@@ -413,7 +439,7 @@ export function RevaluationDetailPage() {
                     })
                   }
                 >
-                  Withdraw
+                  {t('accounting.revaluationPages.withdraw')}
                 </Button>
               ) : null}
             </div>
@@ -422,7 +448,7 @@ export function RevaluationDetailPage() {
       </Card>
 
       {r.status === 'PENDING_APPROVAL' && request?.canDecide ? (
-        <Card title="Your approval">
+        <Card title={t('accounting.revaluationPages.yourApproval')}>
           {rejecting ? (
             <form
               className="form form--inline"
@@ -440,13 +466,13 @@ export function RevaluationDetailPage() {
               }}
             >
               <TextField
-                label="Reason for rejecting"
+                label={t('accounting.revaluationPages.reasonForRejecting')}
                 value={comment}
                 required
                 onChange={(e) => setComment(e.target.value)}
               />
               <Button type="submit" variant="secondary" busy={decide.isPending}>
-                Reject
+                {t('accounting.revaluationPages.reject')}
               </Button>
             </form>
           ) : (
@@ -460,31 +486,31 @@ export function RevaluationDetailPage() {
                   )
                 }
               >
-                Approve
+                {t('accounting.revaluationPages.approve')}
               </Button>
               <Button variant="ghost" onClick={() => setRejecting(true)}>
-                Reject
+                {t('accounting.revaluationPages.reject')}
               </Button>
             </p>
           )}
         </Card>
       ) : null}
 
-      <Card title="Exposures">
+      <Card title={t('accounting.revaluationPages.exposures')}>
         {r.lines.length === 0 ? (
-          <p className="muted">Nothing needed revaluing.</p>
+          <p className="muted">{t('accounting.revaluationPages.nothingNeededRevaluing')}</p>
         ) : (
           <table className="table">
             <thead>
               <tr>
                 <th>#</th>
-                <th>Exposure</th>
-                <th>Currency</th>
-                <th className="num">Foreign balance</th>
-                <th className="num">Carrying</th>
-                <th className="num">Rate</th>
-                <th className="num">Revalued</th>
-                <th className="num">Adjustment</th>
+                <th>{t('accounting.revaluationPages.exposure')}</th>
+                <th>{t('accounting.revaluationPages.currency')}</th>
+                <th className="num">{t('accounting.revaluationPages.foreignBalance')}</th>
+                <th className="num">{t('accounting.revaluationPages.carrying2')}</th>
+                <th className="num">{t('accounting.revaluationPages.rate')}</th>
+                <th className="num">{t('accounting.revaluationPages.revalued')}</th>
+                <th className="num">{t('accounting.revaluationPages.adjustment')}</th>
               </tr>
             </thead>
             <tbody>
@@ -492,7 +518,9 @@ export function RevaluationDetailPage() {
                 <tr key={l.lineNumber}>
                   <td>{l.lineNumber}</td>
                   <td>
-                    {l.document ? `${l.document.module} ${l.document.type}` : 'Account balance'}
+                    {l.document
+                      ? `${l.document.module} ${l.document.type}`
+                      : t('accounting.revaluationPages.accountBalance')}
                   </td>
                   <td>{l.currency}</td>
                   <td className="num">{formatAmount(l.foreignBalance, l.currency)}</td>
@@ -510,22 +538,24 @@ export function RevaluationDetailPage() {
       </Card>
 
       {r.journals.length > 0 ? (
-        <Card title="Journals">
+        <Card title={t('accounting.revaluationPages.journals')}>
           <table className="table">
             <thead>
               <tr>
-                <th>Journal</th>
-                <th>Role</th>
-                <th>Currency</th>
-                <th>Date</th>
-                <th>Status</th>
+                <th>{t('accounting.revaluationPages.journal')}</th>
+                <th>{t('accounting.revaluationPages.role')}</th>
+                <th>{t('accounting.revaluationPages.currency')}</th>
+                <th>{t('accounting.revaluationPages.date')}</th>
+                <th>{t('accounting.revaluationPages.status')}</th>
               </tr>
             </thead>
             <tbody>
               {r.journals.map((j) => (
                 <tr key={j.journalId}>
                   <td>
-                    <Link to={`/accounting/journals/${j.journalId}`}>{j.number ?? 'Journal'}</Link>
+                    <Link to={`/accounting/journals/${j.journalId}`}>
+                      {j.number ?? t('accounting.revaluationPages.journal')}
+                    </Link>
                   </td>
                   <td>{j.role.toLowerCase().replace('_', ' ')}</td>
                   <td>{j.currency}</td>
@@ -539,10 +569,8 @@ export function RevaluationDetailPage() {
       ) : null}
 
       {r.status === 'POSTED' && canCancel ? (
-        <Card title="Cancel this revaluation">
-          <p className="muted">
-            Reverses the revaluation and its scheduled reversal. Both dates must be in open periods.
-          </p>
+        <Card title={t('accounting.revaluationPages.cancelThisRevaluation')}>
+          <p className="muted">{t('accounting.revaluationPages.reversesTheRevaluationAndIts')}</p>
           <form
             className="form form--inline"
             onSubmit={(e) => {
@@ -551,13 +579,13 @@ export function RevaluationDetailPage() {
             }}
           >
             <TextField
-              label="Reason"
+              label={t('accounting.revaluationPages.reason')}
               value={reason}
               required
               onChange={(e) => setReason(e.target.value)}
             />
             <Button type="submit" variant="secondary" busy={cancel.isPending}>
-              Cancel revaluation
+              {t('accounting.revaluationPages.cancelRevaluation')}
             </Button>
           </form>
         </Card>

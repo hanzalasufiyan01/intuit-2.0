@@ -11,8 +11,10 @@ import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
 import { AccountingPage, StatusBadge, useOrgKey } from './shared';
 import type { FiscalYear, Period } from './types';
+import { useT } from '../../i18n/i18n';
 
 export function FiscalYearsPage() {
+  const t = useT();
   const org = useOrgKey();
   const queryClient = useQueryClient();
   const years = useQuery({
@@ -35,53 +37,54 @@ export function FiscalYearsPage() {
 
   return (
     <>
-      <PageHeader
-        title="Fiscal Years"
-        description="Each organization defines its own financial-year boundaries. Periods are monthly by default."
-      />
+      <PageHeader title={t('fiscalYears.title')} description={t('fiscalYears.description')} />
       <AccountingPage>
         <Can permission={Permission.AccountingSetup}>
-          <Card title="New fiscal year">
+          <Card title={t('fiscalYears.new')}>
             <form className="form form--inline" onSubmit={submit} noValidate>
               <TextField
-                label="Name"
+                label={t('fiscalYears.name')}
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 error={create.error?.fieldError('name')}
               />
               <TextField
-                label="Start"
+                label={t('fiscalYears.start')}
                 type="date"
                 value={form.startDate}
                 onChange={(e) => setForm({ ...form, startDate: e.target.value })}
                 error={create.error?.fieldError('startDate')}
               />
               <TextField
-                label="End"
+                label={t('fiscalYears.end')}
                 type="date"
                 value={form.endDate}
                 onChange={(e) => setForm({ ...form, endDate: e.target.value })}
                 error={create.error?.fieldError('endDate')}
               />
               <Button type="submit" busy={create.isPending}>
-                Create with monthly periods
+                {t('fiscalYears.create')}
               </Button>
             </form>
             <ErrorAlert error={create.error?.issues.length ? null : create.error} />
           </Card>
         </Can>
         {years.isPending ? (
-          <Spinner label="Loading fiscal years" />
+          <Spinner label={t('fiscalYears.loading')} />
         ) : years.isError ? (
           <ErrorAlert error={years.error} />
         ) : years.data.length === 0 ? (
-          <Alert tone="info">No fiscal years yet.</Alert>
+          <Alert tone="info">{t('fiscalYears.none')}</Alert>
         ) : (
           years.data.map((y) => (
             <Card key={y.id} title={y.name}>
               <p className="muted">
-                {y.startDate} – {y.endDate} · {y.periods?.length ?? 0} periods (
-                {y.periods?.filter((p) => p.status === 'CLOSED').length ?? 0} closed)
+                {t('fiscalYears.summary', {
+                  start: y.startDate,
+                  end: y.endDate,
+                  periods: y.periods?.length ?? 0,
+                  closed: y.periods?.filter((p) => p.status === 'CLOSED').length ?? 0,
+                })}
               </p>
             </Card>
           ))
@@ -92,6 +95,7 @@ export function FiscalYearsPage() {
 }
 
 function PeriodRow({ period }: { period: Period }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const sensitive = useSensitiveAction();
   const canClose = usePermission(Permission.PeriodsClose);
@@ -116,7 +120,9 @@ function PeriodRow({ period }: { period: Period }) {
       </td>
       <td>
         <StatusBadge status={period.status} />
-        {period.reopenReason ? <div className="muted">Reopened: {period.reopenReason}</div> : null}
+        {period.reopenReason ? (
+          <div className="muted">{t('periods.reopened', { reason: period.reopenReason })}</div>
+        ) : null}
       </td>
       <td className="actions">
         {period.status === 'OPEN' && canClose ? (
@@ -125,7 +131,7 @@ function PeriodRow({ period }: { period: Period }) {
             busy={close.isPending}
             onClick={() => close.mutate(undefined, { onSuccess: done })}
           >
-            Close
+            {t('periods.close')}
           </Button>
         ) : null}
         {period.status === 'CLOSED' && canReopen ? (
@@ -136,9 +142,7 @@ function PeriodRow({ period }: { period: Period }) {
               reopen.mutate(undefined, {
                 onSuccess: (result) => {
                   setMessage(
-                    result.status === 'PENDING_APPROVAL'
-                      ? 'Reopen request sent for approval.'
-                      : null,
+                    result.status === 'PENDING_APPROVAL' ? t('periods.reopenPending') : null,
                   );
                   done();
                 },
@@ -146,13 +150,13 @@ function PeriodRow({ period }: { period: Period }) {
             }}
           >
             <TextField
-              label="Reason"
+              label={t('periods.reason')}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               error={reopen.error?.fieldError('reason')}
             />
             <Button type="submit" busy={reopen.isPending}>
-              Reopen
+              {t('periods.reopen')}
             </Button>
           </form>
         ) : null}
@@ -168,6 +172,7 @@ function PeriodRow({ period }: { period: Period }) {
 }
 
 export function PeriodsPage() {
+  const t = useT();
   const org = useOrgKey();
   const periods = useQuery({
     queryKey: ['accounting-periods', org],
@@ -175,23 +180,20 @@ export function PeriodsPage() {
   });
   return (
     <>
-      <PageHeader
-        title="Accounting Periods"
-        description="Closed periods accept no postings. Reopening needs a reason, password confirmation and any required approvals."
-      />
+      <PageHeader title={t('periods.title')} description={t('periods.description')} />
       <AccountingPage>
         <Card>
           {periods.isPending ? (
-            <Spinner label="Loading periods" />
+            <Spinner label={t('periods.loading')} />
           ) : periods.isError ? (
             <ErrorAlert error={periods.error} />
           ) : (
             <table className="table">
               <thead>
                 <tr>
-                  <th>Period</th>
-                  <th>Dates</th>
-                  <th>Status</th>
+                  <th>{t('periods.period')}</th>
+                  <th>{t('periods.dates')}</th>
+                  <th>{t('periods.status')}</th>
                   <th />
                 </tr>
               </thead>

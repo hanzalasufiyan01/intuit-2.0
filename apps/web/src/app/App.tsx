@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { createBrowserRouter, RouterProvider, type createMemoryRouter } from 'react-router';
 import { AuthProvider } from '../auth/auth-context';
 import { ReauthProvider } from '../auth/reauth';
+import { AppLocaleProvider } from '../i18n/i18n';
 import { ApiError } from '../services/api-client';
 import { routes } from './routes';
 
@@ -30,7 +31,9 @@ export function App({ router, queryClient }: { router?: AppRouter; queryClient?:
     <QueryClientProvider client={client}>
       <AuthProvider>
         <ReauthProvider>
-          <RouterProvider router={appRouter} />
+          <AppLocaleProvider>
+            <RouterProvider router={appRouter} />
+          </AppLocaleProvider>
         </ReauthProvider>
       </AuthProvider>
     </QueryClientProvider>

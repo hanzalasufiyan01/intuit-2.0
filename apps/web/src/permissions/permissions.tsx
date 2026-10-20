@@ -129,6 +129,53 @@ export const Permission = {
   InventorySettingsManage: 'inventory.settings.manage',
   InventoryAdjustmentsCreate: 'inventory.adjustments.create',
   InventoryAdjustmentsVoid: 'inventory.adjustments.void',
+  InventoryCountsManage: 'inventory.counts.manage',
+  // Payroll (FP-25).
+  PayrollView: 'payroll.view',
+  PayrollEmployeesManage: 'payroll.employees.manage',
+  PayrollSettingsManage: 'payroll.settings.manage',
+  PayrollRunsCreate: 'payroll.runs.create',
+  PayrollRunsApprove: 'payroll.runs.approve',
+  PayrollRunsPost: 'payroll.runs.post',
+  PayrollRunsPay: 'payroll.runs.pay',
+  PaymentsView: 'payments.view',
+  PaymentsIntentsCreate: 'payments.intents.create',
+  PaymentsReconcile: 'payments.reconcile',
+  PaymentsSettingsManage: 'payments.settings.manage',
+  PayrollRunsVoid: 'payroll.runs.void',
+  PayrollLeaveManage: 'payroll.leave.manage',
+  PayrollAdvancesManage: 'payroll.advances.manage',
+  // Clinic (FP-27, ADR 0013).
+  ClinicPatientsView: 'clinic.patients.view',
+  ClinicPatientsManage: 'clinic.patients.manage',
+  ClinicAppointmentsManage: 'clinic.appointments.manage',
+  ClinicBillingCreate: 'clinic.billing.create',
+  ClinicReportsView: 'clinic.reports.view',
+  // Payment reminders, sales orders and invoice share links (FP-28).
+  PaymentRemindersView: 'payment_reminders.view',
+  PaymentRemindersSend: 'payment_reminders.send',
+  PaymentRemindersSettings: 'payment_reminders.settings.manage',
+  SalesOrdersView: 'sales_orders.view',
+  SalesOrdersCreate: 'sales_orders.create',
+  SalesOrdersInvoice: 'sales_orders.invoice',
+  InvoiceLinksManage: 'invoice_links.manage',
+  // Sales quotes and recurring invoices (FP-28).
+  QuotesView: 'quotes.view',
+  QuotesCreate: 'quotes.create',
+  QuotesConvert: 'quotes.convert',
+  RecurringInvoicesView: 'recurring_invoices.view',
+  RecurringInvoicesManage: 'recurring_invoices.manage',
+  // Projects (FP-26).
+  ProjectsView: 'projects.view',
+  ProjectsManage: 'projects.manage',
+  ProjectsTimeLog: 'projects.time.log',
+  ProjectsTimeApprove: 'projects.time.approve',
+  ProjectsBill: 'projects.bill',
+  // Public API integrations and webhooks (ADR 0011).
+  ApiTokensView: 'api_tokens.view',
+  ApiTokensManage: 'api_tokens.manage',
+  WebhooksView: 'webhooks.view',
+  WebhooksManage: 'webhooks.manage',
 } as const;
 export type PermissionKey = (typeof Permission)[keyof typeof Permission];
 

@@ -6,17 +6,11 @@ import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
 import { downloadExport, formatDateTime, useOrg, type ExportView } from './api';
-
-const STATUS: Record<ExportView['status'], string> = {
-  queued: 'Waiting',
-  running: 'Preparing',
-  ready: 'Ready',
-  failed: 'Failed',
-  expired: 'Expired',
-};
+import { useT } from '../../i18n/i18n';
 
 /** The user's own recent exports (S6-44). Files are kept for 7 days. */
 export function ExportsPage() {
+  const t = useT();
   const org = useOrg();
   const exportsList = useQuery({
     queryKey: ['exports', org],
@@ -28,31 +22,25 @@ export function ExportsPage() {
 
   return (
     <>
-      <PageHeader
-        title="Exports"
-        description="CSV and Excel files you exported. Download links are private to you and files are removed after 7 days."
-      />
+      <PageHeader title={t('exports.title')} description={t('exports.description')} />
       <Card>
         {exportsList.isPending ? (
-          <Spinner label="Loading exports" />
+          <Spinner label={t('exports.loading')} />
         ) : exportsList.isError ? (
           <ErrorAlert error={exportsList.error} />
         ) : exportsList.data.length === 0 ? (
-          <p className="muted">
-            No exports yet. Use "Export CSV" or "Export XLSX" on the chart of accounts, contacts,
-            journals, ledger or a financial statement.
-          </p>
+          <p className="muted">{t('exports.none')}</p>
         ) : (
           <div className="table-scroll">
             <table className="table">
               <thead>
                 <tr>
-                  <th>Requested</th>
-                  <th>Export</th>
-                  <th>Status</th>
-                  <th>Rows</th>
-                  <th>Available until</th>
-                  <th aria-label="Actions" />
+                  <th>{t('exports.requested')}</th>
+                  <th>{t('exports.export')}</th>
+                  <th>{t('exports.status')}</th>
+                  <th>{t('exports.rows')}</th>
+                  <th>{t('exports.availableUntil')}</th>
+                  <th aria-label={t('common.actions')} />
                 </tr>
               </thead>
               <tbody>
@@ -61,7 +49,7 @@ export function ExportsPage() {
                     <td>{formatDateTime(e.createdAt)}</td>
                     <td>{e.domainLabel}</td>
                     <td>
-                      {STATUS[e.status]}
+                      {t(`exports.status.${e.status}`)}
                       {e.error ? <div className="muted">{e.error}</div> : null}
                     </td>
                     <td>{e.rowCount ?? '—'}</td>
@@ -70,11 +58,11 @@ export function ExportsPage() {
                       {e.status === 'ready' ? (
                         <Button
                           variant="ghost"
-                          aria-label={`Download ${e.domainLabel}`}
+                          aria-label={t('exports.downloadNamed', { name: e.domainLabel })}
                           busy={download.isPending && download.variables === e.id}
                           onClick={() => download.mutate(e.id)}
                         >
-                          Download
+                          {t('exports.download')}
                         </Button>
                       ) : null}
                     </td>

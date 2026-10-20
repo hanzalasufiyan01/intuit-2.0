@@ -19,6 +19,7 @@ import type {
   ImportResult,
   MatchSuggestion,
 } from './types';
+import { useT, type MessageKey } from '../../i18n/i18n';
 
 /**
  * Bank accounts and their statement transactions: import (CSV with a column mapping, or OFX),
@@ -27,15 +28,16 @@ import type {
  * posted journal.
  */
 
-const STATUS_LABEL: Record<BankTransactionStatus, string> = {
-  UNMATCHED: 'Unmatched',
-  MATCHED: 'Matched',
-  EXCLUDED: 'Excluded',
+const STATUS_LABEL: Record<BankTransactionStatus, MessageKey> = {
+  UNMATCHED: 'banking.bankAccountPages.status.UNMATCHED',
+  MATCHED: 'banking.bankAccountPages.status.MATCHED',
+  EXCLUDED: 'banking.bankAccountPages.status.EXCLUDED',
 };
 
 function StatusBadge({ status }: { status: BankTransactionStatus }) {
   const tone = status === 'MATCHED' ? 'posted' : status === 'EXCLUDED' ? 'archived' : 'pending';
-  return <span className={`badge badge--${tone}`}>{STATUS_LABEL[status]}</span>;
+  const t = useT();
+  return <span className={`badge badge--${tone}`}>{t(STATUS_LABEL[status])}</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -43,6 +45,7 @@ function StatusBadge({ status }: { status: BankTransactionStatus }) {
 // ---------------------------------------------------------------------------
 
 export function BankAccountsPage() {
+  const t = useT();
   const org = useOrgKey();
   const queryClient = useQueryClient();
   const canManage = usePermission(Permission.BankingAccountsManage);
@@ -86,27 +89,27 @@ export function BankAccountsPage() {
   return (
     <>
       <PageHeader
-        title="Bank accounts"
-        description="Follow a bank, cash or card account of your chart: import its statements, match them to your books and reconcile."
+        title={t('banking.bankAccountPages.bankAccounts')}
+        description={t('banking.bankAccountPages.followABankCashOr')}
       />
-      <Card title="Accounts">
+      <Card title={t('banking.bankAccountPages.accounts')}>
         {list.isPending ? (
           <Spinner />
         ) : list.isError ? (
           <ErrorAlert error={list.error} />
         ) : list.data.items.length === 0 ? (
-          <p className="muted">No bank accounts yet.</p>
+          <p className="muted">{t('banking.bankAccountPages.noBankAccountsYet')}</p>
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Account</th>
-                <th>Currency</th>
-                <th className="num">Book balance</th>
-                <th className="num">To match</th>
-                <th>Last reconciled</th>
-                <th>Status</th>
+                <th>{t('banking.bankAccountPages.name')}</th>
+                <th>{t('banking.bankAccountPages.account')}</th>
+                <th>{t('banking.bankAccountPages.currency')}</th>
+                <th className="num">{t('banking.bankAccountPages.bookBalance')}</th>
+                <th className="num">{t('banking.bankAccountPages.toMatch')}</th>
+                <th>{t('banking.bankAccountPages.lastReconciled')}</th>
+                <th>{t('banking.bankAccountPages.status')}</th>
               </tr>
             </thead>
             <tbody>
@@ -132,17 +135,19 @@ export function BankAccountsPage() {
         )}
       </Card>
       {canManage ? (
-        <Card title="Add a bank account">
+        <Card title={t('banking.bankAccountPages.addABankAccount')}>
           <form onSubmit={submit} className="form-grid">
             <div className="field">
-              <label htmlFor="bank-ledger-account">Chart account</label>
+              <label htmlFor="bank-ledger-account">
+                {t('banking.bankAccountPages.chartAccount')}
+              </label>
               <select
                 id="bank-ledger-account"
                 value={accountId}
                 required
                 onChange={(e) => setAccountId(e.target.value)}
               >
-                <option value="">Choose…</option>
+                <option value="">{t('common.choose')}</option>
                 {eligible.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.code} {a.name} ({a.currencyCode})
@@ -156,21 +161,21 @@ export function BankAccountsPage() {
               ) : null}
             </div>
             <TextField
-              label="Name"
+              label={t('banking.bankAccountPages.name')}
               value={name}
               maxLength={100}
               onChange={(e) => setName(e.target.value)}
-              hint="Defaults to the account name."
+              hint={t('banking.bankAccountPages.defaultsToTheAccountName')}
             />
             <TextField
-              label="Statement balance to start from"
+              label={t('banking.bankAccountPages.statementBalanceToStartFrom')}
               value={openingBalance}
               inputMode="decimal"
               onChange={(e) => setOpeningBalance(e.target.value)}
               error={error?.fieldError('openingBalance')}
             />
             <TextField
-              label="As of"
+              label={t('banking.bankAccountPages.asOf')}
               type="date"
               value={openingDate}
               onChange={(e) => setOpeningDate(e.target.value)}
@@ -178,7 +183,7 @@ export function BankAccountsPage() {
             />
             <div>
               <Button type="submit" busy={create.isPending}>
-                Add bank account
+                {t('banking.bankAccountPages.addBankAccount')}
               </Button>
             </div>
           </form>
@@ -200,6 +205,7 @@ interface CsvPreview {
 }
 
 function ImportPanel({ account, onDone }: { account: BankAccount; onDone: () => void }) {
+  const t = useT();
   const [format, setFormat] = useState<'csv' | 'ofx'>('csv');
   const [content, setContent] = useState('');
   const [columns, setColumns] = useState<string[]>([]);
@@ -286,7 +292,7 @@ function ImportPanel({ account, onDone }: { account: BankAccount; onDone: () => 
         required={required}
         onChange={(e) => setMapping({ ...mapping, [key]: e.target.value })}
       >
-        <option value="">{required ? 'Choose…' : 'None'}</option>
+        <option value="">{required ? t('common.choose') : t('common.none')}</option>
         {columns.map((c) => (
           <option key={c} value={c}>
             {c}
@@ -296,10 +302,12 @@ function ImportPanel({ account, onDone }: { account: BankAccount; onDone: () => 
     </div>
   );
   return (
-    <Card title="Import a statement">
+    <Card title={t('banking.bankAccountPages.importAStatement')}>
       <form onSubmit={submit} className="form-grid">
         <div className="field">
-          <label htmlFor="statement-file">Statement file (CSV or OFX)</label>
+          <label htmlFor="statement-file">
+            {t('banking.bankAccountPages.statementFileCsvOrOfx')}
+          </label>
           <input
             id="statement-file"
             type="file"
@@ -309,13 +317,13 @@ function ImportPanel({ account, onDone }: { account: BankAccount; onDone: () => 
         </div>
         {content && format === 'csv' ? (
           <>
-            {column('Date column', 'dateColumn', true)}
-            {column('Description column', 'descriptionColumn', true)}
-            {column('Amount column (signed)', 'amountColumn', false)}
-            {column('Debit column (money out)', 'debitColumn', false)}
-            {column('Credit column (money in)', 'creditColumn', false)}
+            {column(t('banking.bankAccountPages.dateColumn'), 'dateColumn', true)}
+            {column(t('banking.bankAccountPages.descriptionColumn'), 'descriptionColumn', true)}
+            {column(t('banking.bankAccountPages.amountColumn'), 'amountColumn', false)}
+            {column(t('banking.bankAccountPages.debitColumn'), 'debitColumn', false)}
+            {column(t('banking.bankAccountPages.creditColumn'), 'creditColumn', false)}
             <div className="field">
-              <label htmlFor="map-date-format">Date format</label>
+              <label htmlFor="map-date-format">{t('banking.bankAccountPages.dateFormat')}</label>
               <select
                 id="map-date-format"
                 value={mapping.dateFormat}
@@ -327,7 +335,7 @@ function ImportPanel({ account, onDone }: { account: BankAccount; onDone: () => 
               </select>
             </div>
             <div className="field">
-              <label htmlFor="map-decimal">Decimal separator</label>
+              <label htmlFor="map-decimal">{t('banking.bankAccountPages.decimalSeparator')}</label>
               <select
                 id="map-decimal"
                 value={mapping.decimalSeparator}
@@ -341,7 +349,7 @@ function ImportPanel({ account, onDone }: { account: BankAccount; onDone: () => 
         ) : null}
         <div>
           <Button type="submit" busy={run.isPending} disabled={!content}>
-            Import
+            {t('banking.bankAccountPages.import')}
           </Button>
         </div>
       </form>
@@ -362,8 +370,15 @@ function ImportPanel({ account, onDone }: { account: BankAccount; onDone: () => 
       ) : null}
       {result ? (
         <Alert tone="success">
-          Imported {result.imported} transaction{result.imported === 1 ? '' : 's'}
-          {result.duplicates ? `; ${result.duplicates} already in the account were skipped` : ''}.
+          {t('banking.bankAccountPages.importedTransaction', {
+            imported: result.imported,
+            value: result.imported === 1 ? '' : 's',
+            value2: result.duplicates
+              ? t('banking.bankAccountPages.alreadyInTheAccountWere', {
+                  duplicates: result.duplicates,
+                })
+              : '',
+          })}
         </Alert>
       ) : null}
     </Card>
@@ -375,6 +390,7 @@ function ImportPanel({ account, onDone }: { account: BankAccount; onDone: () => 
 // ---------------------------------------------------------------------------
 
 function MatchPanel({ transaction, onDone }: { transaction: BankTransaction; onDone: () => void }) {
+  const t = useT();
   const suggestions = useQuery({
     queryKey: ['banking-suggestions', transaction.id],
     queryFn: () =>
@@ -385,7 +401,7 @@ function MatchPanel({ transaction, onDone }: { transaction: BankTransaction; onD
   );
   return (
     <div>
-      <h4>Posted entries with this amount</h4>
+      <h4>{t('banking.bankAccountPages.postedEntriesWithThisAmount')}</h4>
       {suggestions.isPending ? (
         <Spinner />
       ) : suggestions.data?.items.length ? (
@@ -405,7 +421,7 @@ function MatchPanel({ transaction, onDone }: { transaction: BankTransaction; onD
                     busy={match.isPending}
                     onClick={() => match.mutate(s.journalLineId, { onSuccess: onDone })}
                   >
-                    Match
+                    {t('banking.bankAccountPages.match')}
                   </Button>
                 </td>
               </tr>
@@ -413,9 +429,7 @@ function MatchPanel({ transaction, onDone }: { transaction: BankTransaction; onD
           </tbody>
         </table>
       ) : (
-        <p className="muted">
-          Nothing in your books has this amount. Categorize the transaction to post it.
-        </p>
+        <p className="muted">{t('banking.bankAccountPages.nothingInYourBooksHas')}</p>
       )}
       {match.isError ? <ErrorAlert error={match.error} /> : null}
     </div>
@@ -429,6 +443,7 @@ function CategorizePanel({
   transaction: BankTransaction;
   onDone: () => void;
 }) {
+  const t = useT();
   const canSeeAccounts = usePermission(Permission.AccountsView);
   const accounts = useAccounts(canSeeAccounts);
   const [categoryAccountId, setCategoryAccountId] = useState(
@@ -452,11 +467,17 @@ function CategorizePanel({
   return (
     <form onSubmit={submit} className="form-grid">
       {transaction.suggestion ? (
-        <Alert tone="info">Suggested by the rule “{transaction.suggestion.ruleName}”.</Alert>
+        <Alert tone="info">
+          {t('banking.bankAccountPages.suggestedByTheRule', {
+            ruleName: transaction.suggestion.ruleName,
+          })}
+        </Alert>
       ) : null}
       <div className="field">
         <label htmlFor={`cat-${transaction.id}`}>
-          {Number(transaction.amount) < 0 ? 'Spent on' : 'Received for'}
+          {Number(transaction.amount) < 0
+            ? t('banking.bankAccountPages.spentOn')
+            : t('banking.bankAccountPages.receivedFor')}
         </label>
         <select
           id={`cat-${transaction.id}`}
@@ -464,7 +485,7 @@ function CategorizePanel({
           required
           onChange={(e) => setCategoryAccountId(e.target.value)}
         >
-          <option value="">Choose an account…</option>
+          <option value="">{t('banking.bankAccountPages.chooseAnAccount')}</option>
           {options.map((a) => (
             <option key={a.id} value={a.id}>
               {a.code} {a.name}
@@ -473,14 +494,14 @@ function CategorizePanel({
         </select>
       </div>
       <TextField
-        label="Memo"
+        label={t('banking.bankAccountPages.memo')}
         value={memo}
         maxLength={500}
         onChange={(e) => setMemo(e.target.value)}
       />
       <div>
         <Button type="submit" busy={post.isPending}>
-          Post entry
+          {t('banking.bankAccountPages.postEntry')}
         </Button>
       </div>
       {post.isError ? <ErrorAlert error={post.error} /> : null}
@@ -497,6 +518,7 @@ function TransactionRow({
   transaction: BankTransaction;
   onChanged: () => void;
 }) {
+  const t = useT();
   const canMatch = usePermission(Permission.BankingTransactionsMatch);
   const canCategorize = usePermission(Permission.BankingTransactionsCategorize);
   const [panel, setPanel] = useState<Panel>(null);
@@ -542,7 +564,7 @@ function TransactionRow({
               variant="secondary"
               onClick={() => setPanel(panel === 'match' ? null : 'match')}
             >
-              Match
+              {t('banking.bankAccountPages.match')}
             </Button>
           ) : null}{' '}
           {transaction.status === 'UNMATCHED' && canCategorize ? (
@@ -550,18 +572,20 @@ function TransactionRow({
               variant="secondary"
               onClick={() => setPanel(panel === 'categorize' ? null : 'categorize')}
             >
-              Categorize
+              {t('banking.bankAccountPages.categorize')}
             </Button>
           ) : null}{' '}
           {transaction.status === 'UNMATCHED' && canMatch ? (
             <Button
               variant="ghost"
               onClick={() => {
-                const reason = window.prompt('Why is this transaction excluded?');
+                const reason = window.prompt(
+                  t('banking.bankAccountPages.whyIsThisTransactionExcluded'),
+                );
                 if (reason?.trim()) exclude.mutate(reason.trim(), { onSuccess: onChanged });
               }}
             >
-              Exclude
+              {t('banking.bankAccountPages.exclude')}
             </Button>
           ) : null}
           {transaction.status === 'MATCHED' &&
@@ -571,7 +595,7 @@ function TransactionRow({
               variant="ghost"
               onClick={() => unmatch.mutate(undefined, { onSuccess: onChanged })}
             >
-              Unmatch
+              {t('banking.bankAccountPages.unmatch')}
             </Button>
           ) : null}
           {transaction.status === 'EXCLUDED' && canMatch ? (
@@ -579,7 +603,7 @@ function TransactionRow({
               variant="ghost"
               onClick={() => restore.mutate(undefined, { onSuccess: onChanged })}
             >
-              Restore
+              {t('common.restore')}
             </Button>
           ) : null}
         </td>
@@ -611,6 +635,7 @@ function TransactionRow({
 // ---------------------------------------------------------------------------
 
 export function BankAccountPage() {
+  const translate = useT();
   const { id = '' } = useParams();
   const org = useOrgKey();
   const queryClient = useQueryClient();
@@ -648,20 +673,27 @@ export function BankAccountPage() {
     <>
       <PageHeader
         title={a.name}
-        description={`${a.accountCode ?? ''} ${a.accountName ?? ''} · ${a.currencyCode} · book balance ${formatAmount(a.bookBalance, a.currencyCode)}`}
+        description={translate('banking.bankAccountPages.bookBalance2', {
+          accountCode: a.accountCode ?? '',
+          accountName: a.accountName ?? '',
+          currencyCode: a.currencyCode,
+          value: formatAmount(a.bookBalance, a.currencyCode),
+        })}
       />
       <p>
-        <Link to="/banking">← Bank accounts</Link>
+        <Link to="/banking">{translate('banking.bankAccountPages.bankAccounts2')}</Link>
         {canReconcile ? (
           <>
             {' · '}
-            <Link to={`/banking/accounts/${id}/reconcile`}>Reconcile</Link>
+            <Link to={`/banking/accounts/${id}/reconcile`}>
+              {translate('banking.bankAccountPages.reconcile')}
+            </Link>
           </>
         ) : null}
       </p>
       {canImport && a.status === 'ACTIVE' ? <ImportPanel account={a} onDone={refresh} /> : null}
       <Card
-        title="Statement transactions"
+        title={translate('banking.bankAccountPages.statementTransactions')}
         actions={
           canMatch ? (
             <Button
@@ -669,47 +701,54 @@ export function BankAccountPage() {
               busy={autoMatch.isPending}
               onClick={() => autoMatch.mutate(undefined, { onSuccess: refresh })}
             >
-              Auto-match
+              {translate('banking.bankAccountPages.autoMatch')}
             </Button>
           ) : undefined
         }
       >
         {autoMatch.data ? (
           <Alert tone="success">
-            Matched {autoMatch.data.matched}; {autoMatch.data.remaining} need a decision.
+            {translate('banking.bankAccountPages.matchedNeedADecision', {
+              matched: autoMatch.data.matched,
+              remaining: autoMatch.data.remaining,
+            })}
           </Alert>
         ) : null}
         {autoMatch.isError ? <ErrorAlert error={autoMatch.error} /> : null}
         <div className="form-grid">
           <div className="field">
-            <label htmlFor="txn-status">Show</label>
+            <label htmlFor="txn-status">{translate('banking.bankAccountPages.show')}</label>
             <select
               id="txn-status"
               value={status}
               onChange={(e) => setStatus(e.target.value as BankTransactionStatus | '')}
             >
-              <option value="UNMATCHED">Unmatched</option>
-              <option value="MATCHED">Matched</option>
-              <option value="EXCLUDED">Excluded</option>
-              <option value="">All</option>
+              <option value="UNMATCHED">{translate('banking.bankAccountPages.unmatched')}</option>
+              <option value="MATCHED">{translate('banking.bankAccountPages.matched')}</option>
+              <option value="EXCLUDED">{translate('banking.bankAccountPages.excluded')}</option>
+              <option value="">{translate('common.all')}</option>
             </select>
           </div>
-          <TextField label="Search" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <TextField
+            label={translate('common.search')}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
         {transactions.isPending ? (
           <Spinner />
         ) : transactions.isError ? (
           <ErrorAlert error={transactions.error} />
         ) : transactions.data.items.length === 0 ? (
-          <p className="muted">No transactions here.</p>
+          <p className="muted">{translate('banking.bankAccountPages.noTransactionsHere')}</p>
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Description</th>
-                <th className="num">Amount</th>
-                <th>Status</th>
+                <th>{translate('banking.bankAccountPages.date')}</th>
+                <th>{translate('banking.bankAccountPages.description')}</th>
+                <th className="num">{translate('banking.bankAccountPages.amount')}</th>
+                <th>{translate('banking.bankAccountPages.status')}</th>
                 <th />
               </tr>
             </thead>

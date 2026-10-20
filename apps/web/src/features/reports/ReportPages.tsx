@@ -20,6 +20,7 @@ import type {
   StatementSection,
   TrialBalanceReport,
 } from './types';
+import { useT } from '../../i18n/i18n';
 
 const REPORT_EXPORTS = {
   'trial-balance': 'trial_balance',
@@ -83,13 +84,19 @@ function AccountName({
   collapsed: boolean;
   onToggle: () => void;
 }) {
+  const t = useT();
   return (
     <span style={{ paddingLeft: row.level * 18 }}>
       {!row.isLeaf ? (
         <button
           type="button"
           className="link-button"
-          aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${row.name}`}
+          aria-label={t(
+            collapsed ? 'reports.reportPages.expandNamed' : 'reports.reportPages.collapseNamed',
+            {
+              name: row.name,
+            },
+          )}
           onClick={onToggle}
         >
           {collapsed ? '▸' : '▾'}
@@ -97,7 +104,9 @@ function AccountName({
       ) : null}{' '}
       {row.code ? `${row.code} ` : ''}
       {row.name}
-      {row.archived ? <span className="badge badge--archived"> archived</span> : null}
+      {row.archived ? (
+        <span className="badge badge--archived"> {t('reports.reportPages.archived')}</span>
+      ) : null}
     </span>
   );
 }
@@ -107,6 +116,7 @@ function AccountName({
 // ---------------------------------------------------------------------------
 
 export function TrialBalancePage() {
+  const t = useT();
   const { result, searchParams, setSearchParams } =
     useReportQuery<TrialBalanceReport>('trial-balance');
   const tree = useCollapse();
@@ -117,26 +127,31 @@ export function TrialBalancePage() {
   return (
     <ReportShell
       kind="trial-balance"
-      title="Trial Balance"
-      description="Posted ledger balances within one fiscal year, after the virtual year-end."
+      title={t('reports.reportPages.trialBalance')}
+      description={t('reports.reportPages.postedLedgerBalancesWithinOne')}
       searchParams={searchParams}
       setSearchParams={setSearchParams}
     >
       <Card>
         {result.isPending ? (
-          <Spinner label="Loading report" />
+          <Spinner label={t('reports.reportPages.loadingReport')} />
         ) : result.isError ? (
           <ReportError error={result.error} />
         ) : report ? (
           <>
             <p className="muted">
-              {report.fiscalYear.name}: {report.from} to {report.to} · {report.baseCurrency}
+              {t('reports.reportPages.to', {
+                name: report.fiscalYear.name,
+                from: report.from,
+                to: report.to,
+                baseCurrency: report.baseCurrency,
+              })}
             </p>
             <IntegrityPanel integrity={report.integrity} currency={cur} />
             <ReportNotices {...report} />
             <div className="actions">
               <Button variant="ghost" onClick={tree.expandAll}>
-                Expand all
+                {t('reports.reportPages.expandAll')}
               </Button>
               <Button
                 variant="ghost"
@@ -144,20 +159,20 @@ export function TrialBalancePage() {
                   tree.collapseAll(report.rows.filter((r) => !r.isLeaf).map((r) => r.key))
                 }
               >
-                Collapse all
+                {t('reports.reportPages.collapseAll')}
               </Button>
             </div>
             <table className="table">
               <thead>
                 <tr>
-                  <th>Account</th>
-                  <th>Opening Dr</th>
-                  <th>Opening Cr</th>
-                  <th>Period Dr</th>
-                  <th>Period Cr</th>
-                  <th>Closing Dr</th>
-                  <th>Closing Cr</th>
-                  {showFx ? <th>Account currency (closing)</th> : null}
+                  <th>{t('reports.reportPages.account')}</th>
+                  <th>{t('reports.reportPages.openingDr')}</th>
+                  <th>{t('reports.reportPages.openingCr')}</th>
+                  <th>{t('reports.reportPages.periodDr')}</th>
+                  <th>{t('reports.reportPages.periodCr')}</th>
+                  <th>{t('reports.reportPages.closingDr')}</th>
+                  <th>{t('reports.reportPages.closingCr')}</th>
+                  {showFx ? <th>{t('reports.reportPages.accountCurrencyClosing')}</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -170,7 +185,10 @@ export function TrialBalancePage() {
                         onToggle={() => tree.toggle(row.key)}
                       />
                       {row.includesPriorYearEarnings ? (
-                        <span className="muted"> (includes prior-year earnings)</span>
+                        <span className="muted">
+                          {' '}
+                          {t('reports.reportPages.includesPriorYearEarnings')}
+                        </span>
                       ) : null}
                     </td>
                     {(
@@ -201,7 +219,7 @@ export function TrialBalancePage() {
               </tbody>
               <tfoot>
                 <tr>
-                  <th>Total</th>
+                  <th>{t('reports.reportPages.total')}</th>
                   <th className="num">{formatAmount(report.totals.openingDebit, cur)}</th>
                   <th className="num">{formatAmount(report.totals.openingCredit, cur)}</th>
                   <th className="num">{formatAmount(report.totals.periodDebit, cur)}</th>
@@ -225,7 +243,7 @@ export function TrialBalancePage() {
 // Sectioned statements (P&L, Balance Sheet)
 // ---------------------------------------------------------------------------
 
-function SectionTable({
+export function SectionTable({
   sections,
   columns,
   currency,
@@ -240,18 +258,19 @@ function SectionTable({
   dims: string | null;
   summaryRows: { label: string; amounts: string[]; testId?: string }[];
 }) {
+  const translate = useT();
   const tree = useCollapse();
   return (
     <table className="table">
       <thead>
         <tr>
-          <th>Account</th>
+          <th>{translate('reports.reportPages.account')}</th>
           {columns.map((c) => (
             <th key={c.key} className="num">
               {c.label}
             </th>
           ))}
-          {showFx ? <th>Account currency</th> : null}
+          {showFx ? <th>{translate('reports.reportPages.accountCurrency')}</th> : null}
         </tr>
       </thead>
       {sections.map((section) => (
@@ -267,8 +286,12 @@ function SectionTable({
                   collapsed={tree.collapsed.has(row.key)}
                   onToggle={() => tree.toggle(row.key)}
                 />
-                {row.partial ? <span className="muted"> (part)</span> : null}
-                {row.rowType === 'computed' ? <span className="muted"> (computed)</span> : null}
+                {row.partial ? (
+                  <span className="muted"> {translate('reports.reportPages.part')}</span>
+                ) : null}
+                {row.rowType === 'computed' ? (
+                  <span className="muted"> {translate('reports.reportPages.computed')}</span>
+                ) : null}
               </td>
               {row.amounts.map((amount, i) => (
                 <td key={i} className="num">
@@ -292,7 +315,7 @@ function SectionTable({
             </tr>
           ))}
           <tr className="row--subtotal">
-            <th>Total {section.label}</th>
+            <th>{translate('reports.reportPages.total2', { label: section.label })}</th>
             {section.total.map((t, i) => (
               <th key={i} className="num">
                 {formatAmount(t, currency)}
@@ -320,20 +343,21 @@ function SectionTable({
 }
 
 export function ProfitAndLossPage() {
+  const t = useT();
   const { result, searchParams, setSearchParams } =
     useReportQuery<ProfitAndLossReport>('profit-and-loss');
   const report = result.data;
   return (
     <ReportShell
       kind="profit-and-loss"
-      title="Profit & Loss"
-      description="Revenue and expenses from posted journals for the selected range."
+      title={t('reports.reportPages.profitLoss')}
+      description={t('reports.reportPages.revenueAndExpensesFromPosted')}
       searchParams={searchParams}
       setSearchParams={setSearchParams}
     >
       <Card>
         {result.isPending ? (
-          <Spinner label="Loading report" />
+          <Spinner label={t('reports.reportPages.loadingReport')} />
         ) : result.isError ? (
           <ReportError error={result.error} />
         ) : report ? (
@@ -347,10 +371,10 @@ export function ProfitAndLossPage() {
               showFx={report.currencyView === 'base_and_account'}
               dims={searchParams.get('dimensionValueIds')}
               summaryRows={[
-                { label: 'Gross Profit', amounts: report.summary.grossProfit },
-                { label: 'Operating Profit', amounts: report.summary.operatingProfit },
+                { label: t('reports.grossProfit'), amounts: report.summary.grossProfit },
+                { label: t('reports.operatingProfit'), amounts: report.summary.operatingProfit },
                 {
-                  label: 'Net Profit (Loss)',
+                  label: t('reports.netProfitLoss'),
                   amounts: report.summary.netProfit,
                   testId: 'net-profit',
                 },
@@ -364,20 +388,21 @@ export function ProfitAndLossPage() {
 }
 
 export function BalanceSheetPage() {
+  const t = useT();
   const { result, searchParams, setSearchParams } =
     useReportQuery<BalanceSheetReport>('balance-sheet');
   const report = result.data;
   return (
     <ReportShell
       kind="balance-sheet"
-      title="Balance Sheet"
-      description="Assets, liabilities and equity from posted journals, with virtual year-end earnings."
+      title={t('reports.reportPages.balanceSheet')}
+      description={t('reports.reportPages.assetsLiabilitiesAndEquityFrom')}
       searchParams={searchParams}
       setSearchParams={setSearchParams}
     >
       <Card>
         {result.isPending ? (
-          <Spinner label="Loading report" />
+          <Spinner label={t('reports.reportPages.loadingReport')} />
         ) : result.isError ? (
           <ReportError error={result.error} />
         ) : report ? (
@@ -392,14 +417,17 @@ export function BalanceSheetPage() {
               dims={searchParams.get('dimensionValueIds')}
               summaryRows={[
                 {
-                  label: 'Total Assets',
+                  label: t('reports.reportPages.totalAssets'),
                   amounts: report.totals.totalAssets,
                   testId: 'total-assets',
                 },
-                { label: 'Total Liabilities', amounts: report.totals.totalLiabilities },
-                { label: 'Total Equity', amounts: report.totals.totalEquity },
                 {
-                  label: 'Total Liabilities and Equity',
+                  label: t('reports.reportPages.totalLiabilities'),
+                  amounts: report.totals.totalLiabilities,
+                },
+                { label: t('reports.reportPages.totalEquity'), amounts: report.totals.totalEquity },
+                {
+                  label: t('reports.reportPages.totalLiabilitiesAndEquity'),
                   amounts: report.totals.totalLiabilitiesAndEquity,
                 },
               ]}

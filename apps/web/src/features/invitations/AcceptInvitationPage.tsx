@@ -3,7 +3,6 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useApiMutation, useAuth } from '../../auth/auth-context';
 import { readTokenFromHash } from '../../auth/pages/PasswordResetPages';
-import { PASSWORD_HINT } from '../../auth/pages/RegisterPage';
 import { api } from '../../services/api-client';
 import type { InvitationPreview, SessionState } from '../../services/types';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
@@ -11,8 +10,10 @@ import { Button } from '../../shared/ui/Button';
 import { Card } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
+import { useT } from '../../i18n/i18n';
 
 export function AcceptInvitationPage() {
+  const t = useT();
   const { status, session, setSession } = useAuth();
   const navigate = useNavigate();
   const [token] = useState(() => readTokenFromHash(window.location.hash));
@@ -43,54 +44,57 @@ export function AcceptInvitationPage() {
   };
 
   let body;
-  if (!token) body = <Alert>This invitation link is incomplete.</Alert>;
+  if (!token) body = <Alert>{t('invite.incomplete')}</Alert>;
   else if (preview.isPending || status === 'loading')
-    body = <Spinner label="Checking invitation" />;
+    body = <Spinner label={t('invite.checking')} />;
   else if (preview.isError) body = <ErrorAlert error={preview.error} />;
   else if (preview.data.status !== 'pending') {
-    body = <Alert>This invitation is {preview.data.status}. Ask for a new invitation.</Alert>;
+    body = <Alert>{t('invite.notPending', { status: preview.data.status })}</Alert>;
   } else if (status === 'anonymous' && preview.data.accountExists) {
     body = (
       <Alert tone="info">
-        An account already exists for {preview.data.email}.{' '}
+        {t('invite.accountExists', { email: preview.data.email })}{' '}
         <Link to="/login" state={{ from: `/invitations/accept${window.location.hash}` }}>
-          Sign in
+          {t('invite.signIn')}
         </Link>{' '}
-        with it, then open this link again.
+        {t('invite.thenOpenAgain')}
       </Alert>
     );
   } else {
     body = (
       <form className="form" onSubmit={submit} noValidate>
         <p>
-          {preview.data.invitedBy ?? 'Someone'} invited <strong>{preview.data.email}</strong> to
-          join <strong>{preview.data.organizationName}</strong>
-          {preview.data.roleName ? ` as ${preview.data.roleName}` : ''}.
+          {t('invite.invited', {
+            inviter: preview.data.invitedBy ?? t('invite.someone'),
+            email: preview.data.email,
+            organization: preview.data.organizationName,
+          })}
+          {preview.data.roleName ? t('invite.asRole', { role: preview.data.roleName }) : ''}.
         </p>
         <ErrorAlert error={accept.error?.issues.length ? null : accept.error} />
         {status === 'authenticated' ? (
-          <p className="muted">You are signed in as {session?.user.email}.</p>
+          <p className="muted">{t('invite.signedInAs', { email: session?.user.email ?? '' })}</p>
         ) : (
           <>
             <TextField
-              label="Your name"
+              label={t('invite.yourName')}
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               error={accept.error?.fieldError('displayName')}
             />
             <TextField
-              label="Choose a password"
+              label={t('invite.choosePassword')}
               type="password"
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               error={accept.error?.fieldError('password')}
-              hint={PASSWORD_HINT}
+              hint={t('invite.passwordHint')}
             />
           </>
         )}
         <Button type="submit" busy={accept.isPending}>
-          Accept invitation
+          {t('invite.accept')}
         </Button>
       </form>
     );
@@ -99,7 +103,7 @@ export function AcceptInvitationPage() {
   return (
     <main className="auth-page">
       <div className="auth-card">
-        <Card title="Join an organization">{body}</Card>
+        <Card title={t('invite.title')}>{body}</Card>
       </div>
     </main>
   );

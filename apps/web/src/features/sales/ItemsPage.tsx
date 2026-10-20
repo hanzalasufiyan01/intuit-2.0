@@ -20,6 +20,7 @@ import {
 import { CATALOG_MANAGE_PERMISSIONS } from './SalesSection';
 import { orNull, SalesNav, StatusBadge, useOrgKey, useTaxCodes } from './shared';
 import type { Item, Page } from './types';
+import { ItemClassificationCard } from './ClassificationPages';
 
 interface ItemForm {
   sku: string;
@@ -342,6 +343,7 @@ export function ItemsPage() {
           </form>
         </Card>
       ) : null}
+      {editing ? <ItemClassificationCard itemId={editing.id} /> : null}
       <Card>
         <form
           className="form form--inline"

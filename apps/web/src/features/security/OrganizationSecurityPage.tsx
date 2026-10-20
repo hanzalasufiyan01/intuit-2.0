@@ -8,8 +8,10 @@ import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
+import { useT } from '../../i18n/i18n';
 
 function PolicyForm({ policy, onSaved }: { policy: SecurityPolicy; onSaved(): void }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const { refreshSession } = useAuth();
   const sensitive = useSensitiveAction();
@@ -48,16 +50,14 @@ function PolicyForm({ policy, onSaved }: { policy: SecurityPolicy; onSaved(): vo
           checked={requireAll}
           onChange={(e) => setRequireAll(e.target.checked)}
         />
-        Require two-step verification for all members
+        {t('orgSecurity.requireAll')}
       </label>
-      <p className="muted">
-        The Owner and people who can manage members, roles, approvals or accounting setup always
-        need it.
-      </p>
+      <p className="muted">{t('orgSecurity.alwaysNeed')}</p>
       {requireAll && !policy.requireMfaForAllMembers && blocked > 0 ? (
         <Alert tone="info">
-          {blocked} {blocked === 1 ? 'member has' : 'members have'} not set up two-step verification
-          yet and will be asked to before they can continue.
+          {t(blocked === 1 ? 'orgSecurity.blockedOne' : 'orgSecurity.blockedMany', {
+            count: blocked,
+          })}
         </Alert>
       ) : null}
       <label className="checkbox">
@@ -66,16 +66,13 @@ function PolicyForm({ policy, onSaved }: { policy: SecurityPolicy; onSaved(): vo
           checked={allowDevices}
           onChange={(e) => setAllowDevices(e.target.checked)}
         />
-        Allow remembered browsers (skip the code for up to 30 days)
+        {t('orgSecurity.allowDevices')}
       </label>
-      <p className="muted">
-        When off, people who signed in on a remembered browser enter a code before using this
-        organization.
-      </p>
+      <p className="muted">{t('orgSecurity.devicesNote')}</p>
       <ErrorAlert error={save.error} />
       <div className="actions">
         <Button type="submit" busy={save.isPending} disabled={!changed}>
-          Save
+          {t('common.save')}
         </Button>
       </div>
     </form>
@@ -84,6 +81,7 @@ function PolicyForm({ policy, onSaved }: { policy: SecurityPolicy; onSaved(): vo
 
 /** Organization MFA policy (S7-29, S7-36, S7-42): members.manage, re-auth and step-up. */
 export function OrganizationSecurityPage() {
+  const t = useT();
   const { activeOrganization } = useAuth();
   // Kept here: the form remounts with each saved version, which would drop its own message.
   const [saved, setSaved] = useState(false);
@@ -93,24 +91,23 @@ export function OrganizationSecurityPage() {
   });
   return (
     <>
-      <PageHeader
-        title="Security"
-        description="Two-step verification rules for everyone in this organization."
-      />
-      <Card title="Two-step verification">
+      <PageHeader title={t('orgSecurity.title')} description={t('orgSecurity.description')} />
+      <Card title={t('account.twoStep.title')}>
         {policy.isPending ? (
-          <Spinner label="Loading security settings" />
+          <Spinner label={t('account.loading')} />
         ) : policy.isError ? (
           <ErrorAlert error={policy.error} />
         ) : (
           <>
             {policy.data.members ? (
               <p>
-                {policy.data.members.enrolled} of {policy.data.members.total} active members use
-                two-step verification.
+                {t('orgSecurity.usage', {
+                  enrolled: policy.data.members.enrolled,
+                  total: policy.data.members.total,
+                })}
               </p>
             ) : null}
-            {saved ? <Alert tone="success">Security settings saved.</Alert> : null}
+            {saved ? <Alert tone="success">{t('orgSecurity.saved')}</Alert> : null}
             <PolicyForm
               key={policy.data.version}
               policy={policy.data}

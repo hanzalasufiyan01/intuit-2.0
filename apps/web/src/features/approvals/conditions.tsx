@@ -1,3 +1,4 @@
+import { useT, type MessageKey, type Translate } from '../../i18n/i18n';
 import { formatAmount } from '../../shared/money';
 
 /** Conditional approvals (S10): shared types and wording for policies, requests and documents. */
@@ -30,49 +31,66 @@ export interface AppliedStep {
   conditions: StepConditions | null;
 }
 
-const TYPE_LABELS: Record<string, string> = {
-  manual: 'Manual journals',
-  imported: 'Imported journals',
-  accounting_event: 'Accounting-event journals',
-  opening_balance: 'Opening balances',
-  period_reopen: 'Period reopening',
+const TYPE_LABELS: Record<string, MessageKey> = {
+  manual: 'approvals.conditions.type.manual',
+  imported: 'approvals.conditions.type.imported',
+  accounting_event: 'approvals.conditions.type.accounting_event',
+  opening_balance: 'approvals.conditions.type.opening_balance',
+  period_reopen: 'approvals.conditions.type.period_reopen',
 };
 
-export function transactionTypeLabel(type: string): string {
-  return TYPE_LABELS[type] ?? type;
+/** The name of a transaction type; a type this screen does not know shows as sent. */
+export function transactionTypeLabel(type: string, t: Translate): string {
+  const key = TYPE_LABELS[type];
+  return key ? t(key) : type;
 }
 
 /** "Always", or the amount band and transaction types a step applies to. */
 export function describeConditions(
   conditions: StepConditions | null | undefined,
   baseCurrency: string | null,
+  t: Translate,
 ): string {
-  if (!conditions) return 'Applies to every document.';
+  if (!conditions) return t('approvals.conditions.everyDocument');
   const currency = conditions.thresholdCurrency ?? baseCurrency ?? '';
   const parts: string[] = [];
   const { minBaseAmount: min, maxBaseAmount: max } = conditions;
   if (min !== null && max !== null) {
     parts.push(
-      `amount from ${formatAmount(min, currency)} up to (not including) ${formatAmount(max, currency)} ${currency}`,
+      t('approvals.conditions.amountBetween', {
+        min: formatAmount(min, currency),
+        max: formatAmount(max, currency),
+        currency,
+      }),
     );
   } else if (min !== null) {
-    parts.push(`amount of ${formatAmount(min, currency)} ${currency} or more`);
+    parts.push(
+      t('approvals.conditions.amountAtLeast', { min: formatAmount(min, currency), currency }),
+    );
   } else if (max !== null) {
-    parts.push(`amount under ${formatAmount(max, currency)} ${currency}`);
+    parts.push(
+      t('approvals.conditions.amountUnder', { max: formatAmount(max, currency), currency }),
+    );
   }
   if (conditions.transactionTypes?.length) {
-    parts.push(conditions.transactionTypes.map(transactionTypeLabel).join(' or '));
+    parts.push(
+      conditions.transactionTypes
+        .map((type) => transactionTypeLabel(type, t))
+        .join(t('approvals.conditions.typeSeparator')),
+    );
   }
-  return parts.length ? `Applies to: ${parts.join('; ')}.` : 'Applies to every document.';
+  return parts.length
+    ? t('approvals.conditions.appliesTo', { parts: parts.join('; ') })
+    : t('approvals.conditions.everyDocument');
 }
 
-export function describeFacts(facts: ApprovalFacts | null | undefined): string {
+export function describeFacts(facts: ApprovalFacts | null | undefined, t: Translate): string {
   if (!facts) return '';
   const amount =
     facts.baseAmount !== null && facts.baseCurrency
       ? `${formatAmount(facts.baseAmount, facts.baseCurrency)} ${facts.baseCurrency}`
       : null;
-  return [transactionTypeLabel(facts.transactionType), amount].filter(Boolean).join(' · ');
+  return [transactionTypeLabel(facts.transactionType, t), amount].filter(Boolean).join(' · ');
 }
 
 /** The steps that apply to a document, with what made them apply. */
@@ -83,14 +101,19 @@ export function AppliedSteps({
   steps: readonly AppliedStep[];
   baseCurrency: string | null;
 }) {
+  const t = useT();
   if (steps.length === 0) return null;
   return (
     <ul className="applied-steps">
       {steps.map((step) => (
         <li key={step.order}>
-          Step {step.order} — {step.name} ({step.requiredApprovals} approval
-          {step.requiredApprovals === 1 ? '' : 's'}):{' '}
-          <span className="muted">{describeConditions(step.conditions, baseCurrency)}</span>
+          {t(
+            step.requiredApprovals === 1
+              ? 'approvals.conditions.stepOne'
+              : 'approvals.conditions.stepMany',
+            { order: step.order, name: step.name, count: step.requiredApprovals },
+          )}{' '}
+          <span className="muted">{describeConditions(step.conditions, baseCurrency, t)}</span>
         </li>
       ))}
     </ul>

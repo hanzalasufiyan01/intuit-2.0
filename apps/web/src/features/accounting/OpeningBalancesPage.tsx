@@ -24,6 +24,7 @@ import type {
   OpeningList,
   OpeningPreview,
 } from './types';
+import { useT, type MessageKey } from '../../i18n/i18n';
 
 /**
  * Opening balances / conversion balances (S8-22): conversion date, the balances grid per
@@ -31,15 +32,16 @@ import type {
  * The server authorizes and validates everything; this page only guides.
  */
 
-const STATUS_LABEL: Record<OpeningBatchStatus, string> = {
-  DRAFT: 'Draft',
-  PENDING_APPROVAL: 'Awaiting approval',
-  POSTED: 'Posted',
-  REVERSED: 'Reversed',
+const STATUS_LABEL: Record<OpeningBatchStatus, MessageKey> = {
+  DRAFT: 'accounting.openingBalancesPage.status.DRAFT',
+  PENDING_APPROVAL: 'accounting.openingBalancesPage.status.PENDING_APPROVAL',
+  POSTED: 'accounting.openingBalancesPage.status.POSTED',
+  REVERSED: 'accounting.openingBalancesPage.status.REVERSED',
 };
 
 function StatusLabel({ status }: { status: OpeningBatchStatus }) {
-  return <span className={`badge badge--${status.toLowerCase()}`}>{STATUS_LABEL[status]}</span>;
+  const t = useT();
+  return <span className={`badge badge--${status.toLowerCase()}`}>{t(STATUS_LABEL[status])}</span>;
 }
 
 function useOpeningList() {
@@ -79,6 +81,7 @@ function ConversionDateCard({
   list: OpeningList;
   openStatus: OpeningBatchStatus | null;
 }) {
+  const t = useT();
   const canEdit = usePermission(Permission.AccountingSetup);
   const sensitive = useSensitiveAction();
   const invalidate = useInvalidateOpening();
@@ -88,15 +91,17 @@ function ConversionDateCard({
   );
   const locked = openStatus === 'PENDING_APPROVAL' || openStatus === 'POSTED';
   return (
-    <Card title="Conversion date">
+    <Card title={t('accounting.openingBalancesPage.conversionDate')}>
       <p>
         {list.conversionDate ? (
           <>
-            Books start on <strong>{list.conversionDate}</strong>; opening balances are dated{' '}
+            {t('accounting.openingBalancesPage.booksStartOn')}{' '}
+            <strong>{list.conversionDate}</strong>
+            {t('accounting.openingBalancesPage.openingBalancesAreDated')}{' '}
             <strong>{list.openingDate}</strong>.
           </>
         ) : (
-          'Choose the first day your books are kept in Intuit 2.0.'
+          t('accounting.openingBalancesPage.chooseTheFirstDayYour')
         )}
       </p>
       {canEdit ? (
@@ -108,22 +113,20 @@ function ConversionDateCard({
           }}
         >
           <TextField
-            label="Conversion date"
+            label={t('accounting.openingBalancesPage.conversionDate')}
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
             disabled={locked}
           />
           <Button type="submit" busy={save.isPending} disabled={locked || !date}>
-            Save date
+            {t('accounting.openingBalancesPage.saveDate')}
           </Button>
           <ErrorAlert error={save.error} />
         </form>
       ) : null}
       {locked ? (
-        <p className="muted">
-          The conversion date is fixed while opening balances are awaiting approval or posted.
-        </p>
+        <p className="muted">{t('accounting.openingBalancesPage.theConversionDateIsFixed')}</p>
       ) : null}
     </Card>
   );
@@ -211,6 +214,7 @@ function BalancesEditor({
   types: DimensionType[];
   obeId: string | null;
 }) {
+  const translate = useT();
   const invalidate = useInvalidateOpening();
   const [entries, setEntries] = useState<Entry[]>(() => initialEntries(batch, accounts, obeId));
   const [search, setSearch] = useState('');
@@ -268,20 +272,31 @@ function BalancesEditor({
   ).length;
 
   return (
-    <Card title="Opening balances">
-      <p className="muted">
-        Enter each balance in the account&apos;s own currency. Opening Balance Equity is calculated
-        for you. Receivables are brought in later as opening invoices, so receivable and control
-        accounts are not listed.
-      </p>
+    <Card title={translate('accounting.openingBalancesPage.openingBalances')}>
+      <p className="muted">{translate('accounting.openingBalancesPage.enterEachBalanceInThe')}</p>
       {unclassified > 0 ? (
         <p className="muted" role="note">
-          {unclassified === 1 ? '1 account has' : `${unclassified} accounts have`} no subtype and
-          {unclassified === 1 ? ' is' : ' are'} not listed. Classify them under{' '}
-          <Link to="/accounting/accounts">Chart of accounts</Link> to enter their balances.
+          {translate('accounting.openingBalancesPage.noSubtypeAndNotListed', {
+            value:
+              unclassified === 1
+                ? translate('accounting.openingBalancesPage.1AccountHas')
+                : translate('accounting.openingBalancesPage.accountsHave', { unclassified }),
+            value2:
+              unclassified === 1
+                ? translate('accounting.openingBalancesPage.is')
+                : translate('accounting.openingBalancesPage.are'),
+          })}{' '}
+          <Link to="/accounting/accounts">
+            {translate('accounting.openingBalancesPage.chartOfAccounts')}
+          </Link>{' '}
+          {translate('accounting.openingBalancesPage.toEnterTheirBalances')}
         </p>
       ) : null}
-      <div className="tabs" role="tablist" aria-label="Currencies">
+      <div
+        className="tabs"
+        role="tablist"
+        aria-label={translate('accounting.openingBalancesPage.currencies')}
+      >
         {currencies.map((c) => (
           <Button
             key={c}
@@ -296,7 +311,7 @@ function BalancesEditor({
       </div>
       <div className="form form--inline">
         <TextField
-          label="Find an account"
+          label={translate('accounting.openingBalancesPage.findAnAccount')}
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -307,17 +322,26 @@ function BalancesEditor({
             checked={includePnl}
             onChange={(e) => setIncludePnl(e.target.checked)}
           />
-          Show income and expense accounts (mid-year conversions)
+          {translate('accounting.openingBalancesPage.showIncomeAndExpenseAccounts')}
         </label>
       </div>
       <div className="table-scroll">
-        <table className="table" aria-label={`${tab} opening balances`}>
+        <table
+          className="table"
+          aria-label={translate('accounting.openingBalancesPage.openingBalances2', { tab })}
+        >
           <thead>
             <tr>
-              <th>Account</th>
-              <th>Debit ({tab})</th>
-              <th>Credit ({tab})</th>
-              {foreign ? <th>Base amount ({batch.baseCurrency})</th> : null}
+              <th>{translate('accounting.openingBalancesPage.account')}</th>
+              <th>{translate('accounting.openingBalancesPage.debit', { tab })}</th>
+              <th>{translate('accounting.openingBalancesPage.credit', { tab })}</th>
+              {foreign ? (
+                <th>
+                  {translate('accounting.openingBalancesPage.baseAmount', {
+                    baseCurrency: batch.baseCurrency,
+                  })}
+                </th>
+              ) : null}
               {activeTypes.map((t) => (
                 <th key={t.id}>
                   {t.name}
@@ -342,7 +366,9 @@ function BalancesEditor({
                   </td>
                   <td>
                     <input
-                      aria-label={`Debit ${account.code}`}
+                      aria-label={translate('accounting.openingBalancesPage.debit2', {
+                        code: account.code,
+                      })}
                       inputMode="decimal"
                       value={e.debit}
                       onChange={(ev) => update(e.key, { debit: ev.target.value, credit: '' })}
@@ -350,7 +376,9 @@ function BalancesEditor({
                   </td>
                   <td>
                     <input
-                      aria-label={`Credit ${account.code}`}
+                      aria-label={translate('accounting.openingBalancesPage.credit2', {
+                        code: account.code,
+                      })}
                       inputMode="decimal"
                       value={e.credit}
                       onChange={(ev) => update(e.key, { credit: ev.target.value, debit: '' })}
@@ -359,9 +387,11 @@ function BalancesEditor({
                   {foreign ? (
                     <td>
                       <input
-                        aria-label={`Base amount ${account.code}`}
+                        aria-label={translate('accounting.openingBalancesPage.baseAmount2', {
+                          code: account.code,
+                        })}
                         inputMode="decimal"
-                        placeholder="rate table"
+                        placeholder={translate('accounting.openingBalancesPage.rateTable')}
                         value={e.baseAmount}
                         onChange={(ev) => update(e.key, { baseAmount: ev.target.value })}
                       />
@@ -393,7 +423,7 @@ function BalancesEditor({
           </tbody>
           <tfoot>
             <tr>
-              <th>Total {tab}</th>
+              <th>{translate('accounting.openingBalancesPage.total', { tab })}</th>
               <th>{formatAmount(debit.toFixed(), tab)}</th>
               <th>{formatAmount(credit.toFixed(), tab)}</th>
             </tr>
@@ -401,19 +431,25 @@ function BalancesEditor({
         </table>
       </div>
       <p aria-live="polite">
-        Opening Balance Equity ({tab}):{' '}
-        {net.isZero()
-          ? 'none — the balances net to zero.'
-          : `${formatAmount(net.abs().toFixed(), tab)} ${net.gt(0) ? 'credit' : 'debit'}`}
+        {translate('accounting.openingBalancesPage.openingBalanceEquity', {
+          tab,
+          value: net.isZero()
+            ? translate('accounting.openingBalancesPage.noneTheBalancesNetTo')
+            : `${formatAmount(net.abs().toFixed(), tab)} ${net.gt(0) ? 'credit' : 'debit'}`,
+        })}
       </p>
       <ErrorAlert error={save.error} />
-      {save.isSuccess ? <Alert tone="success">Opening balances saved.</Alert> : null}
+      {save.isSuccess ? (
+        <Alert tone="success">
+          {translate('accounting.openingBalancesPage.openingBalancesSaved')}
+        </Alert>
+      ) : null}
       <div className="actions">
         <Button
           busy={save.isPending}
           onClick={() => save.mutate(undefined, { onSuccess: () => void invalidate() })}
         >
-          Save balances
+          {translate('accounting.openingBalancesPage.saveBalances')}
         </Button>
       </div>
     </Card>
@@ -421,17 +457,18 @@ function BalancesEditor({
 }
 
 function ReadOnlyLines({ batch }: { batch: OpeningBatchDetail }) {
+  const t = useT();
   return (
-    <Card title="Opening balances">
+    <Card title={t('accounting.openingBalancesPage.openingBalances')}>
       <div className="table-scroll">
         <table className="table">
           <thead>
             <tr>
-              <th>Account</th>
-              <th>Currency</th>
-              <th>Debit</th>
-              <th>Credit</th>
-              <th>Base amount</th>
+              <th>{t('accounting.openingBalancesPage.account')}</th>
+              <th>{t('accounting.openingBalancesPage.currency')}</th>
+              <th>{t('accounting.openingBalancesPage.debit3')}</th>
+              <th>{t('accounting.openingBalancesPage.credit3')}</th>
+              <th>{t('accounting.openingBalancesPage.baseAmount3')}</th>
             </tr>
           </thead>
           <tbody>
@@ -455,15 +492,22 @@ function ReadOnlyLines({ batch }: { batch: OpeningBatchDetail }) {
 }
 
 function Totals({ batch }: { batch: OpeningBatchDetail }) {
+  const tr = useT();
   return (
-    <ul className="summary-list" aria-label="Totals by currency">
+    <ul className="summary-list" aria-label={tr('accounting.openingBalancesPage.totalsByCurrency')}>
       {batch.totals.map((t) => (
         <li key={t.currency}>
-          {t.currency}: debit {formatAmount(t.debit, t.currency)}, credit{' '}
-          {formatAmount(t.credit, t.currency)}
-          {t.openingBalanceEquity
-            ? `, Opening Balance Equity ${formatAmount(t.openingBalanceEquity.amount, t.currency)} ${t.openingBalanceEquity.side}`
-            : ''}
+          {tr('accounting.openingBalancesPage.debitCredit', {
+            currency: t.currency,
+            value: formatAmount(t.debit, t.currency),
+            value2: formatAmount(t.credit, t.currency),
+            value3: t.openingBalanceEquity
+              ? tr('accounting.openingBalancesPage.openingBalanceEquity2', {
+                  value: formatAmount(t.openingBalanceEquity.amount, t.currency),
+                  side: t.openingBalanceEquity.side,
+                })
+              : '',
+          })}
         </li>
       ))}
     </ul>
@@ -475,24 +519,27 @@ function Totals({ batch }: { batch: OpeningBatchDetail }) {
 // ---------------------------------------------------------------------------
 
 function PreviewCard({ batch }: { batch: OpeningBatchDetail }) {
+  const t = useT();
   const preview = useApiMutation(() =>
     api.post<OpeningPreview>(`/accounting/opening-balances/${batch.id}/preview`, {}),
   );
   const data = preview.data;
   return (
-    <Card title="Preview">
+    <Card title={t('accounting.openingBalancesPage.preview')}>
       <p className="muted">
-        See the journals that posting will create: one per currency, dated {batch.openingDate}.
+        {t('accounting.openingBalancesPage.seeTheJournalsThatPosting', {
+          openingDate: batch.openingDate,
+        })}
       </p>
       <Button variant="secondary" busy={preview.isPending} onClick={() => preview.mutate()}>
-        Preview journals
+        {t('accounting.openingBalancesPage.previewJournals')}
       </Button>
       <ErrorAlert error={preview.error} />
       {data ? (
         <div className="stack">
           {data.errors.length ? (
             <Alert>
-              <strong>Fix these before submitting or posting:</strong>
+              <strong>{t('accounting.openingBalancesPage.fixTheseBeforeSubmittingOr')}</strong>
               <ul>
                 {data.errors.map((e, i) => (
                   <li key={i}>{e.message}</li>
@@ -500,7 +547,9 @@ function PreviewCard({ batch }: { batch: OpeningBatchDetail }) {
               </ul>
             </Alert>
           ) : (
-            <Alert tone="success">The opening balances are ready.</Alert>
+            <Alert tone="success">
+              {t('accounting.openingBalancesPage.theOpeningBalancesAreReady')}
+            </Alert>
           )}
           {data.warnings.map((w, i) => (
             <Alert key={i} tone="info">
@@ -510,20 +559,27 @@ function PreviewCard({ batch }: { batch: OpeningBatchDetail }) {
           {data.journals.map((j) => (
             <div key={j.currency} className="table-scroll">
               <h3>
-                {j.currency} journal —{' '}
-                {j.rateSource === 'base'
-                  ? 'base currency'
-                  : j.rateSource === 'table'
-                    ? `rate ${j.rate} from the rate table`
-                    : `carrying values (effective rate ${j.rate})`}
+                {t('accounting.openingBalancesPage.journal', {
+                  currency: j.currency,
+                  value:
+                    j.rateSource === 'base'
+                      ? t('accounting.openingBalancesPage.baseCurrency')
+                      : j.rateSource === 'table'
+                        ? t('accounting.openingBalancesPage.rateFromTheRateTable', { rate: j.rate })
+                        : t('accounting.openingBalancesPage.carryingValuesEffectiveRate', {
+                            rate: j.rate,
+                          }),
+                })}
               </h3>
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Account</th>
-                    <th>Debit</th>
-                    <th>Credit</th>
-                    {j.rateSource === 'explicit' ? <th>Base</th> : null}
+                    <th>{t('accounting.openingBalancesPage.account')}</th>
+                    <th>{t('accounting.openingBalancesPage.debit3')}</th>
+                    <th>{t('accounting.openingBalancesPage.credit3')}</th>
+                    {j.rateSource === 'explicit' ? (
+                      <th>{t('accounting.openingBalancesPage.base')}</th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -550,6 +606,7 @@ function PreviewCard({ batch }: { batch: OpeningBatchDetail }) {
 }
 
 function WorkflowCard({ batch }: { batch: OpeningBatchDetail }) {
+  const t = useT();
   const canEdit = usePermission(Permission.AccountingSetup);
   const sensitive = useSensitiveAction();
   const invalidate = useInvalidateOpening();
@@ -574,23 +631,28 @@ function WorkflowCard({ batch }: { batch: OpeningBatchDetail }) {
   const approval = batch.approval;
 
   return (
-    <Card title="Status">
+    <Card title={t('accounting.openingBalancesPage.status')}>
       <p>
         <StatusLabel status={batch.status} />{' '}
         {batch.status === 'POSTED' && batch.postedAt
-          ? `on ${new Date(batch.postedAt).toLocaleString()}.`
+          ? t('accounting.openingBalancesPage.on', {
+              value: new Date(batch.postedAt).toLocaleString(),
+            })
           : null}
         {batch.status === 'REVERSED' && batch.reversedAt
-          ? `on ${new Date(batch.reversedAt).toLocaleString()}: ${batch.reversalReason ?? ''}`
+          ? t('accounting.openingBalancesPage.on2', {
+              value: new Date(batch.reversedAt).toLocaleString(),
+              reversalReason: batch.reversalReason ?? '',
+            })
           : null}
       </p>
       {approval.facts && (batch.status === 'DRAFT' || batch.status === 'PENDING_APPROVAL') ? (
         <div className="approval-requirement" data-testid="approval-requirement">
           <p>
             {approval.required
-              ? 'Approval is required before posting'
-              : 'No approval is required to post these balances'}{' '}
-            <span className="muted">({describeFacts(approval.facts)})</span>
+              ? t('accounting.openingBalancesPage.approvalIsRequiredBeforePosting')
+              : t('accounting.openingBalancesPage.noApprovalIsRequiredTo')}{' '}
+            <span className="muted">({describeFacts(approval.facts, t)})</span>
           </p>
           <AppliedSteps steps={approval.appliedSteps} baseCurrency={batch.baseCurrency} />
         </div>
@@ -598,8 +660,14 @@ function WorkflowCard({ batch }: { batch: OpeningBatchDetail }) {
       {approval.required || approval.requestId ? (
         <div>
           <p>
-            Approval: {approval.requestStatus ?? 'not requested yet'}
-            {approval.readyToPost && batch.status === 'PENDING_APPROVAL' ? ' — ready to post.' : ''}
+            {t('accounting.openingBalancesPage.approval', {
+              requestStatus:
+                approval.requestStatus ?? t('accounting.openingBalancesPage.notRequestedYet'),
+              value:
+                approval.readyToPost && batch.status === 'PENDING_APPROVAL'
+                  ? t('accounting.openingBalancesPage.readyToPost')
+                  : '',
+            })}
           </p>
           {approval.steps.length ? (
             <ul>
@@ -612,20 +680,28 @@ function WorkflowCard({ batch }: { batch: OpeningBatchDetail }) {
           ) : null}
           {batch.status === 'PENDING_APPROVAL' && !approval.readyToPost ? (
             <p className="muted">
-              Approvers decide from{' '}
-              <Link to="/accounting/journals/approvals">the approval queue</Link>.
+              {t('accounting.openingBalancesPage.approversDecideFrom')}{' '}
+              <Link to="/accounting/journals/approvals">
+                {t('accounting.openingBalancesPage.theApprovalQueue')}
+              </Link>
+              .
             </p>
           ) : null}
         </div>
       ) : null}
       {batch.journals.length ? (
         <div>
-          <p>Journals:</p>
+          <p>{t('accounting.openingBalancesPage.journals')}</p>
           <ul>
             {batch.journals.map((j) => (
               <li key={j.id}>
                 <Link to={`/accounting/journals/${j.id}`}>
-                  {j.journalNumber ? `Journal #${j.journalNumber}` : 'Journal'} ({j.currency})
+                  {j.journalNumber
+                    ? t('accounting.openingBalancesPage.journal2', {
+                        journalNumber: j.journalNumber,
+                      })
+                    : t('accounting.openingBalancesPage.journal3')}{' '}
+                  ({j.currency})
                 </Link>{' '}
                 — {j.status.toLowerCase()}
               </li>
@@ -638,22 +714,22 @@ function WorkflowCard({ batch }: { batch: OpeningBatchDetail }) {
         <div className="actions">
           {batch.status === 'DRAFT' && approval.required ? (
             <Button busy={act.isPending} onClick={() => run('submit')}>
-              Submit for approval
+              {t('accounting.openingBalancesPage.submitForApproval')}
             </Button>
           ) : null}
           {batch.status === 'PENDING_APPROVAL' ? (
             <Button variant="secondary" busy={act.isPending} onClick={() => run('withdraw')}>
-              Withdraw
+              {t('accounting.openingBalancesPage.withdraw')}
             </Button>
           ) : null}
           {approval.readyToPost ? (
             <Button busy={act.isPending} onClick={() => run('post')}>
-              Post opening balances
+              {t('accounting.openingBalancesPage.postOpeningBalances')}
             </Button>
           ) : null}
           {batch.status === 'DRAFT' ? (
             <Button variant="ghost" busy={act.isPending} onClick={() => run('delete')}>
-              Delete draft
+              {t('accounting.openingBalancesPage.deleteDraft')}
             </Button>
           ) : null}
         </div>
@@ -667,21 +743,18 @@ function WorkflowCard({ batch }: { batch: OpeningBatchDetail }) {
           }}
         >
           <TextField
-            label="Reason for reversing"
+            label={t('accounting.openingBalancesPage.reasonForReversing')}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             maxLength={500}
           />
           <Button type="submit" variant="secondary" busy={act.isPending} disabled={!reason.trim()}>
-            Reverse opening batch
+            {t('accounting.openingBalancesPage.reverseOpeningBatch')}
           </Button>
         </form>
       ) : null}
       {batch.status === 'POSTED' ? (
-        <p className="muted">
-          Posting fixed the base currency and the currencies of the accounts used. To correct
-          opening balances, reverse the whole batch and post a new one.
-        </p>
+        <p className="muted">{t('accounting.openingBalancesPage.postingFixedTheBaseCurrency')}</p>
       ) : null}
     </Card>
   );
@@ -692,6 +765,7 @@ function WorkflowCard({ batch }: { batch: OpeningBatchDetail }) {
 // ---------------------------------------------------------------------------
 
 function BatchView({ id }: { id: string }) {
+  const t = useT();
   const canEdit = usePermission(Permission.AccountingSetup);
   const canSeeDimensions = usePermission(Permission.DimensionsView);
   const batch = useOpeningBatch(id);
@@ -703,7 +777,8 @@ function BatchView({ id }: { id: string }) {
     queryFn: () => api.get<DesignationEntry[]>('/accounting/designations'),
     enabled: canEdit,
   });
-  if (batch.isPending) return <Spinner label="Loading opening balances" />;
+  if (batch.isPending)
+    return <Spinner label={t('accounting.openingBalancesPage.loadingOpeningBalances')} />;
   if (batch.isError) return <ErrorAlert error={batch.error} />;
   const b = batch.data;
   const editable = canEdit && b.status === 'DRAFT';
@@ -714,7 +789,7 @@ function BatchView({ id }: { id: string }) {
       <WorkflowCard batch={b} />
       {editable ? (
         accounts.isPending || designations.isPending ? (
-          <Spinner label="Loading accounts" />
+          <Spinner label={t('accounting.openingBalancesPage.loadingAccounts')} />
         ) : (
           <BalancesEditor
             key={b.version}
@@ -728,17 +803,17 @@ function BatchView({ id }: { id: string }) {
         <ReadOnlyLines batch={b} />
       )}
       {canEdit ? <PreviewCard batch={b} /> : null}
-      <Card title="Import and export">
+      <Card title={t('accounting.openingBalancesPage.importAndExport')}>
         <div className="actions">
           {editable ? (
             <Link className="btn btn--secondary" to="/imports?domain=opening_balances">
-              Import from CSV
+              {t('accounting.openingBalancesPage.importFromCsv')}
             </Link>
           ) : null}
           <ExportButton domain="opening_balances" params={{ batchId: b.id }} />
         </div>
         {editable ? (
-          <p className="muted">An import replaces this draft&apos;s balances; it never posts.</p>
+          <p className="muted">{t('accounting.openingBalancesPage.anImportReplacesThisDraft')}</p>
         ) : null}
       </Card>
       <AttachmentsCard
@@ -746,13 +821,14 @@ function BatchView({ id }: { id: string }) {
         linkId={b.id}
         canChange={editable}
         canRemove={editable}
-        removeNote="Evidence can be changed only while the batch is a draft."
+        removeNote={t('accounting.openingBalancesPage.evidenceCanBeChangedOnly')}
       />
     </>
   );
 }
 
 export function OpeningBalancesPage() {
+  const t = useT();
   const { id } = useParams();
   const canEdit = usePermission(Permission.AccountingSetup);
   const list = useOpeningList();
@@ -767,12 +843,12 @@ export function OpeningBalancesPage() {
   return (
     <>
       <PageHeader
-        title="Opening balances"
-        description="Bring balances over from your previous system as at the conversion date."
+        title={t('accounting.openingBalancesPage.openingBalances')}
+        description={t('accounting.openingBalancesPage.bringBalancesOverFromYour')}
       />
       <AccountingPage>
         {list.isPending ? (
-          <Spinner label="Loading opening balances" />
+          <Spinner label={t('accounting.openingBalancesPage.loadingOpeningBalances')} />
         ) : list.isError ? (
           <ErrorAlert error={list.error} />
         ) : (
@@ -785,11 +861,11 @@ export function OpeningBalancesPage() {
             {shownId ? (
               <BatchView id={shownId} />
             ) : canEdit ? (
-              <Card title="Start">
+              <Card title={t('accounting.openingBalancesPage.start')}>
                 <p>
                   {list.data.conversionDate
-                    ? 'Create an opening batch to enter balances, or import them from CSV.'
-                    : 'Set the conversion date first.'}
+                    ? t('accounting.openingBalancesPage.createAnOpeningBatchTo')
+                    : t('accounting.openingBalancesPage.setTheConversionDateFirst')}
                 </p>
                 <ErrorAlert error={create.error} />
                 <Button
@@ -804,20 +880,22 @@ export function OpeningBalancesPage() {
                     })
                   }
                 >
-                  Enter opening balances
+                  {t('accounting.openingBalancesPage.enterOpeningBalances')}
                 </Button>
               </Card>
             ) : (
-              <Alert tone="info">No opening balances have been entered yet.</Alert>
+              <Alert tone="info">
+                {t('accounting.openingBalancesPage.noOpeningBalancesHaveBeen')}
+              </Alert>
             )}
             {list.data.batches.some((b) => b.id !== shownId) ? (
-              <Card title="History">
+              <Card title={t('accounting.openingBalancesPage.history')}>
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>Created</th>
-                      <th>Status</th>
-                      <th>Opening date</th>
+                      <th>{t('accounting.openingBalancesPage.created')}</th>
+                      <th>{t('accounting.openingBalancesPage.status')}</th>
+                      <th>{t('accounting.openingBalancesPage.openingDate')}</th>
                     </tr>
                   </thead>
                   <tbody>

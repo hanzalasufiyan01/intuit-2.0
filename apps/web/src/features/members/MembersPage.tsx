@@ -10,8 +10,10 @@ import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
+import { useT } from '../../i18n/i18n';
 
 function InviteForm({ organizationId }: { organizationId: string }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const roles = useQuery({
     queryKey: ['roles', organizationId],
@@ -37,19 +39,18 @@ function InviteForm({ organizationId }: { organizationId: string }) {
     );
   };
 
-  if (roles.isError)
-    return <Alert>You need permission to view roles before inviting people.</Alert>;
+  if (roles.isError) return <Alert>{t('members.needRoles')}</Alert>;
   return (
     <form className="form form--inline" onSubmit={submit} noValidate>
       <TextField
-        label="Email"
+        label={t('members.email')}
         type="email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         error={mutation.error?.fieldError('email')}
       />
       <div className="field">
-        <label htmlFor="invite-role">Role</label>
+        <label htmlFor="invite-role">{t('members.role')}</label>
         <select id="invite-role" value={roleId} onChange={(e) => setRoleId(e.target.value)}>
           {assignable.map((role) => (
             <option key={role.id} value={role.id}>
@@ -59,10 +60,10 @@ function InviteForm({ organizationId }: { organizationId: string }) {
         </select>
       </div>
       <Button type="submit" busy={mutation.isPending}>
-        Send invitation
+        {t('members.send')}
       </Button>
       {mutation.isSuccess ? (
-        <Alert tone="success">Invitation sent to {mutation.data.email}.</Alert>
+        <Alert tone="success">{t('members.sent', { email: mutation.data.email })}</Alert>
       ) : null}
       <ErrorAlert error={mutation.error?.issues.length ? null : mutation.error} />
     </form>
@@ -74,6 +75,7 @@ function InviteForm({ organizationId }: { organizationId: string }) {
  * for the Owner or oneself; the server also refuses anyone who belongs to another organization.
  */
 function ResetMfa({ member, organizationId }: { member: Member; organizationId: string }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const sensitive = useSensitiveAction();
   const [confirming, setConfirming] = useState(false);
@@ -82,19 +84,17 @@ function ResetMfa({ member, organizationId }: { member: Member; organizationId: 
       api.post(`/organizations/current/members/${member.membershipId}/mfa-reset`, {}),
     ),
   );
-  if (reset.isSuccess) return <span className="muted">Reset</span>;
+  if (reset.isSuccess) return <span className="muted">{t('members.resetDone')}</span>;
   if (!confirming) {
     return (
       <Button variant="ghost" onClick={() => setConfirming(true)}>
-        Reset two-step verification
+        {t('members.resetMfa')}
       </Button>
     );
   }
   return (
     <div className="stack">
-      <p className="muted">
-        {member.displayName} will be signed out everywhere and must set up a new authenticator.
-      </p>
+      <p className="muted">{t('members.resetWarning', { name: member.displayName })}</p>
       <div className="actions">
         <Button
           busy={reset.isPending}
@@ -105,10 +105,10 @@ function ResetMfa({ member, organizationId }: { member: Member; organizationId: 
             })
           }
         >
-          Reset
+          {t('members.reset')}
         </Button>
         <Button variant="secondary" onClick={() => setConfirming(false)}>
-          Cancel
+          {t('common.cancel')}
         </Button>
       </div>
       <ErrorAlert error={reset.error} />
@@ -117,20 +117,21 @@ function ResetMfa({ member, organizationId }: { member: Member; organizationId: 
 }
 
 function InvitationList({ organizationId }: { organizationId: string }) {
+  const t = useT();
   const invitations = useQuery({
     queryKey: ['invitations', organizationId],
     queryFn: () => api.get<Invitation[]>('/organizations/current/invitations'),
   });
-  if (invitations.isPending) return <Spinner label="Loading invitations" />;
+  if (invitations.isPending) return <Spinner label={t('members.loadingInvitations')} />;
   if (invitations.isError) return <ErrorAlert error={invitations.error} />;
-  if (invitations.data.length === 0) return <p className="muted">No invitations yet.</p>;
+  if (invitations.data.length === 0) return <p className="muted">{t('members.noInvitations')}</p>;
   return (
     <table className="table">
       <thead>
         <tr>
-          <th>Email</th>
-          <th>Status</th>
-          <th>Expires</th>
+          <th>{t('members.email')}</th>
+          <th>{t('members.status')}</th>
+          <th>{t('members.expires')}</th>
         </tr>
       </thead>
       <tbody>
@@ -147,6 +148,7 @@ function InvitationList({ organizationId }: { organizationId: string }) {
 }
 
 export function MembersPage() {
+  const t = useT();
   const { activeOrganization, session } = useAuth();
   const organizationId = activeOrganization?.id ?? 'none';
   const members = useQuery({
@@ -156,21 +158,21 @@ export function MembersPage() {
 
   return (
     <>
-      <PageHeader title="Members" description="People who belong to this organization." />
-      <Card title="Members">
+      <PageHeader title={t('members.title')} description={t('members.description')} />
+      <Card title={t('members.title')}>
         {members.isPending ? (
-          <Spinner label="Loading members" />
+          <Spinner label={t('members.loading')} />
         ) : members.isError ? (
           <ErrorAlert error={members.error} />
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Roles</th>
-                <th>Status</th>
-                {members.data.some((m) => m.mfa) ? <th>Two-step verification</th> : null}
+                <th>{t('members.name')}</th>
+                <th>{t('members.email')}</th>
+                <th>{t('members.roles')}</th>
+                <th>{t('members.status')}</th>
+                {members.data.some((m) => m.mfa) ? <th>{t('members.twoStep')}</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -189,10 +191,10 @@ export function MembersPage() {
                   {member.mfa ? (
                     <td>
                       {member.mfa.enrolled
-                        ? 'On'
+                        ? t('members.mfaOn')
                         : member.mfa.required
-                          ? 'Required, not set up'
-                          : 'Off'}
+                          ? t('members.mfaRequired')
+                          : t('members.mfaOff')}
                       {member.mfa.enrolled &&
                       !member.isOwner &&
                       member.userId !== session?.user.id ? (
@@ -209,10 +211,10 @@ export function MembersPage() {
         )}
       </Card>
       <Can permission={Permission.MembersInvite}>
-        <Card title="Invite someone">
+        <Card title={t('members.invite')}>
           <InviteForm organizationId={organizationId} />
         </Card>
-        <Card title="Invitations">
+        <Card title={t('members.invitations')}>
           <InvitationList organizationId={organizationId} />
         </Card>
       </Can>

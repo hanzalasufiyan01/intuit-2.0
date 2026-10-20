@@ -18,6 +18,7 @@ import {
   type AccountType,
   type DimensionType,
 } from './types';
+import { useT, type Translate } from '../../i18n/i18n';
 
 type Scope = DimensionType['scope'];
 
@@ -40,24 +41,22 @@ function RequirementFields({
   scope: Scope;
   onChange: (next: { isRequired: boolean; scope: Scope }) => void;
 }) {
+  const tr = useT();
   return (
     <fieldset className="fieldset">
-      <legend>Requirement</legend>
+      <legend>{tr('accounting.dimensionsPage.requirement')}</legend>
       <label className="checkbox">
         <input
           type="checkbox"
           checked={isRequired}
           onChange={(e) => onChange({ isRequired: e.target.checked, scope })}
         />{' '}
-        Required
+        {tr('accounting.dimensionsPage.required')}
       </label>
-      <p className="muted">
-        Required on manual journal lines whose account is in this scope. Leave the scope empty to
-        enforce it nowhere.
-      </p>
+      <p className="muted">{tr('accounting.dimensionsPage.requiredOnManualJournalLines')}</p>
       <div className="choice-grid">
         <div>
-          <strong>Account types</strong>
+          <strong>{tr('accounting.dimensionsPage.accountTypes')}</strong>
           {ACCOUNT_TYPES.map((t: AccountType) => (
             <label key={t} className="checkbox">
               <input
@@ -76,7 +75,7 @@ function RequirementFields({
           ))}
         </div>
         <div>
-          <strong>Account subtypes</strong>
+          <strong>{tr('accounting.dimensionsPage.accountSubtypes')}</strong>
           {ACCOUNT_TYPES.flatMap((t) => ACCOUNT_SUBTYPES[t]).map((st: AccountSubtype) => (
             <label key={st} className="checkbox">
               <input
@@ -89,7 +88,7 @@ function RequirementFields({
                   })
                 }
               />{' '}
-              {SUBTYPE_LABELS[st]}
+              {tr(SUBTYPE_LABELS[st])}
             </label>
           ))}
         </div>
@@ -98,13 +97,15 @@ function RequirementFields({
   );
 }
 
-function scopeLabel(type: DimensionType): string {
+function scopeLabel(type: DimensionType, t: Translate): string {
   const parts = [
     ...type.scope.accountTypes,
-    ...type.scope.accountSubtypes.map((s) => SUBTYPE_LABELS[s]),
+    ...type.scope.accountSubtypes.map((s) => t(SUBTYPE_LABELS[s])),
   ];
-  if (!type.isRequired) return 'Optional';
-  return parts.length ? `Required for ${parts.join(', ')}` : 'Required (empty scope: not enforced)';
+  if (!type.isRequired) return t('accounting.dimensionsPage.scopeOptional');
+  return parts.length
+    ? t('accounting.dimensionsPage.scopeRequiredFor', { parts: parts.join(', ') })
+    : t('accounting.dimensionsPage.scopeRequiredEmpty');
 }
 
 function useRefresh() {
@@ -114,6 +115,7 @@ function useRefresh() {
 }
 
 function CreateTypeForm() {
+  const t = useT();
   const refresh = useRefresh();
   const empty = {
     code: '',
@@ -132,20 +134,20 @@ function CreateTypeForm() {
     <form className="form" onSubmit={submit} noValidate>
       <div className="form form--inline">
         <TextField
-          label="Code"
+          label={t('accounting.dimensionsPage.code')}
           value={form.code}
           onChange={(e) => setForm({ ...form, code: e.target.value })}
           error={create.error?.fieldError('code')}
         />
         <TextField
-          label="Name"
+          label={t('accounting.dimensionsPage.name')}
           value={form.name}
-          placeholder="e.g. Department"
+          placeholder={t('accounting.dimensionsPage.eGDepartment')}
           onChange={(e) => setForm({ ...form, name: e.target.value })}
           error={create.error?.fieldError('name')}
         />
         <TextField
-          label="Description"
+          label={t('accounting.dimensionsPage.description')}
           value={form.description}
           onChange={(e) => setForm({ ...form, description: e.target.value })}
         />
@@ -157,7 +159,7 @@ function CreateTypeForm() {
         onChange={(next) => setForm({ ...form, ...next })}
       />
       <Button type="submit" busy={create.isPending}>
-        Add dimension
+        {t('accounting.dimensionsPage.addDimension')}
       </Button>
       <ErrorAlert error={create.error?.issues.length ? null : create.error} />
     </form>
@@ -165,6 +167,7 @@ function CreateTypeForm() {
 }
 
 function DimensionTypeCard({ type }: { type: DimensionType }) {
+  const t = useT();
   const refresh = useRefresh();
   const canManage = usePermission(Permission.DimensionsManage);
   const [editing, setEditing] = useState(false);
@@ -195,7 +198,7 @@ function DimensionTypeCard({ type }: { type: DimensionType }) {
           <>
             {type.status === 'ACTIVE' ? (
               <Button variant="ghost" onClick={() => setEditing(!editing)}>
-                {editing ? 'Cancel' : 'Edit requirement'}
+                {editing ? t('common.cancel') : t('accounting.dimensionsPage.editRequirement')}
               </Button>
             ) : null}
             <Button
@@ -207,14 +210,14 @@ function DimensionTypeCard({ type }: { type: DimensionType }) {
                 })
               }
             >
-              {type.status === 'ACTIVE' ? 'Archive' : 'Restore'}
+              {type.status === 'ACTIVE' ? t('common.archive') : t('common.restore')}
             </Button>
           </>
         ) : null
       }
     >
       <p>
-        <StatusBadge status={type.status} /> {scopeLabel(type)}
+        <StatusBadge status={type.status} /> {scopeLabel(type, t)}
         {type.description ? <span className="muted"> · {type.description}</span> : null}
       </p>
       {editing ? (
@@ -234,16 +237,16 @@ function DimensionTypeCard({ type }: { type: DimensionType }) {
             onChange={setRequirement}
           />
           <Button type="submit" busy={saveRequirement.isPending}>
-            Save requirement
+            {t('accounting.dimensionsPage.saveRequirement')}
           </Button>
         </form>
       ) : null}
       <table className="table">
         <thead>
           <tr>
-            <th>Code</th>
-            <th>Value</th>
-            <th>Status</th>
+            <th>{t('accounting.dimensionsPage.code')}</th>
+            <th>{t('accounting.dimensionsPage.value')}</th>
+            <th>{t('accounting.dimensionsPage.status')}</th>
             <th />
           </tr>
         </thead>
@@ -266,7 +269,7 @@ function DimensionTypeCard({ type }: { type: DimensionType }) {
                       )
                     }
                   >
-                    {v.status === 'ACTIVE' ? 'Archive' : 'Restore'}
+                    {v.status === 'ACTIVE' ? t('common.archive') : t('common.restore')}
                   </Button>
                 ) : null}
               </td>
@@ -285,19 +288,19 @@ function DimensionTypeCard({ type }: { type: DimensionType }) {
           }}
         >
           <TextField
-            label={`${type.name} value code`}
+            label={t('accounting.dimensionsPage.valueCode', { name: type.name })}
             value={value.code}
             onChange={(e) => setValue({ ...value, code: e.target.value })}
             error={addValue.error?.fieldError('code')}
           />
           <TextField
-            label={`${type.name} value name`}
+            label={t('accounting.dimensionsPage.valueName', { name: type.name })}
             value={value.name}
             onChange={(e) => setValue({ ...value, name: e.target.value })}
             error={addValue.error?.fieldError('name')}
           />
           <Button type="submit" busy={addValue.isPending}>
-            Add value
+            {t('accounting.dimensionsPage.addValue')}
           </Button>
           <ErrorAlert error={addValue.error?.issues.length ? null : addValue.error} />
         </form>
@@ -309,29 +312,30 @@ function DimensionTypeCard({ type }: { type: DimensionType }) {
 
 /** Dimension types and values (Decisions 3, 16, 84). Manual journals tag lines only. */
 export function DimensionsPage() {
+  const t = useT();
   const dimensions = useDimensions();
   return (
     <>
       <PageHeader
-        title="Dimensions"
-        description="Tag journal lines by branch, department, project, cost center or your own dimensions. Dimensions never affect balancing."
+        title={t('accounting.dimensionsPage.dimensions')}
+        description={t('accounting.dimensionsPage.tagJournalLinesByBranch')}
       />
       <AccountingPage>
         <p className="actions">
           <ExportButton domain="dimension_values" />
         </p>
         <Can permission={Permission.DimensionsManage}>
-          <Card title="New dimension">
+          <Card title={t('accounting.dimensionsPage.newDimension')}>
             <CreateTypeForm />
           </Card>
         </Can>
         {dimensions.isPending ? (
-          <Spinner label="Loading dimensions" />
+          <Spinner label={t('accounting.dimensionsPage.loadingDimensions')} />
         ) : dimensions.isError ? (
           <ErrorAlert error={dimensions.error} />
         ) : dimensions.data.length === 0 ? (
           <Card>
-            <p className="muted">No dimensions yet.</p>
+            <p className="muted">{t('accounting.dimensionsPage.noDimensionsYet')}</p>
           </Card>
         ) : (
           dimensions.data.map((type) => <DimensionTypeCard key={type.id} type={type} />)

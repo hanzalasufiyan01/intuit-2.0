@@ -9,7 +9,6 @@ import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
 import {
   formatDateTime,
-  STATUS_LABELS,
   useImportCatalog,
   useOrg,
   type DateFormat,
@@ -17,9 +16,11 @@ import {
   type ImportBatch,
   type ImportDomainKey,
 } from './api';
+import { useT } from '../../i18n/i18n';
 
 /** Import history and the start of a new import (S6-44). */
 export function ImportsPage() {
+  const t = useT();
   const org = useOrg();
   const navigate = useNavigate();
   const catalog = useImportCatalog();
@@ -40,13 +41,10 @@ export function ImportsPage() {
 
   return (
     <>
-      <PageHeader
-        title="Import"
-        description="Bring in accounts, contacts, dimension values, exchange rates and draft journals from CSV files."
-      />
-      <Card title="New import">
+      <PageHeader title={t('imports.title')} description={t('imports.description')} />
+      <Card title={t('imports.new')}>
         {catalog.isPending ? (
-          <Spinner label="Loading import types" />
+          <Spinner label={t('imports.loadingTypes')} />
         ) : catalog.data?.length ? (
           <form
             className="form form--inline"
@@ -58,13 +56,13 @@ export function ImportsPage() {
             }}
           >
             <div className="field">
-              <label htmlFor="import-domain">What to import</label>
+              <label htmlFor="import-domain">{t('imports.what')}</label>
               <select
                 id="import-domain"
                 value={domain}
                 onChange={(e) => setDomain(e.target.value as ImportDomainKey)}
               >
-                <option value="">Choose…</option>
+                <option value="">{t('common.choose')}</option>
                 {catalog.data.map((d) => (
                   <option key={d.key} value={d.key}>
                     {d.label}
@@ -73,7 +71,7 @@ export function ImportsPage() {
               </select>
             </div>
             <div className="field">
-              <label htmlFor="import-date-format">Dates in the file</label>
+              <label htmlFor="import-date-format">{t('imports.dates')}</label>
               <select
                 id="import-date-format"
                 value={dateFormat}
@@ -85,48 +83,45 @@ export function ImportsPage() {
               </select>
             </div>
             <div className="field">
-              <label htmlFor="import-decimal">Decimal separator</label>
+              <label htmlFor="import-decimal">{t('imports.decimal')}</label>
               <select
                 id="import-decimal"
                 value={decimalSeparator}
                 onChange={(e) => setDecimalSeparator(e.target.value as DecimalSeparator)}
               >
-                <option value=".">Point (1,234.56)</option>
-                <option value=",">Comma (1.234,56)</option>
+                <option value=".">{t('imports.point')}</option>
+                <option value=",">{t('imports.comma')}</option>
               </select>
             </div>
             <div className="actions">
               <Button type="submit" disabled={!domain} busy={create.isPending}>
-                Start import
+                {t('imports.start')}
               </Button>
             </div>
           </form>
         ) : (
-          <p className="muted">You don't have permission to import anything here.</p>
+          <p className="muted">{t('imports.noPermission')}</p>
         )}
         <ErrorAlert error={create.error ?? catalog.error} />
-        <p className="muted">
-          Files are CSV (UTF-8) or Excel (.xlsx), up to 25 MB and 25,000 rows. Every row is checked
-          before anything is imported, and an import either completes fully or not at all.
-        </p>
+        <p className="muted">{t('imports.limits')}</p>
       </Card>
-      <Card title="Recent imports">
+      <Card title={t('imports.recent')}>
         {history.isPending ? (
-          <Spinner label="Loading imports" />
+          <Spinner label={t('imports.loading')} />
         ) : history.isError ? (
           <ErrorAlert error={history.error} />
         ) : history.data.length === 0 ? (
-          <p className="muted">No imports yet.</p>
+          <p className="muted">{t('imports.none')}</p>
         ) : (
           <div className="table-scroll">
             <table className="table">
               <thead>
                 <tr>
-                  <th>Started</th>
-                  <th>Type</th>
-                  <th>File</th>
-                  <th>Status</th>
-                  <th>Rows</th>
+                  <th>{t('imports.started')}</th>
+                  <th>{t('imports.type')}</th>
+                  <th>{t('imports.file')}</th>
+                  <th>{t('imports.status')}</th>
+                  <th>{t('imports.rows')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -139,7 +134,7 @@ export function ImportsPage() {
                     <td>{b.fileName ?? '—'}</td>
                     <td>
                       <span className={`badge badge--import-${b.status}`}>
-                        {STATUS_LABELS[b.status]}
+                        {t(`imports.status.${b.status}`)}
                       </span>
                     </td>
                     <td>{b.counts.total || '—'}</td>

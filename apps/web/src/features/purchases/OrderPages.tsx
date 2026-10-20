@@ -10,6 +10,7 @@ import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
+import { useT, type MessageKey } from '../../i18n/i18n';
 
 /**
  * Purchase orders, goods receiving and three-way matching. An order creates no journal. The
@@ -76,14 +77,14 @@ interface MatchSettings {
   version: number;
 }
 
-const STATUS_LABEL: Record<OrderStatus, string> = {
-  DRAFT: 'Draft',
-  PENDING_APPROVAL: 'Awaiting approval',
-  APPROVED: 'Approved',
-  PARTIALLY_RECEIVED: 'Partly received',
-  RECEIVED: 'Received',
-  CLOSED: 'Closed',
-  CANCELLED: 'Cancelled',
+const STATUS_LABEL: Record<OrderStatus, MessageKey> = {
+  DRAFT: 'purchases.orderPages.status.DRAFT',
+  PENDING_APPROVAL: 'purchases.orderPages.status.PENDING_APPROVAL',
+  APPROVED: 'purchases.orderPages.status.APPROVED',
+  PARTIALLY_RECEIVED: 'purchases.orderPages.status.PARTIALLY_RECEIVED',
+  RECEIVED: 'purchases.orderPages.status.RECEIVED',
+  CLOSED: 'purchases.orderPages.status.CLOSED',
+  CANCELLED: 'purchases.orderPages.status.CANCELLED',
 };
 
 function StatusBadge({ status }: { status: OrderStatus }) {
@@ -95,7 +96,8 @@ function StatusBadge({ status }: { status: OrderStatus }) {
         : status === 'PENDING_APPROVAL'
           ? 'pending_approval'
           : 'posted';
-  return <span className={`badge badge--${tone}`}>{STATUS_LABEL[status]}</span>;
+  const t = useT();
+  return <span className={`badge badge--${tone}`}>{t(STATUS_LABEL[status])}</span>;
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -109,6 +111,7 @@ function useOrgKey() {
 // ---------------------------------------------------------------------------
 
 export function OrdersPage() {
+  const t = useT();
   const org = useOrgKey();
   const canCreate = usePermission(Permission.PurchaseOrdersCreate);
   const [status, setStatus] = useState('');
@@ -126,55 +129,61 @@ export function OrdersPage() {
   return (
     <>
       <PageHeader
-        title="Purchase orders"
-        description="Commit to a vendor before the bill arrives. Receive the goods, then bill what was received."
+        title={t('purchases.orderPages.purchaseOrders')}
+        description={t('purchases.orderPages.commitToAVendorBefore')}
       />
       <Card
         actions={
           canCreate ? (
             <Link className="btn btn--primary" to="/purchases/orders/new">
-              New purchase order
+              {t('purchases.orderPages.newPurchaseOrder')}
             </Link>
           ) : undefined
         }
       >
         <div className="form-grid">
           <div className="field">
-            <label htmlFor="po-status">Status</label>
+            <label htmlFor="po-status">{t('purchases.orderPages.status')}</label>
             <select id="po-status" value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="">All</option>
+              <option value="">{t('common.all')}</option>
               {(Object.keys(STATUS_LABEL) as OrderStatus[]).map((s) => (
                 <option key={s} value={s}>
-                  {STATUS_LABEL[s]}
+                  {t(STATUS_LABEL[s])}
                 </option>
               ))}
             </select>
           </div>
-          <TextField label="Search" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <TextField
+            label={t('common.search')}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
         {list.isPending ? (
           <Spinner />
         ) : list.isError ? (
           <ErrorAlert error={list.error} />
         ) : list.data.items.length === 0 ? (
-          <p className="muted">No purchase orders.</p>
+          <p className="muted">{t('purchases.orderPages.noPurchaseOrders')}</p>
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Number</th>
-                <th>Vendor</th>
-                <th>Date</th>
-                <th>Expected</th>
-                <th className="num">Total</th>
-                <th>Status</th>
+                <th>{t('purchases.orderPages.number')}</th>
+                <th>{t('purchases.orderPages.vendor')}</th>
+                <th>{t('purchases.orderPages.date')}</th>
+                <th>{t('purchases.orderPages.expected')}</th>
+                <th className="num">{t('purchases.orderPages.total')}</th>
+                <th>{t('purchases.orderPages.status')}</th>
               </tr>
             </thead>
             <tbody>
               {list.data.items.map((o) => (
                 <tr key={o.id}>
                   <td>
-                    <Link to={`/purchases/orders/${o.id}`}>{o.number ?? '(draft)'}</Link>
+                    <Link to={`/purchases/orders/${o.id}`}>
+                      {o.number ?? t('purchases.orderPages.draft')}
+                    </Link>
                   </td>
                   <td>{o.vendorName}</td>
                   <td>{o.orderDate}</td>
@@ -207,6 +216,7 @@ interface DraftLine {
 }
 
 export function NewOrderPage() {
+  const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const org = useOrgKey();
@@ -261,22 +271,22 @@ export function NewOrderPage() {
   const error = create.error instanceof ApiError ? create.error : null;
   return (
     <>
-      <PageHeader title="New purchase order" />
+      <PageHeader title={t('purchases.orderPages.newPurchaseOrder')} />
       <p>
-        <Link to="/purchases/orders">← Purchase orders</Link>
+        <Link to="/purchases/orders">{t('purchases.orderPages.purchaseOrders2')}</Link>
       </p>
       <Card>
         <form onSubmit={submit}>
           <div className="form-grid">
             <div className="field">
-              <label htmlFor="po-vendor">Vendor</label>
+              <label htmlFor="po-vendor">{t('purchases.orderPages.vendor')}</label>
               <select
                 id="po-vendor"
                 value={vendorId}
                 required
                 onChange={(e) => setVendorId(e.target.value)}
               >
-                <option value="">Choose…</option>
+                <option value="">{t('common.choose')}</option>
                 {(vendors.data?.items ?? []).map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.displayName}
@@ -290,7 +300,7 @@ export function NewOrderPage() {
               ) : null}
             </div>
             <TextField
-              label="Order date"
+              label={t('purchases.orderPages.orderDate')}
               type="date"
               value={orderDate}
               required
@@ -298,14 +308,14 @@ export function NewOrderPage() {
               error={error?.fieldError('orderDate')}
             />
             <TextField
-              label="Expected delivery"
+              label={t('purchases.orderPages.expectedDelivery')}
               type="date"
               value={expectedDate}
               onChange={(e) => setExpectedDate(e.target.value)}
               error={error?.fieldError('expectedDate')}
             />
             <TextField
-              label="Memo"
+              label={t('purchases.orderPages.memo')}
               value={memo}
               maxLength={2000}
               onChange={(e) => setMemo(e.target.value)}
@@ -314,10 +324,10 @@ export function NewOrderPage() {
           <table className="table table--editor">
             <thead>
               <tr>
-                <th>Item</th>
-                <th>Description</th>
-                <th className="num">Quantity</th>
-                <th className="num">Unit price</th>
+                <th>{t('purchases.orderPages.item')}</th>
+                <th>{t('purchases.orderPages.description')}</th>
+                <th className="num">{t('purchases.orderPages.quantity')}</th>
+                <th className="num">{t('purchases.orderPages.unitPrice')}</th>
                 <th />
               </tr>
             </thead>
@@ -326,7 +336,7 @@ export function NewOrderPage() {
                 <tr key={i}>
                   <td>
                     <select
-                      aria-label={`Item, line ${i + 1}`}
+                      aria-label={t('purchases.orderPages.itemLine', { value: i + 1 })}
                       value={line.itemId}
                       onChange={(e) => {
                         const item = items.data?.items.find((x) => x.id === e.target.value);
@@ -337,7 +347,7 @@ export function NewOrderPage() {
                         });
                       }}
                     >
-                      <option value="">None</option>
+                      <option value="">{t('common.none')}</option>
                       {(items.data?.items ?? []).map((x) => (
                         <option key={x.id} value={x.id}>
                           {x.name}
@@ -347,14 +357,14 @@ export function NewOrderPage() {
                   </td>
                   <td>
                     <input
-                      aria-label={`Description, line ${i + 1}`}
+                      aria-label={t('purchases.orderPages.descriptionLine', { value: i + 1 })}
                       value={line.description}
                       onChange={(e) => setLine(i, { description: e.target.value })}
                     />
                   </td>
                   <td className="num">
                     <input
-                      aria-label={`Quantity, line ${i + 1}`}
+                      aria-label={t('purchases.orderPages.quantityLine', { value: i + 1 })}
                       inputMode="decimal"
                       value={line.quantity}
                       onChange={(e) => setLine(i, { quantity: e.target.value })}
@@ -362,7 +372,7 @@ export function NewOrderPage() {
                   </td>
                   <td className="num">
                     <input
-                      aria-label={`Unit price, line ${i + 1}`}
+                      aria-label={t('purchases.orderPages.unitPriceLine', { value: i + 1 })}
                       inputMode="decimal"
                       value={line.unitPrice}
                       onChange={(e) => setLine(i, { unitPrice: e.target.value })}
@@ -374,7 +384,7 @@ export function NewOrderPage() {
                         variant="ghost"
                         onClick={() => setLines(lines.filter((_, x) => x !== i))}
                       >
-                        Remove
+                        {t('common.remove')}
                       </Button>
                     ) : null}
                   </td>
@@ -394,10 +404,10 @@ export function NewOrderPage() {
                 setLines([...lines, { itemId: '', description: '', quantity: '1', unitPrice: '' }])
               }
             >
-              Add a line
+              {t('purchases.orderPages.addALine')}
             </Button>{' '}
             <Button type="submit" busy={create.isPending}>
-              Save draft
+              {t('purchases.orderPages.saveDraft')}
             </Button>
           </p>
           {create.isError && !error?.issues.length ? <ErrorAlert error={create.error} /> : null}
@@ -412,6 +422,7 @@ export function NewOrderPage() {
 // ---------------------------------------------------------------------------
 
 export function OrderDetailPage() {
+  const t = useT();
   const { id = '' } = useParams();
   const org = useOrgKey();
   const navigate = useNavigate();
@@ -464,24 +475,29 @@ export function OrderDetailPage() {
   return (
     <>
       <PageHeader
-        title={o.number ? `Purchase order ${o.number}` : 'Purchase order (draft)'}
+        title={
+          o.number
+            ? t('purchases.orderPages.purchaseOrder', { number: o.number })
+            : t('purchases.orderPages.purchaseOrderDraft')
+        }
         description={`${o.vendorName ?? ''} · ${o.orderDate}${o.expectedDate ? ` · expected ${o.expectedDate}` : ''} · ${formatAmount(o.total, o.currencyCode)} ${o.currencyCode}`}
       />
       <p>
-        <Link to="/purchases/orders">← Purchase orders</Link> <StatusBadge status={o.status} />
+        <Link to="/purchases/orders">{t('purchases.orderPages.purchaseOrders2')}</Link>{' '}
+        <StatusBadge status={o.status} />
       </p>
       {error ? <ErrorAlert error={error} /> : null}
       {o.status === 'PENDING_APPROVAL' ? (
-        <Alert tone="info">Waiting for approval under the approval policy.</Alert>
+        <Alert tone="info">{t('purchases.orderPages.waitingForApprovalUnderThe')}</Alert>
       ) : null}
       <Card
-        title="Lines"
+        title={t('purchases.orderPages.lines')}
         actions={
           <span>
             {canCreate && o.status === 'DRAFT' ? (
               <>
                 <Button busy={act.isPending} onClick={() => run('submit', { version: o.version })}>
-                  Submit
+                  {t('purchases.orderPages.submit')}
                 </Button>{' '}
                 <Button
                   variant="ghost"
@@ -494,13 +510,13 @@ export function OrderDetailPage() {
                     })
                   }
                 >
-                  Delete
+                  {t('common.delete')}
                 </Button>
               </>
             ) : null}
             {canCreate && o.status === 'PENDING_APPROVAL' ? (
               <Button variant="secondary" onClick={() => run('withdraw', { version: o.version })}>
-                Withdraw
+                {t('purchases.orderPages.withdraw')}
               </Button>
             ) : null}
           </span>
@@ -510,12 +526,14 @@ export function OrderDetailPage() {
           <thead>
             <tr>
               <th>#</th>
-              <th>Description</th>
-              <th className="num">Ordered</th>
-              <th className="num">Price</th>
-              <th className="num">Received</th>
-              <th className="num">Billed</th>
-              {live && canReceive ? <th className="num">Receive now</th> : null}
+              <th>{t('purchases.orderPages.description')}</th>
+              <th className="num">{t('purchases.orderPages.ordered')}</th>
+              <th className="num">{t('purchases.orderPages.price')}</th>
+              <th className="num">{t('purchases.orderPages.received')}</th>
+              <th className="num">{t('purchases.orderPages.billed')}</th>
+              {live && canReceive ? (
+                <th className="num">{t('purchases.orderPages.receiveNow')}</th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
@@ -530,7 +548,7 @@ export function OrderDetailPage() {
                 {live && canReceive ? (
                   <td className="num">
                     <input
-                      aria-label={`Receive, line ${l.lineNo}`}
+                      aria-label={t('purchases.orderPages.receiveLine', { lineNo: l.lineNo })}
                       inputMode="decimal"
                       value={receiving[l.id] ?? ''}
                       placeholder={l.remainingToReceive}
@@ -555,7 +573,7 @@ export function OrderDetailPage() {
                 })
               }
             >
-              Record goods received
+              {t('purchases.orderPages.recordGoodsReceived')}
             </Button>
           </p>
         ) : null}
@@ -570,7 +588,7 @@ export function OrderDetailPage() {
                 })
               }
             >
-              Create bill from what was received
+              {t('purchases.orderPages.createBillFromWhatWas')}
             </Button>{' '}
             <Button
               variant="ghost"
@@ -580,7 +598,7 @@ export function OrderDetailPage() {
                 })
               }
             >
-              Bill everything ordered
+              {t('purchases.orderPages.billEverythingOrdered')}
             </Button>
           </p>
         ) : null}
@@ -589,43 +607,47 @@ export function OrderDetailPage() {
             <Button
               variant="ghost"
               onClick={() => {
-                const reason = window.prompt('Why is the order closed? (optional)') ?? '';
+                const reason = window.prompt(t('purchases.orderPages.whyIsTheOrderClosed')) ?? '';
                 run('close', { version: o.version, reason: reason.trim() || undefined });
               }}
             >
-              Close order
+              {t('purchases.orderPages.closeOrder')}
             </Button>
             {o.status === 'APPROVED' ? (
               <Button
                 variant="ghost"
                 onClick={() => {
-                  const reason = window.prompt('Why is the order cancelled?');
+                  const reason = window.prompt(t('purchases.orderPages.whyIsTheOrderCancelled'));
                   if (reason?.trim()) run('cancel', { version: o.version, reason: reason.trim() });
                 }}
               >
-                Cancel order
+                {t('purchases.orderPages.cancelOrder')}
               </Button>
             ) : null}
           </p>
         ) : null}
       </Card>
-      <Card title="Bills">
+      <Card title={t('purchases.orderPages.bills')}>
         {o.bills.length === 0 ? (
-          <p className="muted">No bills are linked to this order.</p>
+          <p className="muted">{t('purchases.orderPages.noBillsAreLinkedTo')}</p>
         ) : (
           <table className="table">
             <tbody>
               {o.bills.map((b) => (
                 <tr key={b.billId}>
                   <td>
-                    <Link to={`/purchases/bills/${b.billId}`}>{b.number ?? 'Draft bill'}</Link>
+                    <Link to={`/purchases/bills/${b.billId}`}>
+                      {b.number ?? t('purchases.orderPages.draftBill')}
+                    </Link>
                   </td>
                   <td>{b.status}</td>
                   <td>
                     {b.match ? (
                       <>
-                        {b.match.status === 'matched' ? 'Matched' : 'Matched with warnings'} (
-                        {b.match.mode})
+                        {b.match.status === 'matched'
+                          ? t('purchases.orderPages.matched')
+                          : t('purchases.orderPages.matchedWithWarnings')}{' '}
+                        ({b.match.mode})
                         {b.match.issues.length ? (
                           <ul>
                             {b.match.issues.map((i, n) => (
@@ -635,7 +657,7 @@ export function OrderDetailPage() {
                         ) : null}
                       </>
                     ) : (
-                      'Not posted yet'
+                      t('purchases.orderPages.notPostedYet')
                     )}
                   </td>
                 </tr>
@@ -644,9 +666,9 @@ export function OrderDetailPage() {
           </table>
         )}
       </Card>
-      <Card title="Goods receipts">
+      <Card title={t('purchases.orderPages.goodsReceipts')}>
         {o.receipts.length === 0 ? (
-          <p className="muted">Nothing received yet.</p>
+          <p className="muted">{t('purchases.orderPages.nothingReceivedYet')}</p>
         ) : (
           <table className="table">
             <tbody>
@@ -654,13 +676,19 @@ export function OrderDetailPage() {
                 <tr key={r.id}>
                   <td>{r.number}</td>
                   <td>{r.date}</td>
-                  <td>{r.status === 'POSTED' ? 'Recorded' : 'Void'}</td>
+                  <td>
+                    {r.status === 'POSTED'
+                      ? t('purchases.orderPages.recorded')
+                      : t('purchases.orderPages.void')}
+                  </td>
                   <td>
                     {canReceive && r.status === 'POSTED' ? (
                       <Button
                         variant="ghost"
                         onClick={() => {
-                          const reason = window.prompt('Why is this receipt voided?');
+                          const reason = window.prompt(
+                            t('purchases.orderPages.whyIsThisReceiptVoided'),
+                          );
                           if (!reason?.trim()) return;
                           void api
                             .post(`/purchases/receipts/${r.id}/void`, {
@@ -670,7 +698,7 @@ export function OrderDetailPage() {
                             .then(refresh);
                         }}
                       >
-                        Void
+                        {t('purchases.orderPages.void')}
                       </Button>
                     ) : null}
                   </td>
@@ -689,6 +717,7 @@ export function OrderDetailPage() {
 // ---------------------------------------------------------------------------
 
 export function CommitmentsPage() {
+  const t = useT();
   const org = useOrgKey();
   const report = useQuery({
     queryKey: ['po-commitments', org],
@@ -707,8 +736,8 @@ export function CommitmentsPage() {
   return (
     <>
       <PageHeader
-        title="Purchase commitments"
-        description="What is still to be billed on approved purchase orders, by vendor."
+        title={t('purchases.orderPages.purchaseCommitments')}
+        description={t('purchases.orderPages.whatIsStillToBe')}
       />
       <Card>
         {report.isPending ? (
@@ -716,15 +745,15 @@ export function CommitmentsPage() {
         ) : report.isError ? (
           <ErrorAlert error={report.error} />
         ) : report.data.items.length === 0 ? (
-          <p className="muted">No open purchase orders.</p>
+          <p className="muted">{t('purchases.orderPages.noOpenPurchaseOrders')}</p>
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Vendor</th>
-                <th>Orders</th>
-                <th className="num">Ordered</th>
-                <th className="num">Still to bill</th>
+                <th>{t('purchases.orderPages.vendor')}</th>
+                <th>{t('purchases.orderPages.orders')}</th>
+                <th className="num">{t('purchases.orderPages.ordered')}</th>
+                <th className="num">{t('purchases.orderPages.stillToBill')}</th>
               </tr>
             </thead>
             <tbody>
@@ -749,6 +778,7 @@ export function CommitmentsPage() {
 }
 
 export function MatchSettingsPage() {
+  const t = useT();
   const org = useOrgKey();
   const queryClient = useQueryClient();
   const canManage = usePermission(Permission.PurchaseOrdersSettingsManage);
@@ -772,8 +802,8 @@ export function MatchSettingsPage() {
   return (
     <>
       <PageHeader
-        title="Three-way matching"
-        description="Compare a bill with its purchase order and the goods received before it posts."
+        title={t('purchases.orderPages.threeWayMatching')}
+        description={t('purchases.orderPages.compareABillWithIts')}
       />
       <Card>
         <form
@@ -789,7 +819,7 @@ export function MatchSettingsPage() {
           }}
         >
           <div className="field">
-            <label htmlFor="po-match-mode">When a bill does not match</label>
+            <label htmlFor="po-match-mode">{t('purchases.orderPages.whenABillDoesNot')}</label>
             <select
               id="po-match-mode"
               value={form.matchMode ?? s.matchMode}
@@ -798,13 +828,13 @@ export function MatchSettingsPage() {
                 setForm({ ...form, matchMode: e.target.value as MatchSettings['matchMode'] })
               }
             >
-              <option value="off">Do not check</option>
-              <option value="warning">Post it and record a warning</option>
-              <option value="block">Block posting</option>
+              <option value="off">{t('purchases.orderPages.doNotCheck')}</option>
+              <option value="warning">{t('purchases.orderPages.postItAndRecordA')}</option>
+              <option value="block">{t('purchases.orderPages.blockPosting')}</option>
             </select>
           </div>
           <TextField
-            label="Quantity tolerance (%)"
+            label={t('purchases.orderPages.quantityTolerance')}
             value={form.quantityTolerancePct ?? s.quantityTolerancePct}
             disabled={!canManage}
             inputMode="decimal"
@@ -812,7 +842,7 @@ export function MatchSettingsPage() {
             error={error?.fieldError('quantityTolerancePct')}
           />
           <TextField
-            label="Price tolerance (%)"
+            label={t('purchases.orderPages.priceTolerance')}
             value={form.priceTolerancePct ?? s.priceTolerancePct}
             disabled={!canManage}
             inputMode="decimal"
@@ -822,7 +852,7 @@ export function MatchSettingsPage() {
           {canManage ? (
             <div>
               <Button type="submit" busy={save.isPending}>
-                Save
+                {t('common.save')}
               </Button>
             </div>
           ) : null}

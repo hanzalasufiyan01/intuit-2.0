@@ -21,6 +21,10 @@ export interface TaxCode {
   taxAccountId: string;
   /** Recoverable purchase tax posts here (ADR 0004 P4-11); null until mapped. */
   inputTaxAccountId: string | null;
+  /** Classification (migration 0087); zero-rated and exempt stay apart. */
+  treatment: 'standard' | 'zero_rated' | 'exempt' | 'out_of_scope';
+  taxType: string | null;
+  reportingCategory: string | null;
   status: 'ACTIVE' | 'ARCHIVED';
   version: number;
   systemSeeded: boolean;

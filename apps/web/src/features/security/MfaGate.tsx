@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { useApiMutation, useAuth } from '../../auth/auth-context';
+import { useT, type Translate } from '../../i18n/i18n';
 import { api } from '../../services/api-client';
 import type { MfaRequirementReason, SessionState } from '../../services/types';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
@@ -8,18 +9,13 @@ import { Card, PageHeader } from '../../shared/ui/Card';
 import { TextField } from '../../shared/ui/TextField';
 import { MfaEnrollment } from './MfaEnrollment';
 
-const REASON_TEXT: Record<MfaRequirementReason, string> = {
-  owner: 'you own this organization',
-  privileged_permission: 'your role can manage members, roles, approvals or accounting setup',
-  organization_policy: 'this organization requires it for all members',
-};
-
-export function describeReasons(reasons: MfaRequirementReason[]): string {
-  return reasons.map((r) => REASON_TEXT[r]).join(', and ');
+export function describeReasons(reasons: MfaRequirementReason[], t: Translate): string {
+  return reasons.map((r) => t(`security.mfa.reason.${r}`)).join(t('security.mfa.reasonJoin'));
 }
 
 /** An in-session code for an organization that does not accept remembered devices (S7-36). */
 function VerifyInSession() {
+  const t = useT();
   const { updateSession } = useAuth();
   const [method, setMethod] = useState<'totp' | 'recovery_code'>('totp');
   const [code, setCode] = useState('');
@@ -37,7 +33,9 @@ function VerifyInSession() {
     <form className="form" onSubmit={submit} noValidate>
       <ErrorAlert error={mutation.error} />
       <TextField
-        label={method === 'totp' ? 'Code from your authenticator app' : 'Recovery code'}
+        label={
+          method === 'totp' ? t('security.mfa.authenticatorCode') : t('security.mfa.recoveryCode')
+        }
         inputMode={method === 'totp' ? 'numeric' : 'text'}
         autoComplete={method === 'totp' ? 'one-time-code' : 'off'}
         value={code}
@@ -46,14 +44,14 @@ function VerifyInSession() {
       />
       <div className="actions">
         <Button type="submit" busy={mutation.isPending}>
-          Verify
+          {t('security.mfa.verify')}
         </Button>
         <button
           type="button"
           className="link-button"
           onClick={() => setMethod(method === 'totp' ? 'recovery_code' : 'totp')}
         >
-          {method === 'totp' ? 'Use a recovery code instead' : 'Use your authenticator app'}
+          {method === 'totp' ? t('security.mfa.useRecovery') : t('security.mfa.useAuthenticator')}
         </button>
       </div>
     </form>
@@ -66,18 +64,20 @@ function VerifyInSession() {
  * API refuses every organization request meanwhile, so this is guidance, not the control.
  */
 export function MfaGate({ children }: { children: ReactNode }) {
+  const t = useT();
   const { session, refreshSession } = useAuth();
   const org = session?.mfa.activeOrganization;
   if (!session || !org || !org.required || org.satisfied) return <>{children}</>;
-  const why = describeReasons(org.reasons);
+  const why = describeReasons(org.reasons, t);
+  const organization = session.activeOrganization?.name ?? t('security.mfa.thisOrganization');
   if (!session.mfa.enrolled) {
     return (
       <>
         <PageHeader
-          title="Set up two-step verification"
-          description={`${session.activeOrganization?.name ?? 'This organization'} requires two-step verification because ${why}.`}
+          title={t('security.mfa.setupTitle')}
+          description={t('security.mfa.requiresBecause', { organization, reasons: why })}
         />
-        <Card title="Authenticator app">
+        <Card title={t('security.mfa.authenticatorCard')}>
           <MfaEnrollment onFinished={() => void refreshSession()} />
         </Card>
       </>
@@ -86,11 +86,11 @@ export function MfaGate({ children }: { children: ReactNode }) {
   return (
     <>
       <PageHeader
-        title="Verify it’s you"
-        description={`${session.activeOrganization?.name ?? 'This organization'} does not accept remembered browsers. Enter a code to continue.`}
+        title={t('security.mfa.verifyTitle')}
+        description={t('security.mfa.noRemembered', { organization })}
       />
-      <Card title="Verification code">
-        <Alert tone="info">Two-step verification is required because {why}.</Alert>
+      <Card title={t('security.mfa.codeCard')}>
+        <Alert tone="info">{t('security.mfa.requiredBecause', { reasons: why })}</Alert>
         <VerifyInSession />
       </Card>
     </>

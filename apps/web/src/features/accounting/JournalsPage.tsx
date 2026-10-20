@@ -13,33 +13,39 @@ import { Spinner } from '../../shared/ui/Spinner';
 import { AppliedSteps, describeFacts } from '../approvals/conditions';
 import { AccountingPage, journalLabel, StatusBadge, useOrgKey } from './shared';
 import type { ApprovalRequestSummary, Journal, JournalStatus } from './types';
+import { useT, type MessageKey } from '../../i18n/i18n';
 
 export type JournalView = 'all' | 'drafts' | 'approvals' | 'posted';
 
 const VIEWS: Record<
   JournalView,
-  { title: string; statuses: JournalStatus[] | null; description: string }
+  { title: MessageKey; statuses: JournalStatus[] | null; description: MessageKey }
 > = {
-  all: { title: 'Journals', statuses: null, description: 'All journals in this organization.' },
+  all: {
+    title: 'accounting.journalsPage.view.all.title',
+    statuses: null,
+    description: 'accounting.journalsPage.view.all.description',
+  },
   drafts: {
-    title: 'Draft Journals',
+    title: 'accounting.journalsPage.view.drafts.title',
     statuses: ['DRAFT'],
-    description: 'Journals still being prepared.',
+    description: 'accounting.journalsPage.view.drafts.description',
   },
   approvals: {
-    title: 'Approval Queue',
+    title: 'accounting.journalsPage.view.approvals.title',
     statuses: ['PENDING_APPROVAL'],
-    description: 'Submitted journals waiting for approval or posting.',
+    description: 'accounting.journalsPage.view.approvals.description',
   },
   posted: {
-    title: 'Posted Journals',
+    title: 'accounting.journalsPage.view.posted.title',
     statuses: ['POSTED', 'REVERSED'],
-    description: 'Posted journals are immutable; corrections use reversals.',
+    description: 'accounting.journalsPage.view.posted.description',
   },
 };
 
 /** Journal approval requests, with the facts and steps that made approval required (S10). */
 function JournalApprovalRequests() {
+  const t = useT();
   const org = useOrgKey();
   const requests = useQuery({
     queryKey: ['approval-requests', org],
@@ -48,23 +54,25 @@ function JournalApprovalRequests() {
   const journals = (requests.data ?? []).filter((r) => r.actionKey === 'accounting.journal.post');
   if (journals.length === 0) return null;
   return (
-    <Card title="Why these journals need approval">
+    <Card title={t('accounting.journalsPage.whyTheseJournalsNeedApproval')}>
       <table className="table">
         <thead>
           <tr>
-            <th>Journal</th>
-            <th>Document</th>
-            <th>Steps that apply</th>
-            <th>Progress</th>
+            <th>{t('accounting.journalsPage.journal')}</th>
+            <th>{t('accounting.journalsPage.document')}</th>
+            <th>{t('accounting.journalsPage.stepsThatApply')}</th>
+            <th>{t('accounting.journalsPage.progress')}</th>
           </tr>
         </thead>
         <tbody>
           {journals.map((r) => (
             <tr key={r.id}>
               <td>
-                <Link to={`/accounting/journals/${r.subjectId}`}>Open journal</Link>
+                <Link to={`/accounting/journals/${r.subjectId}`}>
+                  {t('accounting.journalsPage.openJournal')}
+                </Link>
               </td>
-              <td>{describeFacts(r.facts)}</td>
+              <td>{describeFacts(r.facts, t)}</td>
               <td>
                 <AppliedSteps steps={r.appliedSteps} baseCurrency={r.facts?.baseCurrency ?? null} />
               </td>
@@ -72,7 +80,7 @@ function JournalApprovalRequests() {
                 {r.progress
                   .map((s) => `${s.name}: ${s.approvals}/${s.requiredApprovals}`)
                   .join(', ')}
-                {r.canDecide ? '' : ' (you are not an eligible approver)'}
+                {r.canDecide ? '' : t('accounting.journalsPage.youAreNotAnEligible')}
               </td>
             </tr>
           ))}
@@ -84,6 +92,7 @@ function JournalApprovalRequests() {
 
 /** Other approval requests (e.g. period reopening) the user can act on. */
 function OtherApprovalRequests() {
+  const t = useT();
   const org = useOrgKey();
   const queryClient = useQueryClient();
   const sensitive = useSensitiveAction();
@@ -97,16 +106,16 @@ function OtherApprovalRequests() {
   const others = (requests.data ?? []).filter((r) => r.actionKey !== 'accounting.journal.post');
   if (others.length === 0) return null;
   return (
-    <Card title="Other approval requests">
+    <Card title={t('accounting.journalsPage.otherApprovalRequests')}>
       <ErrorAlert error={decide.error} />
       <table className="table">
         <thead>
           <tr>
-            <th>Request</th>
-            <th>Reason</th>
-            <th>Document</th>
-            <th>Steps that apply</th>
-            <th>Progress</th>
+            <th>{t('accounting.journalsPage.request')}</th>
+            <th>{t('accounting.journalsPage.reason')}</th>
+            <th>{t('accounting.journalsPage.document')}</th>
+            <th>{t('accounting.journalsPage.stepsThatApply')}</th>
+            <th>{t('accounting.journalsPage.progress')}</th>
             <th />
           </tr>
         </thead>
@@ -115,17 +124,17 @@ function OtherApprovalRequests() {
             <tr key={r.id}>
               <td>
                 {r.actionKey === 'accounting.period.reopen' ? (
-                  'Reopen accounting period'
+                  t('accounting.journalsPage.reopenAccountingPeriod')
                 ) : r.actionKey === 'accounting.opening_balance.post' ? (
                   <Link to={`/accounting/opening-balances/${r.subjectId}`}>
-                    Post opening balances
+                    {t('accounting.journalsPage.postOpeningBalances')}
                   </Link>
                 ) : (
                   r.actionKey
                 )}
               </td>
               <td>{r.reason}</td>
-              <td>{describeFacts(r.facts)}</td>
+              <td>{describeFacts(r.facts, t)}</td>
               <td>
                 <AppliedSteps steps={r.appliedSteps} baseCurrency={r.facts?.baseCurrency ?? null} />
               </td>
@@ -146,7 +155,7 @@ function OtherApprovalRequests() {
                         )
                       }
                     >
-                      Approve
+                      {t('accounting.journalsPage.approve')}
                     </Button>
                     <Button
                       variant="secondary"
@@ -157,11 +166,11 @@ function OtherApprovalRequests() {
                         )
                       }
                     >
-                      Reject
+                      {t('accounting.journalsPage.reject')}
                     </Button>
                   </>
                 ) : (
-                  <span className="muted">Not eligible</span>
+                  <span className="muted">{t('accounting.journalsPage.notEligible')}</span>
                 )}
               </td>
             </tr>
@@ -173,6 +182,7 @@ function OtherApprovalRequests() {
 }
 
 export function JournalsPage({ view }: { view: JournalView }) {
+  const t = useT();
   const org = useOrgKey();
   const config = VIEWS[view];
   const canApprove = usePermission(Permission.JournalsApprove);
@@ -187,7 +197,7 @@ export function JournalsPage({ view }: { view: JournalView }) {
 
   return (
     <>
-      <PageHeader title={config.title} description={config.description} />
+      <PageHeader title={t(config.title)} description={t(config.description)} />
       <AccountingPage>
         <p className="actions">
           <ExportButton
@@ -201,7 +211,7 @@ export function JournalsPage({ view }: { view: JournalView }) {
         <Can permission={Permission.JournalsCreate}>
           <p>
             <Link className="btn btn--primary" to="/accounting/journals/new">
-              New journal
+              {t('accounting.journalsPage.newJournal')}
             </Link>
           </p>
         </Can>
@@ -209,20 +219,20 @@ export function JournalsPage({ view }: { view: JournalView }) {
         {view === 'approvals' && canApprove ? <OtherApprovalRequests /> : null}
         <Card>
           {journals.isPending ? (
-            <Spinner label="Loading journals" />
+            <Spinner label={t('accounting.journalsPage.loadingJournals')} />
           ) : journals.isError ? (
             <ErrorAlert error={journals.error} />
           ) : journals.data.length === 0 ? (
-            <p className="muted">No journals.</p>
+            <p className="muted">{t('accounting.journalsPage.noJournals')}</p>
           ) : (
             <table className="table">
               <thead>
                 <tr>
-                  <th>Journal</th>
-                  <th>Date</th>
-                  <th>Description</th>
-                  <th>Amount</th>
-                  <th>Status</th>
+                  <th>{t('accounting.journalsPage.journal')}</th>
+                  <th>{t('accounting.journalsPage.date')}</th>
+                  <th>{t('accounting.journalsPage.description')}</th>
+                  <th>{t('accounting.journalsPage.amount')}</th>
+                  <th>{t('accounting.journalsPage.status')}</th>
                 </tr>
               </thead>
               <tbody>

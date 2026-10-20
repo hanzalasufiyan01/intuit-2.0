@@ -12,6 +12,7 @@ import { TextField } from '../../shared/ui/TextField';
 import { CountrySelect, orNull } from '../parties/shared';
 import { LogoCard } from './LogoCard';
 import type { OrganizationAddress, OrganizationProfile } from '../parties/types';
+import { useT } from '../../i18n/i18n';
 
 interface AddressDraft {
   line1: string;
@@ -58,6 +59,7 @@ function AddressFields({
   disabled: boolean;
   fieldError: (path: string) => string | undefined;
 }) {
+  const t = useT();
   const set = (k: keyof AddressDraft) => (e: { target: { value: string } }) =>
     onChange({ ...value, [k]: e.target.value });
   return (
@@ -65,26 +67,34 @@ function AddressFields({
       <legend>{title}</legend>
       <div className="form form--inline">
         <TextField
-          label={`${title} line 1`}
+          label={t('organizations.companyProfilePage.line1', { title })}
           value={value.line1}
           onChange={set('line1')}
           error={fieldError(`${prefix}.line1`)}
         />
-        <TextField label={`${title} line 2`} value={value.line2} onChange={set('line2')} />
-        <TextField label={`${title} city`} value={value.city} onChange={set('city')} />
         <TextField
-          label={`${title} region / atoll`}
+          label={t('organizations.companyProfilePage.line2', { title })}
+          value={value.line2}
+          onChange={set('line2')}
+        />
+        <TextField
+          label={t('organizations.companyProfilePage.city', { title })}
+          value={value.city}
+          onChange={set('city')}
+        />
+        <TextField
+          label={t('organizations.companyProfilePage.regionAtoll', { title })}
           value={value.region}
           onChange={set('region')}
         />
         <TextField
-          label={`${title} postal code`}
+          label={t('organizations.companyProfilePage.postalCode', { title })}
           value={value.postalCode}
           onChange={set('postalCode')}
         />
         <CountrySelect
           id={`${prefix}-country`}
-          label={`${title} country`}
+          label={t('organizations.companyProfilePage.country', { title })}
           value={value.countryCode}
           onChange={(countryCode) => onChange({ ...value, countryCode })}
           error={fieldError(`${prefix}.countryCode`)}
@@ -101,6 +111,7 @@ function ProfileForm({
   profile: OrganizationProfile;
   onSaved: (version: number) => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const org = useAuth().activeOrganization?.id ?? 'none';
   const canEdit = usePermission(Permission.OrganizationUpdate);
@@ -165,17 +176,17 @@ function ProfileForm({
   return (
     <form className="form" onSubmit={submit} noValidate>
       {!canEdit ? (
-        <Alert tone="info">You can view the company profile but not change it.</Alert>
+        <Alert tone="info">{t('organizations.companyProfilePage.youCanViewTheCompany')}</Alert>
       ) : null}
-      <Card title="Legal identity">
+      <Card title={t('organizations.companyProfilePage.legalIdentity')}>
         <div className="form form--inline">
-          {text('legalName', 'Legal name')}
-          {text('tradingName', 'Trading name')}
+          {text('legalName', t('organizations.companyProfilePage.field.legalName'))}
+          {text('tradingName', t('organizations.companyProfilePage.field.tradingName'))}
         </div>
       </Card>
-      <Card title="Tax registration">
+      <Card title={t('organizations.companyProfilePage.taxRegistration')}>
         <div className="form form--inline">
-          {text('tin', 'TIN')}
+          {text('tin', t('organizations.companyProfilePage.field.tin'))}
           <label className="checkbox">
             <input
               type="checkbox"
@@ -183,23 +194,28 @@ function ProfileForm({
               disabled={!canEdit}
               onChange={(e) => setForm({ ...form, gstRegistered: e.target.checked })}
             />{' '}
-            GST registered
+            {t('organizations.companyProfilePage.gstRegistered')}
           </label>
           {form.gstRegistered ? (
             <>
-              {text('gstRegistrationNumber', 'GST registration number')}
-              {text('gstRegisteredFrom', 'GST registered from', { type: 'date' })}
+              {text(
+                'gstRegistrationNumber',
+                t('organizations.companyProfilePage.field.gstRegistrationNumber'),
+              )}
+              {text(
+                'gstRegisteredFrom',
+                t('organizations.companyProfilePage.field.gstRegisteredFrom'),
+                { type: 'date' },
+              )}
             </>
           ) : null}
         </div>
-        <p className="muted">
-          Changing the TIN or GST registration asks you to confirm your password.
-        </p>
+        <p className="muted">{t('organizations.companyProfilePage.changingTheTinOrGst')}</p>
       </Card>
-      <Card title="Addresses">
+      <Card title={t('organizations.companyProfilePage.addresses')}>
         <AddressFields
           prefix="registeredAddress"
-          title="Registered address"
+          title={t('organizations.companyProfilePage.registeredAddress')}
           value={registered}
           onChange={setRegistered}
           disabled={!canEdit}
@@ -207,28 +223,28 @@ function ProfileForm({
         />
         <AddressFields
           prefix="businessAddress"
-          title="Business address"
+          title={t('organizations.companyProfilePage.businessAddress')}
           value={business}
           onChange={setBusiness}
           disabled={!canEdit}
           fieldError={fieldError}
         />
       </Card>
-      <Card title="Contact details">
+      <Card title={t('organizations.companyProfilePage.contactDetails')}>
         <div className="form form--inline">
-          {text('email', 'Email', { type: 'email' })}
-          {text('phone', 'Phone')}
-          {text('website', 'Website')}
+          {text('email', t('organizations.companyProfilePage.field.email'), { type: 'email' })}
+          {text('phone', t('organizations.companyProfilePage.field.phone'))}
+          {text('website', t('organizations.companyProfilePage.field.website'))}
         </div>
       </Card>
-      <Card title="Other identifiers">
+      <Card title={t('organizations.companyProfilePage.otherIdentifiers')}>
         {identifiers.map((identifier, i) => (
           <div className="form form--inline" key={i}>
             <TextField
-              label={`Identifier ${i + 1} scheme`}
+              label={t('organizations.companyProfilePage.identifierScheme', { value: i + 1 })}
               value={identifier.scheme}
               disabled={!canEdit}
-              placeholder="e.g. business_registration"
+              placeholder={t('organizations.companyProfilePage.eGBusinessRegistration')}
               onChange={(e) =>
                 setIdentifiers(
                   identifiers.map((x, j) => (j === i ? { ...x, scheme: e.target.value } : x)),
@@ -237,7 +253,7 @@ function ProfileForm({
               error={fieldError(`identifiers.${i}.scheme`)}
             />
             <TextField
-              label={`Identifier ${i + 1} value`}
+              label={t('organizations.companyProfilePage.identifierValue', { value: i + 1 })}
               value={identifier.value}
               disabled={!canEdit}
               onChange={(e) =>
@@ -251,7 +267,7 @@ function ProfileForm({
                 variant="ghost"
                 onClick={() => setIdentifiers(identifiers.filter((_, j) => j !== i))}
               >
-                Remove
+                {t('common.remove')}
               </Button>
             ) : null}
           </div>
@@ -261,7 +277,7 @@ function ProfileForm({
             variant="secondary"
             onClick={() => setIdentifiers([...identifiers, { scheme: '', value: '' }])}
           >
-            Add identifier
+            {t('organizations.companyProfilePage.addIdentifier')}
           </Button>
         ) : null}
       </Card>
@@ -273,7 +289,7 @@ function ProfileForm({
       {canEdit ? (
         <div className="actions">
           <Button type="submit" busy={save.isPending}>
-            Save profile
+            {t('organizations.companyProfilePage.saveProfile')}
           </Button>
         </div>
       ) : null}
@@ -283,6 +299,7 @@ function ProfileForm({
 
 /** Organization legal profile (Decision 17; S4). */
 export function CompanyProfilePage() {
+  const t = useT();
   const org = useAuth().activeOrganization?.id ?? 'none';
   const [savedVersion, setSavedVersion] = useState<number | null>(null);
   const profile = useQuery({
@@ -292,17 +309,19 @@ export function CompanyProfilePage() {
   return (
     <>
       <PageHeader
-        title="Company profile"
-        description="Legal identity, tax registration and addresses used on your documents."
+        title={t('organizations.companyProfilePage.companyProfile')}
+        description={t('organizations.companyProfilePage.legalIdentityTaxRegistrationAnd')}
       />
       {profile.isPending ? (
-        <Spinner label="Loading company profile" />
+        <Spinner label={t('organizations.companyProfilePage.loadingCompanyProfile')} />
       ) : profile.isError ? (
         <ErrorAlert error={profile.error} />
       ) : (
         <>
           {savedVersion !== null && savedVersion === profile.data.version ? (
-            <Alert tone="success">Company profile saved.</Alert>
+            <Alert tone="success">
+              {t('organizations.companyProfilePage.companyProfileSaved')}
+            </Alert>
           ) : null}
           <LogoCard profile={profile.data} />
           <ProfileForm

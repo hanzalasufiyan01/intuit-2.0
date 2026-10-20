@@ -4,6 +4,7 @@ import { useAuth } from '../../auth/auth-context';
 import { Can, Permission } from '../../permissions/permissions';
 import { api } from '../../services/api-client';
 import type { BankAccount } from './types';
+import { useT } from '../../i18n/i18n';
 
 /** Any of these shows the Banking area in the navigation (UX only; the server decides). */
 export const BANKING_VIEW_PERMISSIONS = [
@@ -24,14 +25,16 @@ export function useBankAccounts() {
 }
 
 function BankingNav() {
+  const t = useT();
   return (
-    <nav className="subnav" aria-label="Banking">
+    <nav className="subnav" aria-label={t('banking.nav.label')}>
       <NavLink to="/banking" end>
-        Bank accounts
+        {t('banking.nav.accounts')}
       </NavLink>
       <Can permission={Permission.BankingTransactionsView}>
-        <NavLink to="/banking/transfers">Transfers</NavLink>
-        <NavLink to="/banking/rules">Rules</NavLink>
+        <NavLink to="/banking/transfers">{t('banking.nav.transfers')}</NavLink>
+        <NavLink to="/banking/rules">{t('banking.nav.rules')}</NavLink>
+        <NavLink to="/banking/petty-cash">{t('banking.nav.pettyCash')}</NavLink>
       </Can>
     </nav>
   );

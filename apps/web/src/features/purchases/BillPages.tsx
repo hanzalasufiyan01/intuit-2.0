@@ -1,4 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { DocumentLots } from '../inventory/AdvancedPages';
+import { DocumentWarehouse } from '../inventory/WarehousePages';
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useApiMutation } from '../../auth/auth-context';
@@ -1127,6 +1129,9 @@ export function BillDetailPage() {
           )}
         </Card>
       ) : null}
+
+      {b.status === 'DRAFT' && can.edit ? <DocumentWarehouse type="bill" id={id} /> : null}
+      {b.status === 'DRAFT' && can.edit ? <DocumentLots type="bill" id={id} /> : null}
 
       <AttachmentsCard
         linkType="bill"

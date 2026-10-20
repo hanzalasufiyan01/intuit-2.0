@@ -479,3 +479,53 @@ describe('Sales search', () => {
     );
   });
 });
+
+describe('tax code treatment (specification section 15)', () => {
+  it('keeps zero-rated and exempt apart: a non-standard code is created with rate 0', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi({
+      ...common(['tax.codes.manage', 'accounting.accounts.view', 'invoices.view']),
+      'GET /tax/codes': ok([
+        {
+          id: 'x1',
+          code: 'EXEMPT',
+          name: 'Exempt supplies',
+          description: '',
+          taxAccountId: 'a1',
+          inputTaxAccountId: null,
+          treatment: 'exempt',
+          taxType: 'GST',
+          reportingCategory: null,
+          status: 'ACTIVE',
+          version: 1,
+          systemSeeded: false,
+          rates: [{ id: 'r1', rate: '0', effectiveFrom: '2026-01-01', verificationNote: null }],
+        },
+      ]),
+      'GET /accounting/accounts': ok([
+        {
+          id: 'a1',
+          code: '2130',
+          name: 'GST payable',
+          type: 'LIABILITY',
+          status: 'ACTIVE',
+          isLeaf: true,
+        },
+      ]),
+      'POST /tax/codes': ok({}),
+    });
+    renderAt('/sales/tax-codes');
+    expect(await screen.findByText(/Treatment: Exempt/)).toBeTruthy();
+    await user.type(screen.getByLabelText('Code'), 'ZERO');
+    await user.type(screen.getByLabelText('Name'), 'Zero-rated exports');
+    await user.selectOptions(await screen.findByLabelText('Tax liability account'), 'a1');
+    await user.selectOptions(screen.getByLabelText('Treatment'), 'zero_rated');
+    expect((screen.getByLabelText('Rate (%)') as HTMLInputElement).disabled).toBe(true);
+    await user.type(screen.getByLabelText('Effective from'), '2026-01-01');
+    await user.click(screen.getByRole('button', { name: 'Create tax code' }));
+    await waitFor(() => {
+      const post = calls.find((c) => c.method === 'POST' && c.url.pathname.endsWith('/tax/codes'));
+      expect(post?.body).toMatchObject({ code: 'ZERO', treatment: 'zero_rated', rate: '0' });
+    });
+  });
+});

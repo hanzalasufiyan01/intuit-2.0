@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useApiMutation, useAuth } from '../../auth/auth-context';
 import { useSensitiveAction } from '../../auth/reauth';
+import { useT } from '../../i18n/i18n';
 import { api } from '../../services/api-client';
 import type { MfaStatus, TrustedDevice } from '../../services/types';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
@@ -29,6 +30,7 @@ interface ActiveSession {
 }
 
 function TwoStepCard({ status }: { status: MfaStatus }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const { refreshSession } = useAuth();
   const sensitive = useSensitiveAction();
@@ -45,22 +47,28 @@ function TwoStepCard({ status }: { status: MfaStatus }) {
 
   if (!factor) {
     return (
-      <Card title="Two-step verification">
-        <p>Off. Add an authenticator app so a password alone cannot open your account.</p>
+      <Card title={t('account.twoStep.title')}>
+        <p>{t('account.twoStep.off')}</p>
         <MfaEnrollment onFinished={refresh} />
       </Card>
     );
   }
   return (
-    <Card title="Two-step verification">
+    <Card title={t('account.twoStep.title')}>
       <p>
-        <span className="badge badge--success">On</span> Authenticator app, set up{' '}
-        {when(factor.activatedAt)}; last used {when(factor.lastUsedAt)}.
+        <span className="badge badge--success">{t('account.twoStep.on')}</span>{' '}
+        {t('account.twoStep.summary', {
+          activated: when(factor.activatedAt),
+          lastUsed: when(factor.lastUsedAt),
+        })}
       </p>
       {status.requiredBy.length > 0 ? (
         <p className="muted">
-          Required for you in{' '}
-          {status.requiredBy.map((o) => `${o.name} (${describeReasons(o.reasons)})`).join('; ')}.
+          {t('account.twoStep.requiredIn', {
+            list: status.requiredBy
+              .map((o) => `${o.name} (${describeReasons(o.reasons, t)})`)
+              .join('; '),
+          })}
         </p>
       ) : null}
       {replacing ? (
@@ -68,7 +76,7 @@ function TwoStepCard({ status }: { status: MfaStatus }) {
       ) : (
         <div className="actions">
           <Button variant="secondary" onClick={() => setReplacing(true)}>
-            Replace authenticator
+            {t('account.twoStep.replace')}
           </Button>
           {status.canDisable ? (
             <Button
@@ -76,7 +84,7 @@ function TwoStepCard({ status }: { status: MfaStatus }) {
               busy={disable.isPending}
               onClick={() => disable.mutate(factor.id, { onSuccess: refresh })}
             >
-              Turn off
+              {t('account.twoStep.turnOff')}
             </Button>
           ) : null}
         </div>
@@ -87,6 +95,7 @@ function TwoStepCard({ status }: { status: MfaStatus }) {
 }
 
 function RecoveryCodesCard({ status }: { status: MfaStatus }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const { refreshSession } = useAuth();
   const sensitive = useSensitiveAction();
@@ -97,11 +106,11 @@ function RecoveryCodesCard({ status }: { status: MfaStatus }) {
   if (status.factors.length === 0) return null;
   const remaining = status.recoveryCodes.remaining;
   return (
-    <Card title="Recovery codes">
+    <Card title={t('account.recovery.title')}>
       {codes ? (
         <RecoveryCodesDisplay
           codes={codes}
-          doneLabel="Done"
+          doneLabel={t('account.recovery.done')}
           onDone={() => {
             setCodes(null);
             void queryClient.invalidateQueries({ queryKey: MFA_KEY });
@@ -111,15 +120,17 @@ function RecoveryCodesCard({ status }: { status: MfaStatus }) {
       ) : (
         <>
           <p>
-            {remaining} unused recovery {remaining === 1 ? 'code' : 'codes'}
-            {status.recoveryCodes.issuedAt ? `, issued ${when(status.recoveryCodes.issuedAt)}` : ''}
+            {t(remaining === 1 ? 'account.recovery.unusedOne' : 'account.recovery.unusedMany', {
+              count: remaining,
+            })}
+            {status.recoveryCodes.issuedAt
+              ? t('account.recovery.issued', { date: when(status.recoveryCodes.issuedAt) })
+              : ''}
             .
           </p>
           {remaining <= 3 ? (
             <Alert tone={remaining === 0 ? 'error' : 'info'}>
-              {remaining === 0
-                ? 'You have no recovery codes left. Generate new ones now.'
-                : 'You are running low on recovery codes. Generate a new set.'}
+              {remaining === 0 ? t('account.recovery.none') : t('account.recovery.low')}
             </Alert>
           ) : null}
           <ErrorAlert error={regenerate.error} />
@@ -130,9 +141,9 @@ function RecoveryCodesCard({ status }: { status: MfaStatus }) {
               regenerate.mutate(undefined, { onSuccess: (data) => setCodes(data.recoveryCodes) })
             }
           >
-            Generate new codes
+            {t('account.recovery.generate')}
           </Button>
-          <p className="muted">Generating new codes makes the old ones stop working.</p>
+          <p className="muted">{t('account.recovery.generateNote')}</p>
         </>
       )}
     </Card>
@@ -140,6 +151,7 @@ function RecoveryCodesCard({ status }: { status: MfaStatus }) {
 }
 
 function DevicesCard() {
+  const t = useT();
   const queryClient = useQueryClient();
   const sensitive = useSensitiveAction();
   const devices = useQuery({
@@ -151,26 +163,23 @@ function DevicesCard() {
   const revokeAll = useApiMutation(() => sensitive(() => api.delete('/auth/trusted-devices')));
 
   return (
-    <Card title="Remembered browsers">
-      <p className="muted">
-        A remembered browser skips the verification code at sign-in for up to 30 days. Your password
-        is still required, and security changes still ask for a code.
-      </p>
+    <Card title={t('account.devices.title')}>
+      <p className="muted">{t('account.devices.note')}</p>
       <ErrorAlert error={revoke.error ?? revokeAll.error} />
       {devices.isPending ? (
-        <Spinner label="Loading remembered browsers" />
+        <Spinner label={t('account.devices.loading')} />
       ) : devices.isError ? (
         <ErrorAlert error={devices.error} />
       ) : devices.data.length === 0 ? (
-        <p className="muted">No remembered browsers.</p>
+        <p className="muted">{t('account.devices.none')}</p>
       ) : (
         <>
           <table className="table">
             <thead>
               <tr>
-                <th>Browser</th>
-                <th>Last used</th>
-                <th>Expires</th>
+                <th>{t('account.browser')}</th>
+                <th>{t('account.devices.lastUsed')}</th>
+                <th>{t('account.devices.expires')}</th>
                 <th />
               </tr>
             </thead>
@@ -178,8 +187,10 @@ function DevicesCard() {
               {devices.data.map((device) => (
                 <tr key={device.id}>
                   <td>
-                    {device.userAgent ?? 'Unknown browser'}
-                    {device.current ? <span className="badge">This browser</span> : null}
+                    {device.userAgent ?? t('account.unknownBrowser')}
+                    {device.current ? (
+                      <span className="badge">{t('account.devices.thisBrowser')}</span>
+                    ) : null}
                   </td>
                   <td>{when(device.lastUsedAt)}</td>
                   <td>{when(device.expiresAt)}</td>
@@ -188,7 +199,7 @@ function DevicesCard() {
                       variant="ghost"
                       onClick={() => revoke.mutate(device.id, { onSuccess: refresh })}
                     >
-                      Forget
+                      {t('account.devices.forget')}
                     </Button>
                   </td>
                 </tr>
@@ -200,7 +211,7 @@ function DevicesCard() {
             busy={revokeAll.isPending}
             onClick={() => revokeAll.mutate(undefined, { onSuccess: refresh })}
           >
-            Forget all browsers
+            {t('account.devices.forgetAll')}
           </Button>
         </>
       )}
@@ -209,6 +220,7 @@ function DevicesCard() {
 }
 
 function SessionsCard() {
+  const t = useT();
   const queryClient = useQueryClient();
   const sensitive = useSensitiveAction();
   const sessions = useQuery({
@@ -219,18 +231,18 @@ function SessionsCard() {
     sensitive(() => api.delete(`/auth/sessions/${id}`)),
   );
   return (
-    <Card title="Signed-in sessions">
+    <Card title={t('account.sessions.title')}>
       <ErrorAlert error={revoke.error} />
       {sessions.isPending ? (
-        <Spinner label="Loading sessions" />
+        <Spinner label={t('account.sessions.loading')} />
       ) : sessions.isError ? (
         <ErrorAlert error={sessions.error} />
       ) : (
         <table className="table">
           <thead>
             <tr>
-              <th>Browser</th>
-              <th>Last active</th>
+              <th>{t('account.browser')}</th>
+              <th>{t('account.sessions.lastActive')}</th>
               <th />
             </tr>
           </thead>
@@ -238,8 +250,10 @@ function SessionsCard() {
             {sessions.data.map((s) => (
               <tr key={s.id}>
                 <td>
-                  {s.userAgent ?? 'Unknown browser'}
-                  {s.current ? <span className="badge">This session</span> : null}
+                  {s.userAgent ?? t('account.unknownBrowser')}
+                  {s.current ? (
+                    <span className="badge">{t('account.sessions.thisSession')}</span>
+                  ) : null}
                 </td>
                 <td>{when(s.lastSeenAt)}</td>
                 <td>
@@ -253,7 +267,7 @@ function SessionsCard() {
                         })
                       }
                     >
-                      Sign out
+                      {t('account.sessions.signOut')}
                     </Button>
                   )}
                 </td>
@@ -268,15 +282,13 @@ function SessionsCard() {
 
 /** The signed-in user's own security settings (S7-42, S7-43). */
 export function AccountSecurityPage() {
+  const t = useT();
   const status = useQuery({ queryKey: MFA_KEY, queryFn: () => api.get<MfaStatus>('/auth/mfa') });
   return (
     <>
-      <PageHeader
-        title="Account security"
-        description="Two-step verification, recovery codes, remembered browsers and sessions."
-      />
+      <PageHeader title={t('account.title')} description={t('account.description')} />
       {status.isPending ? (
-        <Spinner label="Loading security settings" />
+        <Spinner label={t('account.loading')} />
       ) : status.isError ? (
         <ErrorAlert error={status.error} />
       ) : (

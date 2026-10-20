@@ -7,8 +7,10 @@ import { ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { TextField } from '../../shared/ui/TextField';
+import { useT } from '../../i18n/i18n';
 
 export function CreateOrganizationPage() {
+  const t = useT();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [name, setName] = useState('');
@@ -33,21 +35,18 @@ export function CreateOrganizationPage() {
 
   return (
     <>
-      <PageHeader
-        title="New organization"
-        description="You will be the Owner of the new organization."
-      />
+      <PageHeader title={t('createOrg.title')} description={t('createOrg.description')} />
       <Card>
         <form className="form" onSubmit={submit} noValidate>
           <ErrorAlert error={mutation.error?.issues.length ? null : mutation.error} />
           <TextField
-            label="Organization name"
+            label={t('createOrg.name')}
             value={name}
             onChange={(e) => setName(e.target.value)}
             error={mutation.error?.fieldError('name')}
           />
           <Button type="submit" busy={mutation.isPending}>
-            Create organization
+            {t('createOrg.submit')}
           </Button>
         </form>
       </Card>

@@ -10,6 +10,7 @@ import { Button } from '../../shared/ui/Button';
 import { TextField } from '../../shared/ui/TextField';
 import { requiredTypesFor, useAccountingSetup, useAccounts, useDimensions } from './shared';
 import type { DimensionType, JournalDetail } from './types';
+import { useT } from '../../i18n/i18n';
 
 interface LineDraft {
   accountId: string;
@@ -47,6 +48,7 @@ export function editorTotals(lines: readonly LineDraft[]) {
 
 /** Draft journal editor: drafts may be incomplete; posting validates the full double entry. */
 export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
+  const translate = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const setup = useAccountingSetup();
@@ -143,14 +145,14 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
     <form className="form" onSubmit={submit} noValidate>
       <div className="form form--inline">
         <TextField
-          label="Date"
+          label={translate('accounting.journalEditor.date')}
           type="date"
           value={header.entryDate}
           onChange={(e) => setHeader({ ...header, entryDate: e.target.value })}
           error={save.error?.fieldError('entryDate')}
         />
         <TextField
-          label="Currency"
+          label={translate('accounting.journalEditor.currency')}
           value={currency}
           list="journal-currencies"
           maxLength={3}
@@ -164,22 +166,22 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
         </datalist>
         {currency && currency !== baseCurrency ? (
           <TextField
-            label={`Rate to ${baseCurrency}`}
+            label={translate('accounting.journalEditor.rateTo', { baseCurrency })}
             inputMode="decimal"
             value={header.exchangeRate}
             onChange={(e) => setHeader({ ...header, exchangeRate: e.target.value })}
-            hint="Leave blank to use the rate table"
+            hint={translate('accounting.journalEditor.leaveBlankToUseThe')}
             error={save.error?.fieldError('exchangeRate')}
           />
         ) : null}
         <TextField
-          label="Reference"
+          label={translate('accounting.journalEditor.reference')}
           value={header.reference}
           onChange={(e) => setHeader({ ...header, reference: e.target.value })}
         />
       </div>
       <TextField
-        label="Description"
+        label={translate('accounting.journalEditor.description')}
         value={header.description}
         onChange={(e) => setHeader({ ...header, description: e.target.value })}
       />
@@ -187,11 +189,11 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
       <table className="table">
         <thead>
           <tr>
-            <th>Account</th>
-            <th>Description</th>
-            {lineTypes.length ? <th>Dimensions</th> : null}
-            <th>Debit</th>
-            <th>Credit</th>
+            <th>{translate('accounting.journalEditor.account')}</th>
+            <th>{translate('accounting.journalEditor.description')}</th>
+            {lineTypes.length ? <th>{translate('accounting.journalEditor.dimensions')}</th> : null}
+            <th>{translate('accounting.journalEditor.debit')}</th>
+            <th>{translate('accounting.journalEditor.credit')}</th>
             <th />
           </tr>
         </thead>
@@ -200,11 +202,13 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
             <tr key={index}>
               <td>
                 <select
-                  aria-label={`Line ${index + 1} account`}
+                  aria-label={translate('accounting.journalEditor.lineAccount', {
+                    value: index + 1,
+                  })}
                   value={line.accountId}
                   onChange={(e) => update(index, { accountId: e.target.value })}
                 >
-                  <option value="">Select account…</option>
+                  <option value="">{translate('accounting.journalEditor.selectAccount')}</option>
                   {postable.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.code} {a.name}
@@ -217,7 +221,9 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
               </td>
               <td>
                 <input
-                  aria-label={`Line ${index + 1} description`}
+                  aria-label={translate('accounting.journalEditor.lineDescription', {
+                    value: index + 1,
+                  })}
                   value={line.description}
                   onChange={(e) => update(index, { description: e.target.value })}
                 />
@@ -233,7 +239,10 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
                     return (
                       <select
                         key={type.id}
-                        aria-label={`Line ${index + 1} ${type.name}`}
+                        aria-label={translate('accounting.journalEditor.line', {
+                          value: index + 1,
+                          name: type.name,
+                        })}
                         value={current}
                         onChange={(e) =>
                           update(index, {
@@ -242,8 +251,10 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
                         }
                       >
                         <option value="">
-                          {type.name}
-                          {required ? ' (required)' : ''}: none
+                          {translate('accounting.journalEditor.none', {
+                            name: type.name,
+                            value: required ? translate('accounting.journalEditor.required') : '',
+                          })}
                         </option>
                         {valueOptions(type, current).map((v) => (
                           <option key={v.id} value={v.id}>
@@ -262,7 +273,7 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
               ) : null}
               <td>
                 <input
-                  aria-label={`Line ${index + 1} debit`}
+                  aria-label={translate('accounting.journalEditor.lineDebit', { value: index + 1 })}
                   inputMode="decimal"
                   value={line.debit}
                   disabled={line.credit !== ''}
@@ -271,7 +282,9 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
               </td>
               <td>
                 <input
-                  aria-label={`Line ${index + 1} credit`}
+                  aria-label={translate('accounting.journalEditor.lineCredit', {
+                    value: index + 1,
+                  })}
                   inputMode="decimal"
                   value={line.credit}
                   disabled={line.debit !== ''}
@@ -281,10 +294,12 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
               <td>
                 <Button
                   variant="ghost"
-                  aria-label={`Remove line ${index + 1}`}
+                  aria-label={translate('accounting.journalEditor.removeLine', {
+                    value: index + 1,
+                  })}
                   onClick={() => setLines(lines.filter((_, i) => i !== index))}
                 >
-                  Remove
+                  {translate('common.remove')}
                 </Button>
               </td>
             </tr>
@@ -294,14 +309,16 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
           <tr>
             <th colSpan={lineTypes.length ? 3 : 2}>
               <Button variant="secondary" onClick={() => setLines([...lines, emptyLine()])}>
-                Add line
+                {translate('accounting.journalEditor.addLine')}
               </Button>
             </th>
             <th data-testid="total-debit">{totals.debit.toFixed()}</th>
             <th data-testid="total-credit">{totals.credit.toFixed()}</th>
             <th>
               <span className={totals.balanced ? 'badge badge--posted' : 'badge badge--closed'}>
-                {totals.balanced ? 'Balanced' : 'Not balanced'}
+                {totals.balanced
+                  ? translate('accounting.journalEditor.balanced')
+                  : translate('accounting.journalEditor.notBalanced')}
               </span>
             </th>
           </tr>
@@ -322,7 +339,7 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
       ) : null}
       <div className="actions">
         <Button type="submit" busy={save.isPending}>
-          Save draft
+          {translate('accounting.journalEditor.saveDraft')}
         </Button>
       </div>
     </form>

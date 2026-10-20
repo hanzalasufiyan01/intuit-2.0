@@ -13,6 +13,8 @@ import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
 import { useAccounts } from '../accounting/shared';
 import { AttachmentsCard } from '../files/AttachmentsCard';
+import { ClaimPolicyNotice, isClaimPolicyError } from './ClaimPolicyNotice';
+import { useT, type MessageKey } from '../../i18n/i18n';
 
 /**
  * Employee expense claims. A claim lists what an employee spent, with receipts; it is approved,
@@ -67,13 +69,13 @@ interface Settings {
   version: number;
 }
 
-const STATUS_LABEL: Record<ClaimStatus, string> = {
-  DRAFT: 'Draft',
-  PENDING_APPROVAL: 'Awaiting approval',
-  APPROVED: 'Approved',
-  POSTED: 'Posted',
-  CANCELLED: 'Cancelled',
-  VOID: 'Void',
+const STATUS_LABEL: Record<ClaimStatus, MessageKey> = {
+  DRAFT: 'claims.claimPages.status.DRAFT',
+  PENDING_APPROVAL: 'claims.claimPages.status.PENDING_APPROVAL',
+  APPROVED: 'claims.claimPages.status.APPROVED',
+  POSTED: 'claims.claimPages.status.POSTED',
+  CANCELLED: 'claims.claimPages.status.CANCELLED',
+  VOID: 'claims.claimPages.status.VOID',
 };
 
 function StatusBadge({ status }: { status: ClaimStatus }) {
@@ -85,7 +87,8 @@ function StatusBadge({ status }: { status: ClaimStatus }) {
         : status === 'DRAFT'
           ? 'draft'
           : 'reversed';
-  return <span className={`badge badge--${tone}`}>{STATUS_LABEL[status]}</span>;
+  const t = useT();
+  return <span className={`badge badge--${tone}`}>{t(STATUS_LABEL[status])}</span>;
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -95,14 +98,16 @@ function useOrgKey() {
 }
 
 export function ClaimsSection() {
+  const t = useT();
   return (
     <>
-      <nav className="subnav" aria-label="Expense claims">
+      <nav className="subnav" aria-label={t('claims.claimPages.expenseClaims')}>
         <NavLink to="/claims" end>
-          Claims
+          {t('claims.claimPages.claims')}
         </NavLink>
         <Can permission={Permission.ExpenseClaimsView}>
-          <NavLink to="/claims/settings">Settings</NavLink>
+          <NavLink to="/claims/by-claimant">{t('claims.claimPages.byClaimant')}</NavLink>
+          <NavLink to="/claims/settings">{t('claims.claimPages.settings')}</NavLink>
         </Can>
       </nav>
       <Outlet />
@@ -115,6 +120,7 @@ export function ClaimsSection() {
 // ---------------------------------------------------------------------------
 
 export function ClaimsPage() {
+  const t = useT();
   const org = useOrgKey();
   const canCreate = usePermission(Permission.ExpenseClaimsCreate);
   const [status, setStatus] = useState('');
@@ -130,25 +136,25 @@ export function ClaimsPage() {
   return (
     <>
       <PageHeader
-        title="Expense claims"
-        description="What employees spent for the business. Approved claims are posted as bills and reimbursed with a vendor payment."
+        title={t('claims.claimPages.expenseClaims')}
+        description={t('claims.claimPages.whatEmployeesSpentForThe')}
       />
       <Card
         actions={
           canCreate ? (
             <Link className="btn btn--primary" to="/claims/new">
-              New claim
+              {t('claims.claimPages.newClaim')}
             </Link>
           ) : undefined
         }
       >
         <div className="field">
-          <label htmlFor="claim-status">Status</label>
+          <label htmlFor="claim-status">{t('claims.claimPages.status')}</label>
           <select id="claim-status" value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="">All</option>
+            <option value="">{t('common.all')}</option>
             {(Object.keys(STATUS_LABEL) as ClaimStatus[]).map((s) => (
               <option key={s} value={s}>
-                {STATUS_LABEL[s]}
+                {t(STATUS_LABEL[s])}
               </option>
             ))}
           </select>
@@ -158,23 +164,23 @@ export function ClaimsPage() {
         ) : list.isError ? (
           <ErrorAlert error={list.error} />
         ) : list.data.items.length === 0 ? (
-          <p className="muted">No expense claims.</p>
+          <p className="muted">{t('claims.claimPages.noExpenseClaims')}</p>
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th>Number</th>
-                <th>Employee</th>
-                <th>Date</th>
-                <th className="num">Total</th>
-                <th>Status</th>
+                <th>{t('claims.claimPages.number')}</th>
+                <th>{t('claims.claimPages.employee')}</th>
+                <th>{t('claims.claimPages.date')}</th>
+                <th className="num">{t('claims.claimPages.total')}</th>
+                <th>{t('claims.claimPages.status')}</th>
               </tr>
             </thead>
             <tbody>
               {list.data.items.map((c) => (
                 <tr key={c.id}>
                   <td>
-                    <Link to={`/claims/${c.id}`}>{c.number ?? '(draft)'}</Link>
+                    <Link to={`/claims/${c.id}`}>{c.number ?? t('claims.claimPages.draft')}</Link>
                   </td>
                   <td>{c.employeeName}</td>
                   <td>{c.claimDate}</td>
@@ -206,6 +212,7 @@ interface DraftLine {
 }
 
 export function NewClaimPage() {
+  const t = useT();
   const org = useOrgKey();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -258,22 +265,22 @@ export function NewClaimPage() {
   const error = create.error instanceof ApiError ? create.error : null;
   return (
     <>
-      <PageHeader title="New expense claim" />
+      <PageHeader title={t('claims.claimPages.newExpenseClaim')} />
       <p>
-        <Link to="/claims">← Expense claims</Link>
+        <Link to="/claims">{t('claims.claimPages.expenseClaims2')}</Link>
       </p>
       <Card>
         <form onSubmit={submit}>
           <div className="form-grid">
             <div className="field">
-              <label htmlFor="claim-employee">Employee</label>
+              <label htmlFor="claim-employee">{t('claims.claimPages.employee')}</label>
               <select
                 id="claim-employee"
                 value={employeePartyId}
                 required
                 onChange={(e) => setEmployeePartyId(e.target.value)}
               >
-                <option value="">Choose…</option>
+                <option value="">{t('common.choose')}</option>
                 {(employees.data?.items ?? []).map((e) => (
                   <option key={e.id} value={e.id}>
                     {e.displayName}
@@ -287,7 +294,7 @@ export function NewClaimPage() {
               ) : null}
             </div>
             <TextField
-              label="Claim date"
+              label={t('claims.claimPages.claimDate')}
               type="date"
               value={claimDate}
               required
@@ -295,7 +302,7 @@ export function NewClaimPage() {
               error={error?.fieldError('claimDate')}
             />
             <TextField
-              label="Memo"
+              label={t('claims.claimPages.memo')}
               value={memo}
               maxLength={2000}
               onChange={(e) => setMemo(e.target.value)}
@@ -304,10 +311,10 @@ export function NewClaimPage() {
           <table className="table table--editor">
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Description</th>
-                <th>Account</th>
-                <th className="num">Amount</th>
+                <th>{t('claims.claimPages.date')}</th>
+                <th>{t('claims.claimPages.description')}</th>
+                <th>{t('claims.claimPages.account')}</th>
+                <th className="num">{t('claims.claimPages.amount')}</th>
                 <th />
               </tr>
             </thead>
@@ -316,7 +323,7 @@ export function NewClaimPage() {
                 <tr key={i}>
                   <td>
                     <input
-                      aria-label={`Date, line ${i + 1}`}
+                      aria-label={t('claims.claimPages.dateLine', { value: i + 1 })}
                       type="date"
                       value={line.expenseDate}
                       onChange={(e) => setLine(i, { expenseDate: e.target.value })}
@@ -324,18 +331,18 @@ export function NewClaimPage() {
                   </td>
                   <td>
                     <input
-                      aria-label={`Description, line ${i + 1}`}
+                      aria-label={t('claims.claimPages.descriptionLine', { value: i + 1 })}
                       value={line.description}
                       onChange={(e) => setLine(i, { description: e.target.value })}
                     />
                   </td>
                   <td>
                     <select
-                      aria-label={`Account, line ${i + 1}`}
+                      aria-label={t('claims.claimPages.accountLine', { value: i + 1 })}
                       value={line.accountId}
                       onChange={(e) => setLine(i, { accountId: e.target.value })}
                     >
-                      <option value="">Default</option>
+                      <option value="">{t('claims.claimPages.default')}</option>
                       {usable.map((a) => (
                         <option key={a.id} value={a.id}>
                           {a.code} {a.name}
@@ -345,7 +352,7 @@ export function NewClaimPage() {
                   </td>
                   <td className="num">
                     <input
-                      aria-label={`Amount, line ${i + 1}`}
+                      aria-label={t('claims.claimPages.amountLine', { value: i + 1 })}
                       inputMode="decimal"
                       value={line.amount}
                       onChange={(e) => setLine(i, { amount: e.target.value })}
@@ -357,7 +364,7 @@ export function NewClaimPage() {
                         variant="ghost"
                         onClick={() => setLines(lines.filter((_, x) => x !== i))}
                       >
-                        Remove
+                        {t('common.remove')}
                       </Button>
                     ) : null}
                   </td>
@@ -375,10 +382,10 @@ export function NewClaimPage() {
                 ])
               }
             >
-              Add a line
+              {t('claims.claimPages.addALine')}
             </Button>{' '}
             <Button type="submit" busy={create.isPending}>
-              Save draft
+              {t('claims.claimPages.saveDraft')}
             </Button>
           </p>
           {create.isError ? <ErrorAlert error={create.error} /> : null}
@@ -393,6 +400,7 @@ export function NewClaimPage() {
 // ---------------------------------------------------------------------------
 
 export function ClaimDetailPage() {
+  const t = useT();
   const { id = '' } = useParams();
   const org = useOrgKey();
   const navigate = useNavigate();
@@ -413,7 +421,7 @@ export function ClaimDetailPage() {
     api.post<ClaimDetail>(`/expense-claims/${id}/${input.path}`, input.body),
   );
   const voidClaim = useApiMutation((c: ClaimDetail) => {
-    const reason = window.prompt('Why is this claim voided?');
+    const reason = window.prompt(t('claims.claimPages.whyIsThisClaimVoided'));
     if (!reason?.trim()) return Promise.resolve(null);
     return sensitive(() =>
       api.post(`/expense-claims/${id}/void`, { version: c.version, reason: reason.trim() }),
@@ -426,39 +434,57 @@ export function ClaimDetailPage() {
   if (claim.isError) return <ErrorAlert error={claim.error} />;
   const c = claim.data;
   const run = (path: string, body: object) => act.mutate({ path, body }, { onSuccess: refresh });
-  const error = act.error ?? voidClaim.error ?? del.error;
+  const policyError = isClaimPolicyError(act.error) ? act.error : null;
+  const error = (policyError ? null : act.error) ?? voidClaim.error ?? del.error;
   return (
     <>
       <PageHeader
-        title={c.number ? `Expense claim ${c.number}` : 'Expense claim (draft)'}
+        title={
+          c.number
+            ? t('claims.claimPages.expenseClaim', { number: c.number })
+            : t('claims.claimPages.expenseClaimDraft')
+        }
         description={`${c.employeeName ?? ''} · ${c.claimDate} · ${formatAmount(c.total, c.currencyCode)} ${c.currencyCode}`}
       />
       <p>
-        <Link to="/claims">← Expense claims</Link> <StatusBadge status={c.status} />
+        <Link to="/claims">{t('claims.claimPages.expenseClaims2')}</Link>{' '}
+        <StatusBadge status={c.status} />
       </p>
       {error ? <ErrorAlert error={error} /> : null}
+      {policyError && c.status === 'DRAFT' ? (
+        <ClaimPolicyNotice
+          error={policyError}
+          busy={act.isPending}
+          onConfirm={(policyReason) => run('submit', { version: c.version, policyReason })}
+        />
+      ) : null}
       {c.status === 'PENDING_APPROVAL' ? (
-        <Alert tone="info">Waiting for approval under the approval policy.</Alert>
+        <Alert tone="info">{t('claims.claimPages.waitingForApprovalUnderThe')}</Alert>
       ) : null}
       {c.bill ? (
         <Alert tone="info">
-          Bill <Link to={`/purchases/bills/${c.bill.id}`}>{c.bill.number ?? 'draft'}</Link> (
-          {c.bill.status.toLowerCase()}).{' '}
+          {t('claims.claimPages.bill')}{' '}
+          <Link to={`/purchases/bills/${c.bill.id}`}>
+            {c.bill.number ?? t('claims.claimPages.draft2')}
+          </Link>{' '}
+          ({c.bill.status.toLowerCase()}).{' '}
           {c.bill.reimbursed
-            ? 'Reimbursed.'
+            ? t('claims.claimPages.reimbursed')
             : c.bill.amountDue !== null && c.status === 'POSTED'
-              ? `${formatAmount(c.bill.amountDue, c.currencyCode)} still to reimburse; pay it from Purchases › Payments.`
-              : 'It is not posted yet.'}
+              ? t('claims.claimPages.stillToReimbursePayIt', {
+                  value: formatAmount(c.bill.amountDue, c.currencyCode),
+                })
+              : t('claims.claimPages.itIsNotPostedYet')}
         </Alert>
       ) : null}
       <Card
-        title="Expenses"
+        title={t('claims.claimPages.expenses')}
         actions={
           <span>
             {canCreate && c.status === 'DRAFT' ? (
               <>
                 <Button busy={act.isPending} onClick={() => run('submit', { version: c.version })}>
-                  Submit
+                  {t('claims.claimPages.submit')}
                 </Button>{' '}
                 <Button
                   variant="ghost"
@@ -471,29 +497,31 @@ export function ClaimDetailPage() {
                     })
                   }
                 >
-                  Delete
+                  {t('common.delete')}
                 </Button>
               </>
             ) : null}
             {canCreate && c.status === 'PENDING_APPROVAL' ? (
               <Button variant="secondary" onClick={() => run('withdraw', { version: c.version })}>
-                Withdraw
+                {t('claims.claimPages.withdraw')}
               </Button>
             ) : null}
             {canPost && c.status === 'APPROVED' ? (
               <Button busy={act.isPending} onClick={() => run('post', { version: c.version })}>
-                {c.bill ? 'Finish posting' : 'Post for reimbursement'}
+                {c.bill
+                  ? t('claims.claimPages.finishPosting')
+                  : t('claims.claimPages.postForReimbursement')}
               </Button>
             ) : null}
             {canCreate && c.status === 'APPROVED' && !c.bill ? (
               <Button
                 variant="ghost"
                 onClick={() => {
-                  const reason = window.prompt('Why is this claim cancelled?');
+                  const reason = window.prompt(t('claims.claimPages.whyIsThisClaimCancelled'));
                   if (reason?.trim()) run('cancel', { version: c.version, reason: reason.trim() });
                 }}
               >
-                Cancel claim
+                {t('claims.claimPages.cancelClaim')}
               </Button>
             ) : null}
             {canVoid && c.status === 'POSTED' ? (
@@ -502,7 +530,7 @@ export function ClaimDetailPage() {
                 busy={voidClaim.isPending}
                 onClick={() => voidClaim.mutate(c, { onSuccess: refresh })}
               >
-                Void claim
+                {t('claims.claimPages.voidClaim')}
               </Button>
             ) : null}
           </span>
@@ -511,9 +539,9 @@ export function ClaimDetailPage() {
         <table className="table">
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Description</th>
-              <th className="num">Amount</th>
+              <th>{t('claims.claimPages.date')}</th>
+              <th>{t('claims.claimPages.description')}</th>
+              <th className="num">{t('claims.claimPages.amount')}</th>
             </tr>
           </thead>
           <tbody>
@@ -527,7 +555,7 @@ export function ClaimDetailPage() {
           </tbody>
           <tfoot>
             <tr>
-              <th colSpan={2}>Total</th>
+              <th colSpan={2}>{t('claims.claimPages.total')}</th>
               <th className="num">{formatAmount(c.total, c.currencyCode)}</th>
             </tr>
           </tfoot>
@@ -539,7 +567,7 @@ export function ClaimDetailPage() {
         linkId={id}
         canChange={canCreate && (c.status === 'DRAFT' || c.status === 'PENDING_APPROVAL')}
         canRemove={canCreate && c.status === 'DRAFT'}
-        removeNote="Receipts cannot be removed once the claim is submitted."
+        removeNote={t('claims.claimPages.receiptsCannotBeRemovedOnce')}
       />
     </>
   );
@@ -550,6 +578,7 @@ export function ClaimDetailPage() {
 // ---------------------------------------------------------------------------
 
 export function ClaimSettingsPage() {
+  const t = useT();
   const org = useOrgKey();
   const queryClient = useQueryClient();
   const canManage = usePermission(Permission.ExpenseClaimsSettingsManage);
@@ -575,7 +604,7 @@ export function ClaimSettingsPage() {
   );
   return (
     <>
-      <PageHeader title="Expense claim settings" />
+      <PageHeader title={t('claims.claimPages.expenseClaimSettings')} />
       <Card>
         <form
           className="form-grid"
@@ -591,14 +620,16 @@ export function ClaimSettingsPage() {
           }}
         >
           <div className="field">
-            <label htmlFor="claim-default-account">Default expense account</label>
+            <label htmlFor="claim-default-account">
+              {t('claims.claimPages.defaultExpenseAccount')}
+            </label>
             <select
               id="claim-default-account"
               value={account ?? s.defaultExpenseAccountId ?? ''}
               disabled={!canManage}
               onChange={(e) => setAccount(e.target.value)}
             >
-              <option value="">None</option>
+              <option value="">{t('common.none')}</option>
               {options.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.code} {a.name}
@@ -607,17 +638,17 @@ export function ClaimSettingsPage() {
             </select>
           </div>
           <TextField
-            label="Receipt required for lines of"
+            label={t('claims.claimPages.receiptRequiredForLinesOf')}
             value={threshold ?? s.receiptRequiredOver ?? ''}
             disabled={!canManage}
             inputMode="decimal"
-            hint="Leave empty to never require a receipt."
+            hint={t('claims.claimPages.leaveEmptyToNeverRequire')}
             onChange={(e) => setThreshold(e.target.value)}
           />
           {canManage ? (
             <div>
               <Button type="submit" busy={save.isPending}>
-                Save
+                {t('common.save')}
               </Button>
             </div>
           ) : null}

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
@@ -347,5 +347,78 @@ describe('financial reports UI', () => {
       toDate: '2026-06-30',
       openingBasis: 'fiscal_year',
     });
+  });
+  it('renders the cash flow statement and the statement of changes in equity', async () => {
+    const integrity = { status: 'BALANCED', checks: [] };
+    stubApi({
+      'GET /auth/session': ok(makeSession({ permissions: REPORTS })),
+      'GET /accounting/setup': ok(setup),
+      'GET /accounting/reports/cash-flow': ok({
+        report: 'cash_flow',
+        baseCurrency: 'MVR',
+        columns: [
+          {
+            key: 'current',
+            label: '2026-01-01 – 2026-06-30',
+            netIncome: '300.0000',
+            sections: [
+              {
+                key: 'operating',
+                label: 'Cash flows from operating activities',
+                total: '300.0000',
+                groups: [],
+              },
+              {
+                key: 'investing',
+                label: 'Cash flows from investing activities',
+                total: '0.0000',
+                groups: [],
+              },
+              {
+                key: 'financing',
+                label: 'Cash flows from financing activities',
+                total: '-100.0000',
+                groups: [{ key: 'equity', label: 'Equity', total: '-100.0000', lines: [] }],
+              },
+            ],
+            cash: { opening: '600.0000', netChange: '200.0000', closing: '800.0000' },
+            warnings: [],
+            integrity,
+          },
+        ],
+      }),
+      'GET /accounting/reports/changes-in-equity': ok({
+        report: 'changes_in_equity',
+        baseCurrency: 'MVR',
+        from: '2026-01-01',
+        to: '2026-06-30',
+        columns: [
+          {
+            key: 'accumulated_earnings',
+            label: 'Accumulated earnings',
+            opening: '600.0000',
+            profit: '300.0000',
+            otherMovements: '0.0000',
+            closing: '900.0000',
+          },
+        ],
+        totals: {
+          opening: '600.0000',
+          profit: '300.0000',
+          otherMovements: '0.0000',
+          closing: '900.0000',
+        },
+        warnings: [],
+        integrity,
+      }),
+    });
+    renderAt('/accounting/reports/cash-flow');
+    expect(await screen.findByText('Cash flows from financing activities')).toBeTruthy();
+    expect(screen.getByText('Closing cash').closest('tr')!.textContent).toContain('800.00');
+    expect(screen.getByText(/the statement agrees with the ledger/)).toBeTruthy();
+    cleanup();
+    renderAt('/accounting/reports/changes-in-equity');
+    expect(await screen.findByText('Closing balance')).toBeTruthy();
+    expect(screen.getByText('Closing balance').closest('tr')!.textContent).toContain('900.00');
   });
 });

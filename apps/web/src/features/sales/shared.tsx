@@ -35,12 +35,31 @@ export function SalesNav() {
       <Can permission={Permission.ReceiptsView}>
         <NavLink to="/sales/refunds">Refunds</NavLink>
       </Can>
+      <Can permission={Permission.QuotesView}>
+        <NavLink to="/sales/quotes">Quotes</NavLink>
+      </Can>
+      <Can permission={Permission.RecurringInvoicesView}>
+        <NavLink to="/sales/recurring">Recurring</NavLink>
+      </Can>
+      <Can permission={Permission.SalesOrdersView}>
+        <NavLink to="/sales/orders">Orders</NavLink>
+      </Can>
+      <Can permission={Permission.PaymentRemindersView}>
+        <NavLink to="/sales/reminders">Reminders</NavLink>
+      </Can>
+      <Can permission={Permission.PaymentsView}>
+        <NavLink to="/sales/online-payments">Online payments</NavLink>
+      </Can>
       <Can permission={Permission.CustomersView}>
         <NavLink to="/sales/customers">{t('sales.nav.customers')}</NavLink>
       </Can>
       {canItems ? <NavLink to="/sales/items">{t('sales.nav.items')}</NavLink> : null}
+      <Can permission={Permission.CustomersView}>
+        <NavLink to="/sales/classification">Groups and categories</NavLink>
+      </Can>
       <Can permission={Permission.SalesReportsView}>
         <NavLink to="/sales/reports">{t('sales.nav.reports')}</NavLink>
+        <NavLink to="/sales/trend">Sales trend</NavLink>
       </Can>
       {canSettings ? <NavLink to="/sales/settings">{t('sales.nav.settings')}</NavLink> : null}
       {canTax ? <NavLink to="/sales/tax-codes">{t('sales.nav.taxCodes')}</NavLink> : null}

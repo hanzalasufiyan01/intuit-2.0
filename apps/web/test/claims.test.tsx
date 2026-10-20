@@ -154,3 +154,87 @@ describe('expense claim detail', () => {
     expect(screen.getByText(/still to reimburse/)).toBeTruthy();
   });
 });
+
+describe('expense policy at submission (R-04)', () => {
+  const draftClaim = { ...detail, status: 'DRAFT', number: null, version: 2 };
+  const policyError = (code: string, message: string) => () => ({
+    status: 409,
+    body: {
+      error: {
+        code,
+        message,
+        requestId: 'r',
+        details: {
+          issues: [{ path: 'policy', message: 'Claim cap: 200.5 is above the limit of 200.' }],
+        },
+      },
+    },
+  });
+
+  it('asks for a reason on a warning and sends it with the second submit', async () => {
+    const user = userEvent.setup();
+    let attempts = 0;
+    const calls = stubApi(
+      common(WORK, {
+        'GET /expense-claims/c1': ok(draftClaim),
+        'POST /expense-claims/c1/submit': () => {
+          attempts += 1;
+          return attempts === 1
+            ? policyError(
+                'EXPENSE_POLICY_WARNING',
+                'This expense claim breaks an expense policy. Confirm with a reason to submit it anyway.',
+              )()
+            : {
+                status: 200,
+                body: { data: { ...draftClaim, status: 'APPROVED', number: 'EC-1' } },
+              };
+        },
+      }),
+    );
+    renderAt('/claims/c1');
+    await user.click(await screen.findByRole('button', { name: 'Submit' }));
+    expect(await screen.findByText('Expense policy')).toBeTruthy();
+    expect(screen.getByText('Claim cap: 200.5 is above the limit of 200.')).toBeTruthy();
+    // The button stays disabled until a reason is typed.
+    const again = screen.getByRole('button', { name: 'Submit anyway' }) as HTMLButtonElement;
+    expect(again.disabled).toBe(true);
+    await user.type(
+      screen.getByLabelText('Reason to submit despite the policy'),
+      'Director agreed',
+    );
+    await user.click(screen.getByRole('button', { name: 'Submit anyway' }));
+    await waitFor(() => {
+      const posts = calls.filter((c) => c.method === 'POST' && c.url.pathname.endsWith('/submit'));
+      expect(posts).toHaveLength(2);
+      expect(posts[0]?.body).toEqual({ version: 2 });
+      expect(posts[1]?.body).toEqual({ version: 2, policyReason: 'Director agreed' });
+    });
+  });
+
+  it('shows a hard block without any way to override it', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi(
+      common(WORK, {
+        'GET /expense-claims/c1': ok(draftClaim),
+        'POST /expense-claims/c1/submit': policyError(
+          'EXPENSE_POLICY_BLOCKED',
+          'This expense claim breaks an expense policy and cannot be submitted.',
+        ),
+      }),
+    );
+    renderAt('/claims/c1');
+    await user.click(await screen.findByRole('button', { name: 'Submit' }));
+    expect(await screen.findByText('Expense policy: this claim cannot be submitted')).toBeTruthy();
+    expect(screen.getByText('Claim cap: 200.5 is above the limit of 200.')).toBeTruthy();
+    expect(screen.queryByLabelText('Reason to submit despite the policy')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Submit anyway' })).toBeNull();
+    expect(calls.filter((c) => c.url.pathname.endsWith('/submit'))).toHaveLength(1);
+  });
+
+  it('offers no Submit to a viewer, so the policy question never arises', async () => {
+    stubApi(common(VIEW, { 'GET /expense-claims/c1': ok(draftClaim) }));
+    renderAt('/claims/c1');
+    expect(await screen.findByText('Taxi')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Submit' })).toBeNull();
+  });
+});

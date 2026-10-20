@@ -807,13 +807,22 @@ export function ExpenseDetailPage() {
     journals: usePermission(Permission.JournalsView),
   };
   const [voidReason, setVoidReason] = useState('');
+  const [duplicateReason, setDuplicateReason] = useState('');
+  const [policyReason, setPolicyReason] = useState('');
   const refresh = (data?: ExpenseDetail) => {
     if (data) queryClient.setQueryData(['expense', org, id], data);
     void queryClient.invalidateQueries({ queryKey: ['expenses', org] });
   };
-  const action = useApiMutation((name: 'submit' | 'withdraw' | 'post') =>
+  const action = useApiMutation((name: 'submit' | 'withdraw') =>
     api.post<ExpenseDetail>(`/purchases/expenses/${id}/${name}`, {
       version: expense.data!.version,
+    }),
+  );
+  const postExpense = useApiMutation((reason: string | null) =>
+    api.post<ExpenseDetail>(`/purchases/expenses/${id}/post`, {
+      version: expense.data!.version,
+      ...(reason ? { duplicateReason: reason } : {}),
+      ...(policyReason.trim() ? { policyReason: policyReason.trim() } : {}),
     }),
   );
   const voidExpense = useApiMutation(() =>
@@ -834,8 +843,13 @@ export function ExpenseDetailPage() {
   const c = e.currencyCode;
   const paidFrom = e.paymentAccountId ?? e.defaultPaymentAccountId;
   const account = (accounts.data ?? []).find((a) => a.id === paidFrom);
+  const duplicate =
+    postExpense.error instanceof ApiError &&
+    postExpense.error.code === 'DUPLICATE_VENDOR_REFERENCE';
+  const policyWarning =
+    postExpense.error instanceof ApiError && postExpense.error.code === 'EXPENSE_POLICY_WARNING';
   const conflict =
-    [action.error, voidExpense.error, remove.error].find(
+    [action.error, postExpense.error, voidExpense.error, remove.error].find(
       (x) => x instanceof ApiError && x.code === 'VERSION_CONFLICT',
     ) !== undefined;
   const open = e.status === 'DRAFT' || e.status === 'PENDING_APPROVAL';
@@ -850,7 +864,14 @@ export function ExpenseDetailPage() {
         description={e.vendorName ?? undefined}
       />
       <PurchasesNav />
-      <ErrorAlert error={action.error ?? voidExpense.error ?? remove.error} />
+      <ErrorAlert
+        error={
+          action.error ??
+          (duplicate || policyWarning ? null : postExpense.error) ??
+          voidExpense.error ??
+          remove.error
+        }
+      />
       {conflict ? (
         <Alert tone="info">
           {t('purchases.expenses.conflict')}{' '}
@@ -858,6 +879,65 @@ export function ExpenseDetailPage() {
             {t('purchases.bills.reload')}
           </Button>
         </Alert>
+      ) : null}
+      {policyWarning ? (
+        <Card title={t('policies.warningTitle')}>
+          <Alert>{(postExpense.error as ApiError).message}</Alert>
+          <ul>
+            {(postExpense.error as ApiError).issues.map((i) => (
+              <li key={i.message}>{i.message}</li>
+            ))}
+          </ul>
+          <form
+            className="form form--inline"
+            onSubmit={(ev) => {
+              ev.preventDefault();
+              postExpense.mutate(null, {
+                onSuccess: (data) => {
+                  setPolicyReason('');
+                  refresh(data);
+                },
+              });
+            }}
+          >
+            <TextField
+              label={t('policies.reason')}
+              value={policyReason}
+              required
+              onChange={(ev) => setPolicyReason(ev.target.value)}
+            />
+            <Button type="submit" busy={postExpense.isPending} disabled={!policyReason.trim()}>
+              {t('policies.postAnyway')}
+            </Button>
+          </form>
+        </Card>
+      ) : null}
+      {duplicate ? (
+        <Card title={t('purchases.bills.duplicateTitle')}>
+          <Alert>{(postExpense.error as ApiError).message}</Alert>
+          <form
+            className="form form--inline"
+            onSubmit={(ev) => {
+              ev.preventDefault();
+              postExpense.mutate(duplicateReason.trim(), {
+                onSuccess: (data) => {
+                  setDuplicateReason('');
+                  refresh(data);
+                },
+              });
+            }}
+          >
+            <TextField
+              label={t('purchases.bills.duplicateReason')}
+              value={duplicateReason}
+              required
+              onChange={(ev) => setDuplicateReason(ev.target.value)}
+            />
+            <Button type="submit" busy={postExpense.isPending}>
+              {t('purchases.bills.postAnyway')}
+            </Button>
+          </form>
+        </Card>
       ) : null}
       {e.warnings.map((w) => (
         <Alert key={`${w.code}-${w.message}`} tone="info">
@@ -957,8 +1037,8 @@ export function ExpenseDetailPage() {
           {open && can.create ? (
             <Button
               disabled={!e.approval.readyToIssue}
-              busy={action.isPending}
-              onClick={() => action.mutate('post', { onSuccess: refresh })}
+              busy={postExpense.isPending}
+              onClick={() => postExpense.mutate(null, { onSuccess: refresh })}
             >
               {t('purchases.expenses.post')}
             </Button>

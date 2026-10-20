@@ -27,7 +27,7 @@ export const PURCHASES_VIEW_PERMISSIONS = [
 /** The Purchases area: its pages render inside the locale (and text-direction) provider (D13). */
 export function PurchasesSection() {
   return (
-    <LocaleProvider locale="en">
+    <LocaleProvider>
       <Outlet />
     </LocaleProvider>
   );
@@ -82,6 +82,7 @@ export function PurchasesNav() {
       </Can>
       <Can permission={Permission.ExpensesView}>
         <NavLink to="/purchases/expenses">{t('purchases.nav.expenses')}</NavLink>
+        <NavLink to="/purchases/expense-policies">{t('policies.title')}</NavLink>
       </Can>
       <Can permission={Permission.VendorCreditsView}>
         <NavLink to="/purchases/vendor-credits">{t('purchases.nav.vendorCredits')}</NavLink>

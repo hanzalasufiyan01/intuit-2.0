@@ -10,6 +10,7 @@ import { TextField } from '../../shared/ui/TextField';
 import { useDimensions, useOrgKey } from '../accounting/shared';
 import type { FiscalYear, Period } from '../accounting/types';
 import type { DimensionFilterEntry, Drill, Integrity, ReportWarning } from './types';
+import { useT } from '../../i18n/i18n';
 
 export type ReportKind = 'trial-balance' | 'profit-and-loss' | 'balance-sheet';
 
@@ -49,6 +50,7 @@ export function ReportFilters({
   searchParams: URLSearchParams;
   onApply: (params: URLSearchParams) => void;
 }) {
+  const tr = useT();
   const org = useOrgKey();
   const canViewPeriods = usePermission(Permission.PeriodsView);
   const canViewDimensions = usePermission(Permission.DimensionsView);
@@ -104,12 +106,21 @@ export function ReportFilters({
   const usesRange = kind !== 'balance-sheet';
 
   return (
-    <form className="form form--inline" onSubmit={apply} aria-label="Report filters">
-      {usesRange ? [dateField('from', 'From'), dateField('to', 'To')] : dateField('asOf', 'As of')}
+    <form
+      className="form form--inline"
+      onSubmit={apply}
+      aria-label={tr('reports.reportControls.reportFilters')}
+    >
+      {usesRange
+        ? [
+            dateField('from', tr('reports.reportControls.from')),
+            dateField('to', tr('reports.reportControls.to')),
+          ]
+        : dateField('asOf', tr('reports.reportControls.asOf'))}
       {canViewPeriods ? (
         <>
           <div className="field">
-            <label htmlFor={`${kind}-fy`}>Fiscal year</label>
+            <label htmlFor={`${kind}-fy`}>{tr('reports.reportControls.fiscalYear')}</label>
             <select
               id={`${kind}-fy`}
               value={form.fiscalYearId ?? ''}
@@ -124,7 +135,7 @@ export function ReportFilters({
                 })
               }
             >
-              <option value="">(dates)</option>
+              <option value="">{tr('reports.reportControls.dates')}</option>
               {(fiscalYears.data ?? []).map((fy) => (
                 <option key={fy.id} value={fy.id}>
                   {fy.name}
@@ -133,7 +144,7 @@ export function ReportFilters({
             </select>
           </div>
           <div className="field">
-            <label htmlFor={`${kind}-period`}>Period</label>
+            <label htmlFor={`${kind}-period`}>{tr('reports.reportControls.period')}</label>
             <select
               id={`${kind}-period`}
               value={form.periodId ?? ''}
@@ -148,7 +159,7 @@ export function ReportFilters({
                 })
               }
             >
-              <option value="">(dates)</option>
+              <option value="">{tr('reports.reportControls.dates')}</option>
               {(periods.data ?? []).map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -160,23 +171,26 @@ export function ReportFilters({
       ) : null}
       {kind !== 'trial-balance' ? (
         <div className="field">
-          <label htmlFor={`${kind}-compare`}>Compare with</label>
+          <label htmlFor={`${kind}-compare`}>{tr('reports.reportControls.compareWith')}</label>
           <select
             id={`${kind}-compare`}
             value={form.compare ?? ''}
             onChange={(e) => set('compare', e.target.value)}
           >
-            <option value="">No comparison</option>
-            <option value="previous_period">Previous period</option>
-            <option value="previous_year">Previous year</option>
-            <option value="custom">Custom</option>
+            <option value="">{tr('reports.reportControls.noComparison')}</option>
+            <option value="previous_period">{tr('reports.reportControls.previousPeriod')}</option>
+            <option value="previous_year">{tr('reports.reportControls.previousYear')}</option>
+            <option value="custom">{tr('reports.reportControls.custom')}</option>
           </select>
         </div>
       ) : null}
       {form.compare === 'custom'
         ? kind === 'balance-sheet'
-          ? dateField('compareAsOf', 'Compare as of')
-          : [dateField('compareFrom', 'Compare from'), dateField('compareTo', 'Compare to')]
+          ? dateField('compareAsOf', tr('reports.reportControls.compareAsOf'))
+          : [
+              dateField('compareFrom', tr('reports.reportControls.compareFrom')),
+              dateField('compareTo', tr('reports.reportControls.compareTo')),
+            ]
         : null}
       {(dimensions.data ?? [])
         .filter((t) => t.status === 'ACTIVE' || dims[t.id])
@@ -188,7 +202,7 @@ export function ReportFilters({
               value={dims[type.id] ?? ''}
               onChange={(e) => setDims({ ...dims, [type.id]: e.target.value })}
             >
-              <option value="">All</option>
+              <option value="">{tr('common.all')}</option>
               {type.values.map((v) => (
                 <option key={v.id} value={v.id}>
                   {v.name}
@@ -203,7 +217,7 @@ export function ReportFilters({
           checked={form.includeZero === 'true'}
           onChange={(e) => set('includeZero', e.target.checked ? 'true' : '')}
         />{' '}
-        Include zero balances
+        {tr('reports.reportControls.includeZeroBalances')}
       </label>
       <label className="checkbox">
         <input
@@ -211,9 +225,9 @@ export function ReportFilters({
           checked={form.currencyView === 'base_and_account'}
           onChange={(e) => set('currencyView', e.target.checked ? 'base_and_account' : '')}
         />{' '}
-        Show account currency
+        {tr('reports.reportControls.showAccountCurrency')}
       </label>
-      <Button type="submit">Run report</Button>
+      <Button type="submit">{tr('reports.reportControls.runReport')}</Button>
     </form>
   );
 }
@@ -225,31 +239,38 @@ export function IntegrityPanel({
   integrity: Integrity;
   currency: string;
 }) {
+  const t = useT();
   if (integrity.status === 'BALANCED') {
     return (
       <Alert tone="success">
-        <span data-testid="integrity">Balanced</span> — all integrity checks pass.
+        <span data-testid="integrity">{t('reports.reportControls.balanced')}</span>{' '}
+        {t('reports.reportControls.allIntegrityChecksPass')}
       </Alert>
     );
   }
   if (integrity.status === 'NOT_APPLICABLE') {
     return (
       <Alert tone="info">
-        <span data-testid="integrity">Balancing checks not applicable</span>: tagged activity only
-        is not expected to balance.
+        <span data-testid="integrity">
+          {t('reports.reportControls.balancingChecksNotApplicable')}
+        </span>
+        {t('reports.reportControls.taggedActivityOnlyIsNot')}
       </Alert>
     );
   }
   return (
     <Alert>
-      <span data-testid="integrity">Out of balance</span>. The ledger data is shown unchanged;
-      contact support.
+      <span data-testid="integrity">{t('reports.reportControls.outOfBalance')}</span>
+      {t('reports.reportControls.theLedgerDataIsShown')}
       <ul>
         {integrity.checks
           .filter((c) => c.status === 'FAIL')
           .map((c) => (
             <li key={c.name}>
-              {c.name.replaceAll('_', ' ')}: difference {formatAmount(c.difference, currency)}
+              {t('reports.reportControls.difference', {
+                value: c.name.replaceAll('_', ' '),
+                value2: formatAmount(c.difference, currency),
+              })}
             </li>
           ))}
       </ul>
@@ -266,13 +287,14 @@ export function ReportNotices({
   taggedActivityOnly: boolean;
   dimensionFilter: DimensionFilterEntry[];
 }) {
+  const t = useT();
   return (
     <>
       {taggedActivityOnly ? (
         <Alert tone="info">
-          Tagged activity only:{' '}
-          {dimensionFilter.map((d) => `${d.typeName} = ${d.valueName}`).join(', ')}. Untagged
-          activity is excluded.
+          {t('reports.reportControls.taggedActivityOnlyUntaggedActivity', {
+            value: dimensionFilter.map((d) => `${d.typeName} = ${d.valueName}`).join(', '),
+          })}
         </Alert>
       ) : null}
       {warnings.map((w) => (
@@ -339,6 +361,7 @@ export function DrillLink({
 }
 
 export function ReportError({ error }: { error: ApiError | null }) {
+  const t = useT();
   if (!error) return null;
   return (
     <Alert>
@@ -346,7 +369,9 @@ export function ReportError({ error }: { error: ApiError | null }) {
       {error.code === 'DESIGNATION_REQUIRED' ? (
         <>
           {' '}
-          <Link to="/accounting/designations">Designate system accounts</Link>
+          <Link to="/accounting/designations">
+            {t('reports.reportControls.designateSystemAccounts')}
+          </Link>
         </>
       ) : null}
     </Alert>
