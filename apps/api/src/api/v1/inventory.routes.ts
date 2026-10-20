@@ -27,6 +27,8 @@ const trackBody = z
     inventoryAccountId: fields.id,
     cogsAccountId: fields.id,
     reorderPoint: quantity.nullable().optional(),
+    trackingMode: z.enum(['none', 'lot', 'serial']).optional(),
+    expiryTracked: z.boolean().optional(),
   })
   .strict();
 const trackUpdateBody = z
@@ -35,6 +37,8 @@ const trackUpdateBody = z
     inventoryAccountId: fields.id.optional(),
     cogsAccountId: fields.id.optional(),
     reorderPoint: quantity.nullable().optional(),
+    trackingMode: z.enum(['none', 'lot', 'serial']).optional(),
+    expiryTracked: z.boolean().optional(),
   })
   .strict();
 const settingsBody = z
@@ -44,12 +48,35 @@ const settingsBody = z
     adjustmentAccountId: fields.id.nullable(),
   })
   .strict();
+const lotText = z.string().trim().min(1).max(60);
+const lotIn = z
+  .object({ lotCode: lotText, expiryDate: isoDate.nullable().optional(), quantity })
+  .strict();
+const lotRef = z.object({ lotCode: lotText, quantity }).strict();
+const returnBody = z
+  .object({
+    returnDate: isoDate,
+    creditNoteId: fields.id,
+    reason: z.string().trim().min(1, 'Give a reason.').max(500),
+    memo: z.string().trim().max(2000).optional(),
+    warehouseId: fields.id.optional(),
+    lines: z
+      .array(
+        z
+          .object({ itemId: fields.id, quantity, lots: z.array(lotRef).max(500).optional() })
+          .strict(),
+      )
+      .min(1)
+      .max(200),
+  })
+  .strict();
 const adjustmentBody = z
   .object({
     adjustmentDate: isoDate,
     reason: z.string().trim().min(1, 'Give a reason.').max(500),
     memo: z.string().trim().max(2000).optional(),
     adjustmentAccountId: fields.id.optional(),
+    warehouseId: fields.id.optional(),
     lines: z
       .array(
         z
@@ -57,6 +84,7 @@ const adjustmentBody = z
             itemId: fields.id,
             quantityChange: signedQuantity,
             unitCost: quantity.optional(),
+            lots: z.array(lotIn).max(500).optional(),
           })
           .strict(),
       )
@@ -173,6 +201,39 @@ export function registerInventoryRoutes(
         body,
         eventOrigin(request),
       ),
+    };
+  });
+
+  // ---- Customer returns (ADR 0012): goods back into stock against an issued credit note ----
+  app.get('/inventory/returns', async (request) => {
+    const query = parseInput(listQuery, request.query);
+    return { data: await inventory.listReturns(requirePrincipal(request), query.limit) };
+  });
+  app.get('/inventory/returns/returnable/:id', async (request) => {
+    const { id } = parseInput(idParams, request.params);
+    return { data: await inventory.returnable(requirePrincipal(request), id) };
+  });
+  app.post('/inventory/returns', async (request, reply) => {
+    requirePrincipal(request); // authenticate before validating the body
+    const body = parseInput(returnBody, request.body);
+    const result = await inventory.postReturn(
+      requirePrincipal(request),
+      body,
+      { idempotencyKey: idempotencyKey(request) },
+      eventOrigin(request),
+    );
+    markReplay(reply, result.replayed);
+    return reply.status(201).send({ data: result.value });
+  });
+  app.get('/inventory/returns/:id', async (request) => {
+    const { id } = parseInput(idParams, request.params);
+    return { data: await inventory.getReturn(requirePrincipal(request), id) };
+  });
+  app.post('/inventory/returns/:id/void', async (request) => {
+    const { id } = parseInput(idParams, request.params);
+    const body = parseInput(voidBody, request.body);
+    return {
+      data: await inventory.voidReturn(requirePrincipal(request), id, body, eventOrigin(request)),
     };
   });
 }

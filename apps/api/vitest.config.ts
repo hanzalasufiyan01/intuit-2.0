@@ -52,6 +52,11 @@ export default defineConfig({
     environment: 'node',
     // Applies migrations and seeds reference data on the real PostgreSQL database first.
     globalSetup: ['test/global-setup.ts'],
+    // Every test file talks to one local PostgreSQL. With the default of one worker per CPU thread
+    // (about 27 here) the files contend for the database and a different 30 s test times out on
+    // most full runs even though each passes alone in 1-3 s. Eight workers finished the whole suite
+    // green in about half the time (713 s against about 1,400 s) on the 2026-10-19 trial.
+    maxWorkers: 8,
     testTimeout: 30_000,
     hookTimeout: 60_000,
     projects: [

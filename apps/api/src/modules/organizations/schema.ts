@@ -67,7 +67,8 @@ export const ownershipTransferStatuses = [
 
 /**
  * Data model for the controlled ownership-transfer workflow
- * (initiate -> security verification -> acceptance -> completion). Not built in Phase 1.
+ * (initiate -> security verification -> acceptance -> completion). The workflow is built in
+ * migration 0060 / ADR 0012; rows are never deleted (the history is permanent).
  */
 export const ownershipTransfers = pgTable('ownership_transfers', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -83,6 +84,11 @@ export const ownershipTransfers = pgTable('ownership_transfers', {
   completedAt: timestamptz('completed_at'),
   cancelledAt: timestamptz('cancelled_at'),
   expiresAt: timestamptz('expires_at').notNull(),
+  // Migration 0060.
+  acceptedByUserId: uuid('accepted_by_user_id'),
+  cancelledByUserId: uuid('cancelled_by_user_id'),
+  cancelReason: text('cancel_reason'),
+  expiredAt: timestamptz('expired_at'),
 });
 
 // ---------------------------------------------------------------------------

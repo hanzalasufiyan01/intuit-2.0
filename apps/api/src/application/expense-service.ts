@@ -1,3 +1,4 @@
+import { Decimal } from 'decimal.js';
 import {
   AppError,
   ConflictError,
@@ -16,16 +17,23 @@ import {
 import { getApprovalRequest } from '../modules/approvals/index.js';
 import { recordAuditEvent, type EventOrigin } from '../modules/audit/index.js';
 import { type Discount } from '../modules/documents/index.js';
+import {
+  countAttachments,
+  evaluateExpensePolicies,
+  listExpensePolicies,
+} from '../modules/expense-policies/index.js';
 import { getParty, partyIdsMatching } from '../modules/parties/index.js';
 import {
   deleteExpense,
   expenseNumberExists,
   ExpensePermissions,
+  findDuplicateExpenseReferences,
   getExpense,
   getExpenseLines,
   getPurchasesSettings,
   insertExpense,
   listExpenses,
+  lockDuplicateCheck,
   replaceExpenseLines,
   takeNextPurchaseNumber,
   updateExpense,
@@ -460,9 +468,33 @@ export class ExpenseService {
         facts,
       ),
       warnings: open
-        ? taxProblems.map((p) => ({ code: 'TAX_CODE_NOT_PURCHASABLE', message: p.message }))
+        ? [
+            ...taxProblems.map((p) => ({ code: 'TAX_CODE_NOT_PURCHASABLE', message: p.message })),
+            ...(await this.duplicateWarnings(tx, ctx.organizationId, expense)),
+          ]
         : [],
     };
+  }
+
+  /** A supplier reference already used by another expense or bill of the vendor (blocks at post). */
+  private async duplicateWarnings(tx: Transaction, organizationId: string, expense: Expense) {
+    if (!expense.vendorReference) return [];
+    const duplicates = await findDuplicateExpenseReferences(tx, {
+      organizationId,
+      vendorId: expense.vendorId,
+      vendorReference: expense.vendorReference,
+      exceptId: expense.id,
+    });
+    return duplicates.length
+      ? [
+          {
+            code: 'DUPLICATE_VENDOR_REFERENCE',
+            message:
+              'Another expense or bill from this vendor has the same supplier reference. Posting needs a confirmed reason.',
+            matches: duplicates,
+          },
+        ]
+      : [];
   }
 
   // ---------------------------------------------------------------------------
@@ -774,7 +806,11 @@ export class ExpenseService {
   post(
     principal: Principal,
     id: string,
-    input: { version: number },
+    input: {
+      version: number;
+      duplicateReason?: string | null | undefined;
+      policyReason?: string | null | undefined;
+    },
     options: { idempotencyKey: string | null },
     origin: EventOrigin,
   ) {
@@ -800,7 +836,11 @@ export class ExpenseService {
     tx: Transaction,
     ctx: AuthorizationContext,
     id: string,
-    input: { version: number },
+    input: {
+      version: number;
+      duplicateReason?: string | null | undefined;
+      policyReason?: string | null | undefined;
+    },
     origin: EventOrigin,
   ) {
     // 1. Lock, version and state.
@@ -925,6 +965,87 @@ export class ExpenseService {
     await assertOpenPeriod(tx, ctx.organizationId, snapshot.expenseDate);
     await assertRequiredDimensions(tx, ctx.organizationId, posting.journal.lines, posting.typeOf);
 
+    // 5b. Duplicate supplier reference (expense or bill of this vendor), under the same advisory
+    // lock the bills use, so a bill and an expense racing with one reference are serialised.
+    const checkDuplicates = snapshot.vendorReference !== null;
+    if (checkDuplicates) {
+      await lockDuplicateCheck(
+        tx,
+        ctx.organizationId,
+        snapshot.vendorId,
+        snapshot.vendorReference!,
+      );
+    }
+    const duplicates = checkDuplicates
+      ? await findDuplicateExpenseReferences(tx, {
+          organizationId: ctx.organizationId,
+          vendorId: snapshot.vendorId,
+          vendorReference: snapshot.vendorReference!,
+          exceptId: id,
+        })
+      : [];
+    const duplicateReason = input.duplicateReason?.trim() || null;
+    if (duplicates.length && !duplicateReason) {
+      const first = duplicates[0]!;
+      throw new AppError(
+        'DUPLICATE_VENDOR_REFERENCE',
+        409,
+        `Another ${first.kind} from this vendor already uses supplier reference ${snapshot.vendorReference}${
+          first.number ? ` (${first.number})` : ''
+        }. Confirm with a reason to post it anyway.`,
+        {
+          issues: duplicates.map((d) => ({
+            path: 'vendorReference',
+            message: `${d.number ?? `Draft ${d.kind}`} (${d.kind}, ${d.status.toLowerCase()}, ${d.date}) uses ${d.vendorReference}.`,
+          })),
+        },
+      );
+    }
+
+    // 5c. Organization expense policies (migration 0092). A blocking rule stops the post; a warning
+    // rule needs a reason from the person posting, which is audited.
+    const policies = await listExpensePolicies(tx, ctx.organizationId);
+    let policyConfirmed: { names: string[]; reason: string } | null = null;
+    if (policies.some((p) => p.status === 'ACTIVE')) {
+      const debits = posting.journal.lines.filter((l) => l.side === 'debit');
+      const byAccount = new Map<string, Decimal>();
+      for (const l of debits) {
+        if (l.role === 'expense' && l.accountId) {
+          byAccount.set(
+            l.accountId,
+            (byAccount.get(l.accountId) ?? new Decimal(0)).plus(l.baseAmount),
+          );
+        }
+      }
+      const violations = evaluateExpensePolicies(policies, {
+        total: debits.reduce((acc, l) => acc.plus(l.baseAmount), new Decimal(0)),
+        byAccount,
+        attachments: await countAttachments(tx, ctx.organizationId, 'expense', id),
+      });
+      const blocking = violations.filter((v) => v.action === 'block');
+      if (blocking.length) {
+        throw new AppError(
+          'EXPENSE_POLICY_BLOCKED',
+          409,
+          'This expense breaks an expense policy and cannot be posted.',
+          { issues: blocking.map((v) => ({ path: 'policy', message: v.message })) },
+        );
+      }
+      const warnings = violations.filter((v) => v.action === 'warn');
+      if (warnings.length) {
+        const reason = input.policyReason?.trim() || null;
+        if (!reason) {
+          throw new AppError(
+            'EXPENSE_POLICY_WARNING',
+            409,
+            'This expense breaks an expense policy. Confirm with a reason to post it anyway.',
+            { issues: warnings.map((v) => ({ path: 'policy', message: v.message })) },
+          );
+        }
+        policyConfirmed = { names: warnings.map((v) => v.name), reason };
+      }
+    }
+
     // 6. Number (P4-51), then the journal through the accounting event (Decision 13).
     let number: string | null = null;
     for (let attempt = 0; attempt < 50 && !number; attempt += 1) {
@@ -1003,6 +1124,19 @@ export class ExpenseService {
       },
     });
     if (!posted) throw versionConflict();
+    if (policyConfirmed) {
+      await this.audit(tx, ctx, 'expense.policy_confirmed', id, now, origin, {
+        policies: policyConfirmed.names,
+        reason: policyConfirmed.reason,
+      });
+    }
+    if (duplicates.length) {
+      await this.audit(tx, ctx, 'expense.duplicate_confirmed', id, now, origin, {
+        vendorReference: posted.vendorReference,
+        reason: duplicateReason,
+        duplicates: duplicates.map((d) => ({ kind: d.kind, id: d.id })),
+      });
+    }
     if (posting.rateSource === 'manual') {
       await this.audit(tx, ctx, 'expense.rate_overridden', id, now, origin, {
         currencyCode: posted.currencyCode,

@@ -573,7 +573,12 @@ export class RemittanceService {
         `Please find remittance advice ${number} attached.`,
       template: 'purchases.remittance_advice',
       attachments: [
-        { fileId, fileName: `${number}-remittance.pdf`, contentType: 'application/pdf' },
+        {
+          organizationId: job.organizationId,
+          fileId,
+          fileName: `${number}-remittance.pdf`,
+          contentType: 'application/pdf',
+        },
       ],
     });
     await job.run(async (tx) => {

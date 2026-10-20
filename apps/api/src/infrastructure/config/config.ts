@@ -47,6 +47,10 @@ const envSchema = z.object({
   LOGIN_BACKOFF_MAX_SECONDS: positiveInt.default(900),
 
   INVITATION_EXPIRY_HOURS: positiveInt.default(72),
+  // Ownership transfer (ADR 0012): how long the new owner has to accept.
+  OWNERSHIP_TRANSFER_EXPIRY_HOURS: positiveInt.default(72),
+  // Bearer token of GET /api/v1/metrics; without it the endpoint does not exist (404).
+  METRICS_TOKEN: z.string().min(24).optional(),
 
   OUTBOX_POLL_INTERVAL_MS: positiveInt.default(2000),
   OUTBOX_BATCH_SIZE: positiveInt.default(20),
@@ -80,11 +84,29 @@ const envSchema = z.object({
   WEBHOOK_MAINTENANCE_INTERVAL_MINUTES: positiveInt.default(60),
 
   // Phase 3A S5: file storage (Decisions 6, 29, 61, 75, 76; S5-02, S5-08, S5-13)
-  STORAGE_PROVIDER: z.enum(['local']).default('local'),
+  STORAGE_PROVIDER: z.enum(['local', 's3']).default('local'),
+  // S3-compatible object storage (STORAGE_PROVIDER=s3). Credentials come from the environment only.
+  S3_ENDPOINT: z.url().optional(),
+  S3_REGION: z.string().min(1).optional(),
+  S3_BUCKET: z.string().min(3).max(63).optional(),
+  S3_ACCESS_KEY_ID: z.string().min(1).optional(),
+  S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  S3_FORCE_PATH_STYLE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  S3_TIMEOUT_MS: positiveInt.max(300_000).default(60_000),
   STORAGE_LOCAL_ROOT: z.string().min(1).default('.data/storage'),
   FILE_DOWNLOAD_TOKEN_TTL_MINUTES: positiveInt.default(5),
   FILE_RETENTION_DAYS: positiveInt.default(90),
   FILES_PURGE_INTERVAL_MINUTES: positiveInt.default(60),
+  // Online payments (migration 0075). The mock provider simulates payments and moves no money.
+  // It is off by default in production and then needs an explicit opt-in plus its own secret.
+  PAYMENTS_MOCK_ENABLED: z.enum(['true', 'false']).optional(),
+  PAYMENTS_MOCK_WEBHOOK_SECRET: z.string().min(16).max(200).optional(),
+  PAYMENTS_SWEEP_INTERVAL_MINUTES: positiveInt.default(5),
+  // FP-28: how often due recurring invoice schedules are checked.
+  RECURRING_INVOICE_INTERVAL_MINUTES: positiveInt.default(60),
   // Phase 3A S5: background jobs (Decisions 20, 76; S5-14, S5-17)
   JOBS_WORKER_ENABLED: z
     .enum(['true', 'false'])
@@ -129,7 +151,19 @@ const envSchema = z.object({
     .default('intuit_trusted_device'),
   TRUSTED_DEVICE_MAX_PER_USER: positiveInt.max(50).default(10),
 
-  EMAIL_PROVIDER: z.enum(['mock']).default('mock'),
+  EMAIL_PROVIDER: z.enum(['mock', 'smtp']).default('mock'),
+  // SMTP (EMAIL_PROVIDER=smtp). Credentials come from the environment only.
+  SMTP_HOST: z.string().min(1).optional(),
+  SMTP_PORT: positiveInt.max(65535).default(587),
+  SMTP_SECURITY: z.enum(['starttls', 'tls', 'none']).default('starttls'),
+  SMTP_USER: z.string().min(1).optional(),
+  SMTP_PASSWORD: z.string().min(1).optional(),
+  SMTP_TIMEOUT_MS: positiveInt.max(120_000).default(15_000),
+  // Certificate verification is on; turning it off is for a private relay you control.
+  SMTP_REJECT_UNAUTHORIZED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
   EMAIL_FROM: z.email().default('no-reply@example.test'),
 });
 
@@ -158,6 +192,8 @@ export interface AppConfig {
     backoffMaxMs: number;
   };
   invitations: { expiryMs: number };
+  ownershipTransfer: { expiryMs: number };
+  metrics: { token: string | null };
   outbox: { pollIntervalMs: number; batchSize: number };
   publicApi: {
     readPerMinute: number;
@@ -178,8 +214,20 @@ export interface AppConfig {
     allowedPorts: number[];
     maintenanceIntervalMs: number;
   };
+  recurring: { intervalMs: number };
+  payments: { mockEnabled: boolean; mockWebhookSecret: string; sweepIntervalMs: number };
   storage: {
-    provider: 'local';
+    provider: 'local' | 's3';
+    /** S3-compatible settings; null unless provider is s3. */
+    s3: {
+      endpoint: string;
+      region: string;
+      bucket: string;
+      accessKeyId: string;
+      secretAccessKey: string;
+      forcePathStyle: boolean;
+      timeoutMs: number;
+    } | null;
     /** Absolute path of the local provider root. */
     localRoot: string;
     downloadTokenTtlMs: number;
@@ -220,7 +268,19 @@ export interface AppConfig {
     trustedDeviceCookieName: string;
     trustedDeviceMaxPerUser: number;
   };
-  email: { provider: 'mock'; from: string };
+  email: {
+    provider: 'mock' | 'smtp';
+    from: string;
+    smtp: {
+      host: string;
+      port: number;
+      security: 'starttls' | 'tls' | 'none';
+      user: string | null;
+      password: string | null;
+      timeoutMs: number;
+      rejectUnauthorized: boolean;
+    } | null;
+  };
 }
 
 const MINUTE = 60_000;
@@ -240,6 +300,46 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new ConfigError(`Invalid environment configuration:\n${problems}`);
   }
   const e = parsed.data;
+  if (
+    e.PAYMENTS_MOCK_ENABLED === 'true' &&
+    e.APP_ENV === 'production' &&
+    !e.PAYMENTS_MOCK_WEBHOOK_SECRET
+  ) {
+    throw new ConfigError(
+      'Invalid environment configuration: PAYMENTS_MOCK_WEBHOOK_SECRET is required when the mock payment provider is enabled in production.',
+    );
+  }
+  if (e.STORAGE_PROVIDER === 's3') {
+    const problems: string[] = [];
+    for (const name of [
+      'S3_ENDPOINT',
+      'S3_REGION',
+      'S3_BUCKET',
+      'S3_ACCESS_KEY_ID',
+      'S3_SECRET_ACCESS_KEY',
+    ] as const) {
+      if (!e[name]) problems.push(`  - ${name}: required when STORAGE_PROVIDER=s3`);
+    }
+    if (e.S3_ENDPOINT && !e.S3_ENDPOINT.startsWith('https://') && e.APP_ENV === 'production') {
+      problems.push('  - S3_ENDPOINT: must use https in production');
+    }
+    if (problems.length > 0) {
+      throw new ConfigError(`Invalid environment configuration:\n${problems.join('\n')}`);
+    }
+  }
+  if (e.EMAIL_PROVIDER === 'smtp') {
+    const problems: string[] = [];
+    if (!e.SMTP_HOST) problems.push('  - SMTP_HOST: required when EMAIL_PROVIDER=smtp');
+    if (e.SMTP_USER && !e.SMTP_PASSWORD) {
+      problems.push('  - SMTP_PASSWORD: required when SMTP_USER is set');
+    }
+    if (e.SMTP_PASSWORD && !e.SMTP_USER) {
+      problems.push('  - SMTP_USER: required when SMTP_PASSWORD is set');
+    }
+    if (problems.length > 0) {
+      throw new ConfigError(`Invalid environment configuration:\n${problems.join('\n')}`);
+    }
+  }
   let keyRing: MfaKeyRing;
   try {
     keyRing = MfaKeyRing.parse(e.MFA_ENCRYPTION_KEYS, e.MFA_ENCRYPTION_ACTIVE_KEY_ID);
@@ -294,6 +394,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       backoffMaxMs: e.LOGIN_BACKOFF_MAX_SECONDS * 1000,
     },
     invitations: { expiryMs: e.INVITATION_EXPIRY_HOURS * 60 * MINUTE },
+    ownershipTransfer: { expiryMs: e.OWNERSHIP_TRANSFER_EXPIRY_HOURS * 60 * MINUTE },
+    metrics: { token: e.METRICS_TOKEN ?? null },
     outbox: { pollIntervalMs: e.OUTBOX_POLL_INTERVAL_MS, batchSize: e.OUTBOX_BATCH_SIZE },
     publicApi: {
       readPerMinute: e.PUBLIC_API_READ_PER_MINUTE,
@@ -313,8 +415,28 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       allowedPorts: e.WEBHOOK_ALLOWED_PORTS.split(',').map(Number),
       maintenanceIntervalMs: e.WEBHOOK_MAINTENANCE_INTERVAL_MINUTES * MINUTE,
     },
+    recurring: { intervalMs: e.RECURRING_INVOICE_INTERVAL_MINUTES * MINUTE },
+    payments: {
+      mockEnabled: e.PAYMENTS_MOCK_ENABLED
+        ? e.PAYMENTS_MOCK_ENABLED === 'true'
+        : e.APP_ENV !== 'production',
+      mockWebhookSecret: e.PAYMENTS_MOCK_WEBHOOK_SECRET ?? 'development-mock-webhook-secret',
+      sweepIntervalMs: e.PAYMENTS_SWEEP_INTERVAL_MINUTES * MINUTE,
+    },
     storage: {
       provider: e.STORAGE_PROVIDER,
+      s3:
+        e.STORAGE_PROVIDER === 's3'
+          ? {
+              endpoint: e.S3_ENDPOINT!,
+              region: e.S3_REGION!,
+              bucket: e.S3_BUCKET!,
+              accessKeyId: e.S3_ACCESS_KEY_ID!,
+              secretAccessKey: e.S3_SECRET_ACCESS_KEY!,
+              forcePathStyle: e.S3_FORCE_PATH_STYLE,
+              timeoutMs: e.S3_TIMEOUT_MS,
+            }
+          : null,
       // Relative roots resolve against the repository root (like .env), not the process cwd.
       localRoot: path.isAbsolute(e.STORAGE_LOCAL_ROOT)
         ? e.STORAGE_LOCAL_ROOT
@@ -357,6 +479,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       trustedDeviceCookieName: e.TRUSTED_DEVICE_COOKIE_NAME,
       trustedDeviceMaxPerUser: e.TRUSTED_DEVICE_MAX_PER_USER,
     },
-    email: { provider: e.EMAIL_PROVIDER, from: e.EMAIL_FROM },
+    email: {
+      provider: e.EMAIL_PROVIDER,
+      from: e.EMAIL_FROM,
+      smtp:
+        e.EMAIL_PROVIDER === 'smtp'
+          ? {
+              host: e.SMTP_HOST!,
+              port: e.SMTP_PORT,
+              security: e.SMTP_SECURITY,
+              user: e.SMTP_USER ?? null,
+              password: e.SMTP_PASSWORD ?? null,
+              timeoutMs: e.SMTP_TIMEOUT_MS,
+              rejectUnauthorized: e.SMTP_REJECT_UNAUTHORIZED,
+            }
+          : null,
+    },
   };
 }

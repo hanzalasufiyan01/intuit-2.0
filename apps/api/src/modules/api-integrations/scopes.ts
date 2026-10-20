@@ -4,6 +4,10 @@
  * per-organization API policy. Scope names are public compatibility contracts: they may be added
  * but never renamed, removed or widened.
  *
+ * The five `*:read` scopes added by CR-0011-S6-01 (credit notes, receipts, vendor credits, vendor
+ * payments, expense claims) exist only so that webhooks for those resources can be subscribed to:
+ * no Public API endpoint requires them.
+ *
  * Writes are limited to the D1 draft resources, so no scope maps to a permission that issues,
  * posts, records, voids, refunds, reverses, approves, or changes settings.
  */
@@ -66,6 +70,41 @@ export const PUBLIC_API_SCOPES: readonly PublicApiScope[] = [
     scope: 'accounts:read',
     description: 'Read the chart of accounts',
     permissions: ['accounting.accounts.view'],
+    write: false,
+  },
+  {
+    scope: 'credit_notes:read',
+    description:
+      'Subscribe to webhook events about credit notes. Grants no Public API read endpoint.',
+    permissions: ['credit_notes.view'],
+    write: false,
+  },
+  {
+    scope: 'receipts:read',
+    description:
+      'Subscribe to webhook events about receipts and customer refunds. Grants no Public API read endpoint.',
+    permissions: ['receipts.view'],
+    write: false,
+  },
+  {
+    scope: 'vendor_credits:read',
+    description:
+      'Subscribe to webhook events about vendor credits. Grants no Public API read endpoint.',
+    permissions: ['vendor_credits.view'],
+    write: false,
+  },
+  {
+    scope: 'vendor_payments:read',
+    description:
+      'Subscribe to webhook events about vendor payments and vendor refunds. Grants no Public API read endpoint.',
+    permissions: ['vendor_payments.view'],
+    write: false,
+  },
+  {
+    scope: 'expense_claims:read',
+    description:
+      'Subscribe to webhook events about expense claims. Grants no Public API read endpoint.',
+    permissions: ['expense_claims.view'],
     write: false,
   },
 ];

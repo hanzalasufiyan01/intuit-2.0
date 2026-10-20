@@ -3,6 +3,7 @@ import {
   AppError,
   ConflictError,
   NotFoundError,
+  TooManyAttemptsError,
   ValidationError,
   type ValidationIssue,
 } from '../domain/errors.js';
@@ -19,6 +20,7 @@ import {
   insertAttempt,
   insertDelivery,
   insertEndpoint,
+  latestPingSince,
   listAttempts,
   listDeliveries,
   listEndpoints,
@@ -27,6 +29,7 @@ import {
   replaceSubscriptions,
   updateDelivery,
   updateEndpoint,
+  visibleDeliveryResourceTypes,
   WebhookDestinationError,
   type DeliveryStatus,
   type PayloadMode,
@@ -64,6 +67,21 @@ const SUBSCRIBABLE = DOMAIN_PUBLIC_EVENT_TYPES as readonly string[];
 
 const versionConflict = () =>
   new ConflictError('VERSION_CONFLICT', 'The endpoint changed; reload it and try again.');
+
+/** One ping per endpoint per 10 seconds (ADR 0011 sections 11.3 and 25.3; a fixed v1 value). */
+export const PING_MIN_INTERVAL_MS = 10_000;
+
+/**
+ * How many whole seconds a ping must still wait, or null when it may be sent. `elapsedMs` is the
+ * time since the endpoint's latest ping delivery was created. At exactly the interval a ping is
+ * allowed. The wait is rounded up and clamped to 1..10, which also covers a latest ping dated in
+ * the future (clock skew between instances).
+ */
+export function pingRetryAfterSeconds(elapsedMs: number): number | null {
+  if (elapsedMs >= PING_MIN_INTERVAL_MS) return null;
+  const seconds = Math.ceil((PING_MIN_INTERVAL_MS - elapsedMs) / 1000);
+  return Math.min(PING_MIN_INTERVAL_MS / 1000, Math.max(1, seconds));
+}
 const invalidState = (message: string) => new ConflictError('INVALID_STATE_TRANSITION', message);
 
 export interface EndpointInput {
@@ -528,6 +546,8 @@ export class WebhookEndpointService {
           disabledByUserId: null,
           disabledReason: null,
           consecutiveFailures: 0,
+          // Returning to `active` restarts the no-success window (CR-0011-S6-01, migration 0059).
+          enabledAt: this.now,
         },
         userId: ctx.userId,
         now: this.now,
@@ -549,8 +569,24 @@ export class WebhookEndpointService {
     const prepared = await this.manage(
       principal,
       async (tx, ctx) => {
-        const endpoint = await getEndpoint(tx, ctx.organizationId, id);
+        // The endpoint row lock serializes every ping of this endpoint: a concurrent request waits
+        // here until this transaction commits (its delivery row exists) or rolls back, and then
+        // sees that delivery. The lock is held only for this short transaction, never during the
+        // network request, and the transaction takes no other lock that a delivery job could hold.
+        const endpoint = await getEndpoint(tx, ctx.organizationId, id, { forUpdate: true });
         if (!endpoint) throw new NotFoundError('Webhook endpoint not found.');
+        const requestedAt = this.now;
+        const latest = await latestPingSince(
+          tx,
+          ctx.organizationId,
+          id,
+          new Date(requestedAt.getTime() - PING_MIN_INTERVAL_MS),
+        );
+        if (latest) {
+          // Refused before anything is written: no delivery row, no audit event.
+          const wait = pingRetryAfterSeconds(requestedAt.getTime() - latest.getTime());
+          if (wait !== null) throw new TooManyAttemptsError(wait);
+        }
         const secrets = this.deliveries.secretsOf(endpoint);
         const eventId = `evt_${randomUUID()}`;
         const payload = {
@@ -639,6 +675,18 @@ export class WebhookEndpointService {
   // Delivery history and redelivery
   // ---------------------------------------------------------------------------
 
+  /**
+   * The delivery families this person may see (ADR 0011 section 25.2), from their CURRENT
+   * permissions, evaluated for every request. Owner and Administrator hold every view permission.
+   */
+  private visibleTypes(ctx: AuthorizationContext): string[] {
+    return visibleDeliveryResourceTypes((permission) => hasPermission(ctx, permission));
+  }
+
+  /**
+   * Delivery history. Rows of families the person may not read are excluded by the query itself,
+   * before the ordering and the limit, so the page is never shortened and nothing about them leaks.
+   */
   listDeliveries(
     principal: Principal,
     query: { endpointId?: string | undefined; status?: DeliveryStatus | undefined; limit: number },
@@ -654,20 +702,29 @@ export class WebhookEndpointService {
             ...(query.endpointId && { endpointId: query.endpointId }),
             ...(query.status && { status: query.status }),
             limit: query.limit,
+            visibleResourceTypes: this.visibleTypes(ctx),
           })
         ).map((d) => this.deliveryView(d)),
     );
   }
 
+  /**
+   * One delivery with its attempts. A delivery of a family the person may not read answers 404,
+   * exactly like a missing one. The stored response excerpt is returned only to holders of
+   * `webhooks.manage`; everyone else receives `responseExcerpt: null` (section 25.2).
+   */
   getDelivery(principal: Principal, id: string) {
     return withOrganization(
       this.deps,
       principal,
       { permission: WEBHOOK_PERMISSIONS.View },
       async (tx, ctx) => {
-        const delivery = await getDelivery(tx, ctx.organizationId, id);
+        const delivery = await getDelivery(tx, ctx.organizationId, id, {
+          visibleResourceTypes: this.visibleTypes(ctx),
+        });
         if (!delivery) throw new NotFoundError('Delivery not found.');
         const attempts = await listAttempts(tx, ctx.organizationId, id);
+        const mayReadExcerpts = hasPermission(ctx, WEBHOOK_PERMISSIONS.Manage);
         return {
           ...this.deliveryView(delivery),
           attempts: attempts.map((a) => ({
@@ -676,7 +733,7 @@ export class WebhookEndpointService {
             durationMs: a.durationMs,
             statusCode: a.statusCode,
             errorClass: a.errorClass,
-            responseExcerpt: a.responseExcerpt,
+            responseExcerpt: mayReadExcerpts ? a.responseExcerpt : null,
           })),
         };
       },
@@ -685,11 +742,16 @@ export class WebhookEndpointService {
 
   /**
    * Manual redelivery of one delivery (including a dead one): a fresh retry cycle of the SAME
-   * delivery and event id. The scope and destination are re-checked when it runs.
+   * delivery and event id. The scope and destination are re-checked when it runs. `webhooks.manage`
+   * is checked first (403); a delivery of a family the manager may not read then answers 404, like a
+   * missing one, re-checked here against the current permissions.
    */
   redeliver(principal: Principal, id: string, origin: EventOrigin) {
     return this.manage(principal, async (tx, ctx) => {
-      const delivery = await getDelivery(tx, ctx.organizationId, id, { forUpdate: true });
+      const delivery = await getDelivery(tx, ctx.organizationId, id, {
+        forUpdate: true,
+        visibleResourceTypes: this.visibleTypes(ctx),
+      });
       if (!delivery) throw new NotFoundError('Delivery not found.');
       if (delivery.status === 'pending') throw invalidState('The delivery is still in progress.');
       if (delivery.eventType === 'webhook.ping') {

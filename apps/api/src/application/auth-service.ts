@@ -8,7 +8,7 @@ import {
   UnauthenticatedError,
   ValidationError,
 } from '../domain/errors.js';
-import { getEffectiveAccess } from '../modules/access-control/index.js';
+import { getEffectiveAccess, scopeAccess } from '../modules/access-control/index.js';
 import {
   countRecentLoginFailures,
   hasSecurityEventForSession,
@@ -586,12 +586,13 @@ export class AuthService {
       if (active) {
         await setDbContext(tx, { userId: user.id, organizationId: active.organizationId });
         const access = await getEffectiveAccess(tx, active.organizationId, active.membershipId);
+        const scoped = await scopeAccess(tx, active.organizationId, active.membershipId, access);
         activeOrganization = {
           id: active.organizationId,
           name: active.organizationName,
           membershipId: active.membershipId,
           isOwner: access.isOwner,
-          permissions: [...access.permissions].sort(),
+          permissions: [...scoped.permissions].sort(),
         };
         const policy = await getSecurityPolicy(tx, active.organizationId);
         const requirement = mfaRequirement(access, policy);

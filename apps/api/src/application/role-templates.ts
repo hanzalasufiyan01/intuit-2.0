@@ -12,6 +12,7 @@ import { ApprovalPermissions } from '../modules/approvals/index.js';
 import { AuditPermissions } from '../modules/audit/index.js';
 import { BankingPermissions, bankingViewPermissions } from '../modules/banking/index.js';
 import { CatalogPermissions } from '../modules/catalog/index.js';
+import { ClinicPermissions } from '../modules/clinic/index.js';
 import {
   ExpenseClaimPermissions,
   expenseClaimViewPermissions,
@@ -25,6 +26,9 @@ import {
 import { OrganizationPermissions } from '../modules/organizations/index.js';
 import { CustomerPermissions } from '../modules/customers/index.js';
 import { PartyPermissions } from '../modules/parties/index.js';
+import { PayrollPermissions } from '../modules/payroll/index.js';
+import { ProjectPermissions } from '../modules/projects/index.js';
+import { QuotePermissions } from '../modules/quotes/index.js';
 import {
   BillPermissions,
   billViewPermissions,
@@ -37,6 +41,8 @@ import {
   VendorPaymentPermissions,
   vendorPaymentViewPermissions,
 } from '../modules/purchases/index.js';
+import { PaymentPermissions } from '../modules/payments/index.js';
+import { SalesExtraPermissions } from '../modules/sales-extras/index.js';
 import { SalesPermissions, salesViewPermissions } from '../modules/sales/index.js';
 import { TaxPermissions } from '../modules/tax/index.js';
 import { VendorPermissions } from '../modules/vendors/index.js';
@@ -101,6 +107,18 @@ export const roleTemplateDefinitions: readonly RoleTemplateDefinition[] = [
       ...Object.values(ExpenseClaimPermissions),
       // Public API (ADR 0011): integrations, tokens and webhooks.
       ...Object.values(ApiIntegrationPermissions),
+      // Payroll (FP-25): sensitive; owners and administrators only.
+      ...Object.values(PayrollPermissions),
+      // Projects (FP-26).
+      ...Object.values(ProjectPermissions),
+      // Clinic extension (FP-27, ADR 0013): sensitive; owners and administrators only.
+      ...Object.values(ClinicPermissions),
+      // Sales quotes and recurring invoices (FP-28).
+      ...Object.values(QuotePermissions),
+      // Payment reminders, sales orders and invoice share links (FP-28).
+      ...Object.values(SalesExtraPermissions),
+      // Online payment gateway (migration 0075).
+      ...Object.values(PaymentPermissions),
     ],
   },
   {

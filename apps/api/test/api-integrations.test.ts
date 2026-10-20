@@ -424,8 +424,8 @@ describe('API integrations', () => {
       ]),
     ).rejects.toMatchObject({ code: '23514' });
     const audit = await sql(
-      `SELECT metadata FROM audit_events WHERE action = 'api_integration.responsible_reassigned' AND resource_id = $1`,
-      [integration.id],
+      `SELECT metadata FROM audit_events WHERE organization_id = $2 AND action = 'api_integration.responsible_reassigned' AND resource_id = $1`,
+      [integration.id, org.organizationId],
     );
     expect(audit.rows[0].metadata).toMatchObject({
       from: org.ownerMembershipId,
@@ -849,8 +849,8 @@ describe('audit identity of an integration', () => {
     });
     const event = (
       await sql(
-        `SELECT actor_type, actor_user_id, actor_integration_id, actor_token_id FROM audit_events WHERE resource_id = $1`,
-        [marker],
+        `SELECT actor_type, actor_user_id, actor_integration_id, actor_token_id FROM audit_events WHERE organization_id = $2 AND resource_id = $1`,
+        [marker, org.organizationId],
       )
     ).rows[0];
     const principal = (
@@ -865,8 +865,8 @@ describe('audit identity of an integration', () => {
     // The human lifecycle events stay human.
     const created = (
       await sql(
-        `SELECT actor_type, actor_integration_id FROM audit_events WHERE action = 'api_integration.created' AND resource_id = $1`,
-        [integration.id],
+        `SELECT actor_type, actor_integration_id FROM audit_events WHERE organization_id = $2 AND action = 'api_integration.created' AND resource_id = $1`,
+        [integration.id, org.organizationId],
       )
     ).rows[0];
     expect(created).toEqual({ actor_type: 'user', actor_integration_id: null });
@@ -1118,9 +1118,11 @@ describe('scope boundaries', () => {
   const SCOPES = PUBLIC_API_SCOPES.map((s) => s.scope);
 
   async function contexts() {
-    const org = await setUpAccountingOrg(ctx);
+    let org = await setUpAccountingOrg(ctx);
     const result: Record<string, Set<string>> = {};
-    for (const scope of SCOPES) {
+    for (const [index, scope] of SCOPES.entries()) {
+      // An organization holds at most 10 active tokens: start a new one for each batch.
+      if (index > 0 && index % 8 === 0) org = await setUpAccountingOrg(ctx);
       const integration = await integrationOf(org.owner, [scope], `Only ${scope}`);
       const { token } = await tokenOf(org.owner, integration.id);
       result[scope] = new Set((await authenticate(token)).permissions);
@@ -1144,6 +1146,12 @@ describe('scope boundaries', () => {
     expect([...byScope['invoices:read']!]).toEqual(['invoices.view']);
     expect([...byScope['bills:read']!]).toEqual(['bills.view']);
     expect([...byScope['accounts:read']!]).toEqual(['accounting.accounts.view']);
+    // CR-0011-S6-01: five subscription-only read scopes, each exactly one existing view permission.
+    expect([...byScope['credit_notes:read']!]).toEqual(['credit_notes.view']);
+    expect([...byScope['receipts:read']!]).toEqual(['receipts.view']);
+    expect([...byScope['vendor_credits:read']!]).toEqual(['vendor_credits.view']);
+    expect([...byScope['vendor_payments:read']!]).toEqual(['vendor_payments.view']);
+    expect([...byScope['expense_claims:read']!]).toEqual(['expense_claims.view']);
   });
 
   it('keeps read scopes read-only', async () => {
@@ -1235,8 +1243,8 @@ describe('audit path of an integration request', () => {
     });
     const row = (
       await sql(
-        `SELECT actor_type, actor_integration_id, actor_token_id FROM audit_events WHERE resource_id = $1`,
-        [marker],
+        `SELECT actor_type, actor_integration_id, actor_token_id FROM audit_events WHERE organization_id = $2 AND resource_id = $1`,
+        [marker, org.organizationId],
       )
     ).rows[0];
     expect(row).toEqual({

@@ -30,11 +30,25 @@ import {
 import { toBill, toCustomer, toInvoice, toVendor } from './api/public/dto-v1.js';
 import { PublicEventPublisher } from './application/public-event-publisher.js';
 import { PublicApiReadService } from './application/public-api-read-service.js';
-import { PostgresRateLimiter } from './application/rate-limiter.js';
+import { PostgresRateLimiter, type RateLimiter } from './application/rate-limiter.js';
 import { IntegrationAuthService } from './application/integration-auth-service.js';
 import { ExpenseClaimService } from './application/expense-claim-service.js';
 import { FixedAssetService } from './application/fixed-asset-service.js';
+import { InventoryCountService } from './application/inventory-count-service.js';
+import { InventoryReportService } from './application/inventory-report-service.js';
+import { ClinicService } from './application/clinic-service.js';
+import { ClinicConsentService } from './application/clinic-consent-service.js';
+import { ModuleService } from './application/module-service.js';
+import { PayrollExtraService } from './application/payroll-extra-service.js';
+import { PayrollService } from './application/payroll-service.js';
+import { InvoiceShareService } from './application/invoice-share-service.js';
+import { PaymentReminderService } from './application/payment-reminder-service.js';
+import { ProjectService } from './application/project-service.js';
+import { QuoteService } from './application/quote-service.js';
+import { RecurringInvoiceService } from './application/recurring-invoice-service.js';
+import { SalesOrderService } from './application/sales-order-service.js';
 import { InventoryService } from './application/inventory-service.js';
+import { TaxLiabilityService } from './application/tax-liability-service.js';
 import { PurchaseOrderService } from './application/purchase-order-service.js';
 import { InvoiceService } from './application/invoice-service.js';
 import { BillService } from './application/bill-service.js';
@@ -58,6 +72,22 @@ import {
   RemittanceService,
 } from './application/remittance-service.js';
 import { ReceiptService } from './application/receipt-service.js';
+import { PaymentGatewayService } from './application/payment-gateway-service.js';
+import { CustomerStatementService } from './application/customer-statement-service.js';
+import { CashBasisReportService } from './application/cash-basis-report-service.js';
+import { ExpenseClaimReportService } from './application/expense-claim-report-service.js';
+import { InventoryBundleService } from './application/inventory-bundle-service.js';
+import { WarehouseService } from './application/warehouse-service.js';
+import { InventoryLotService } from './application/inventory-lot-service.js';
+import { InventoryLandedCostService } from './application/inventory-landed-cost-service.js';
+import { InventoryUnitService } from './application/inventory-unit-service.js';
+import { BranchScopeService } from './application/branch-scope-service.js';
+import { ClassificationService } from './application/classification-service.js';
+import { DeliveryService, ReservationService } from './application/delivery-service.js';
+import { ExpensePolicyService } from './application/expense-policy-service.js';
+import { PettyCashService } from './application/petty-cash-service.js';
+import { OrganizationGroupService } from './application/organization-group-service.js';
+import { MockPaymentProvider } from './infrastructure/payments/mock-provider.js';
 import { CreditNoteService } from './application/credit-note-service.js';
 import { ArReportService } from './application/ar-report-service.js';
 import { ApReportService } from './application/ap-report-service.js';
@@ -77,7 +107,7 @@ import {
   JobWorker,
   type JobHandler,
 } from './application/job-service.js';
-import { LocalStorageProvider, NoopScanner } from './modules/files/index.js';
+import { LocalStorageProvider, NoopScanner, S3StorageProvider } from './modules/files/index.js';
 import { attachmentTargets } from './application/attachment-targets.js';
 import {
   DATA_EXCHANGE_CLEANUP_JOB,
@@ -94,6 +124,8 @@ import { ApprovalService } from './application/approval-service.js';
 import { AuthService } from './application/auth-service.js';
 import type { AppDependencies } from './application/dependencies.js';
 import { InvitationService } from './application/invitation-service.js';
+import { OwnershipTransferService } from './application/ownership-transfer-service.js';
+import { Metrics } from './infrastructure/metrics.js';
 import { IdempotencyService } from './application/idempotency-service.js';
 import { JournalService } from './application/journal-service.js';
 import { MfaService } from './application/mfa-service.js';
@@ -123,6 +155,8 @@ export interface BuiltApp {
     auth: AuthService;
     organizations: OrganizationService;
     invitations: InvitationService;
+    ownershipTransfers: OwnershipTransferService;
+    metrics: Metrics;
     roles: RoleService;
     approvals: ApprovalService;
     accounting: AccountingService;
@@ -153,6 +187,39 @@ export interface BuiltApp {
     banking: BankingService;
     bankingPosting: BankingPostingService;
     inventory: InventoryService;
+    inventoryReports: InventoryReportService;
+    inventoryCounts: InventoryCountService;
+    modules: ModuleService;
+    payroll: PayrollService;
+    payrollExtra: PayrollExtraService;
+    projects: ProjectService;
+    clinic: ClinicService;
+    clinicConsent: ClinicConsentService;
+    quotes: QuoteService;
+    reminders: PaymentReminderService;
+    payments: PaymentGatewayService;
+    statements: CustomerStatementService;
+    cashBasis: CashBasisReportService;
+    claimReports: ExpenseClaimReportService;
+    inventoryBundles: InventoryBundleService;
+    warehouses: WarehouseService;
+    inventoryLots: InventoryLotService;
+    landedCosts: InventoryLandedCostService;
+    inventoryUnits: InventoryUnitService;
+    branchScopes: BranchScopeService;
+    classification: ClassificationService;
+    deliveries: DeliveryService;
+    reservations: ReservationService;
+    expensePolicies: ExpensePolicyService;
+    pettyCash: PettyCashService;
+    organizationGroups: OrganizationGroupService;
+    /** The simulated provider; present only while PAYMENTS_MOCK_ENABLED (never moves money). */
+    mockPayments?: MockPaymentProvider;
+    salesOrders: SalesOrderService;
+    shareLinks: InvoiceShareService;
+    rateLimiter: RateLimiter;
+    recurring: RecurringInvoiceService;
+    taxLiability: TaxLiabilityService;
     fixedAssets: FixedAssetService;
     expenseClaims: ExpenseClaimService;
     apiIntegrations: ApiIntegrationService;
@@ -211,7 +278,9 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   // S6 adds the import_batch and export attachment targets (S5-04).
   const files = new FileService(
     deps,
-    new LocalStorageProvider(config.storage.localRoot),
+    config.storage.s3
+      ? new S3StorageProvider(config.storage.s3)
+      : new LocalStorageProvider(config.storage.localRoot),
     new NoopScanner(),
     new Map([...attachmentTargets, ...dataExchangeTargets]),
   );
@@ -233,6 +302,13 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   const items = new ItemService(deps, publicEvents);
   // Inventory (ADR 0006): additive to Sales and Purchases through hooks inside their transactions.
   const inventory = new InventoryService(deps, journals, idempotency);
+  const inventoryReports = new InventoryReportService(deps);
+  // Physical stock counts post their differences through the adjustment flow (FP-29 A5).
+  const inventoryCounts = new InventoryCountService(deps, inventory);
+  const modules = new ModuleService(deps);
+  // Payroll (FP-25): off until enabled per organization; posts through accounting events.
+  const payroll = new PayrollService(deps, journals, idempotency, new PdfkitRenderer());
+  const payrollExtra = new PayrollExtraService(deps, journals);
   // Fixed assets (ADR 0008): register, depreciation, disposal and transfers.
   const fixedAssets = new FixedAssetService(deps, journals, idempotency);
   const invoices = new InvoiceService(
@@ -244,6 +320,45 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     inventory,
     publicEvents,
   );
+  // Projects (FP-26): time, billing into draft invoices, project profit through dimensions.
+  const projects = new ProjectService(deps, invoices);
+  // Sales quotes and recurring invoice schedules (FP-28): both produce DRAFT invoices only.
+  const quotes = new QuoteService(deps, invoices, idempotency);
+  // Clinic extension (FP-27, ADR 0013): administrative and billing data only.
+  const clinic = new ClinicService(deps, invoices);
+  const clinicConsent = new ClinicConsentService(deps);
+  const recurring = new RecurringInvoiceService(deps, invoices);
+  // Payment reminders, sales orders and read-only invoice share links (FP-28).
+  const reminders = new PaymentReminderService(deps);
+  const salesOrders = new SalesOrderService(deps, invoices, idempotency);
+  const shareLinks = new InvoiceShareService(deps);
+  // Online payments (migration 0075): a provider-neutral gateway. Only the simulated provider
+  // exists; no real provider is configured.
+  const mockPayments = deps.config.payments.mockEnabled
+    ? new MockPaymentProvider(deps.config.payments.mockWebhookSecret, deps.config.webOrigin)
+    : undefined;
+  const payments = new PaymentGatewayService(
+    deps,
+    receipts,
+    idempotency,
+    mockPayments ? { mock: mockPayments } : {},
+  );
+  // Customer portal v1: read-only statement links (no customer accounts yet).
+  const statements = new CustomerStatementService(deps, payments);
+  const cashBasis = new CashBasisReportService(deps);
+  const claimReports = new ExpenseClaimReportService(deps);
+  const inventoryBundles = new InventoryBundleService(deps);
+  const warehouses = new WarehouseService(deps, idempotency);
+  const inventoryLots = new InventoryLotService(deps);
+  const inventoryUnits = new InventoryUnitService(deps);
+  const branchScopes = new BranchScopeService(deps);
+  const classification = new ClassificationService(deps);
+  const deliveries = new DeliveryService(deps);
+  const reservations = new ReservationService(deps);
+  const expensePolicies = new ExpensePolicyService(deps);
+  const pettyCash = new PettyCashService(deps, journals);
+  const organizationGroups = new OrganizationGroupService(deps);
+  const landedCosts = new InventoryLandedCostService(deps, journals, idempotency, inventory);
   // Phase 4A-5: bills (ADR 0004 P4-15 to P4-22).
   // Purchase orders, goods receiving and three-way matching (ADR 0007): additive to bills.
   const purchaseOrders = new PurchaseOrderService(deps, approvals, idempotency);
@@ -345,6 +460,7 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   const arReports = new ArReportService(deps);
   // Phase 4B-5: AP aging, vendor statements and the AP reconciliation (P4-49).
   const apReports = new ApReportService(deps);
+  const taxLiability = new TaxLiabilityService(arReports, apReports);
   const domainServices = {
     accounting,
     journals,
@@ -373,6 +489,8 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     auth,
     organizations: new OrganizationService(deps),
     invitations: new InvitationService(deps, auth),
+    ownershipTransfers: new OwnershipTransferService(deps),
+    metrics: new Metrics(),
     roles: new RoleService(deps),
     approvals,
     accounting,
@@ -405,6 +523,38 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     banking,
     bankingPosting,
     inventory,
+    inventoryReports,
+    inventoryCounts,
+    modules,
+    payroll,
+    payrollExtra,
+    projects,
+    clinic,
+    quotes,
+    recurring,
+    reminders,
+    payments,
+    statements,
+    cashBasis,
+    claimReports,
+    inventoryBundles,
+    warehouses,
+    inventoryLots,
+    landedCosts,
+    inventoryUnits,
+    branchScopes,
+    classification,
+    deliveries,
+    reservations,
+    expensePolicies,
+    pettyCash,
+    clinicConsent,
+    organizationGroups,
+    ...(mockPayments ? { mockPayments } : {}),
+    salesOrders,
+    shareLinks,
+    rateLimiter,
+    taxLiability,
     fixedAssets,
     expenseClaims,
     apiIntegrations,
@@ -466,6 +616,19 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
   const routes: { method: string; url: string }[] = [];
   app.addHook('onRoute', (route) => {
     for (const method of [route.method].flat()) routes.push({ method, url: route.url });
+  });
+
+  // Request counts and latency by route pattern (never the concrete URL) for GET /api/v1/metrics.
+  app.addHook('onRequest', async () => {
+    services.metrics.requestStarted();
+  });
+  app.addHook('onResponse', async (request, reply) => {
+    services.metrics.requestFinished(
+      request.method,
+      request.routeOptions.url ?? 'unmatched',
+      reply.statusCode,
+      reply.elapsedTime / 1000,
+    );
   });
 
   app.removeContentTypeParser('text/plain');

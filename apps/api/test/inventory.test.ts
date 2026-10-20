@@ -429,7 +429,7 @@ describe('stock on bills and invoices', () => {
     expect((await stock(o)).quantity).toBe('0');
   });
 
-  it('refuses tracked items on expenses and vendor credits until they can move stock', async () => {
+  it('refuses tracked items on expenses until they can move stock', async () => {
     const o = await stockOrg();
     const expense = await o.owner.post('/purchases/expenses', {
       vendorId: o.vendorId,

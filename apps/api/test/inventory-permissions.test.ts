@@ -32,6 +32,10 @@ describe('Inventory permission backfill (migration 0046)', () => {
     await owner.end();
   });
 
+  // Migration 0046 predates the stock-count key (0071), which has its own backfill.
+  const original = inventoryPermissionDefinitions.filter(
+    (d) => d.key !== InventoryPermissions.CountsManage,
+  );
   const backfillSql = () => {
     const sql = readMigrationFiles().find((m) => m.version === '0046_inventory')!.sql;
     return sql.slice(sql.indexOf('INSERT INTO permissions'));
@@ -41,12 +45,10 @@ describe('Inventory permission backfill (migration 0046)', () => {
     const inserted = [
       ...backfillSql().matchAll(/\('(inventory\.[a-z_.]+)', 'inventory', '([^']+)'\)/g),
     ].map((m) => ({ key: m[1], description: m[2] }));
-    expect(inventoryPermissionDefinitions).toHaveLength(5);
+    expect(original).toHaveLength(5);
     expect(inserted).toHaveLength(5);
     expect(inserted).toEqual(
-      expect.arrayContaining(
-        inventoryPermissionDefinitions.map((d) => ({ key: d.key, description: d.description })),
-      ),
+      expect.arrayContaining(original.map((d) => ({ key: d.key, description: d.description }))),
     );
   });
 
@@ -57,7 +59,7 @@ describe('Inventory permission backfill (migration 0046)', () => {
       name: 'Custom',
       permissionKeys: ['organization.read'],
     });
-    const keys = Object.values(InventoryPermissions);
+    const keys = original.map((d) => d.key);
     await owner.query('BEGIN');
     await scopeBackfillToOrganizations(owner, [orgId]);
     try {

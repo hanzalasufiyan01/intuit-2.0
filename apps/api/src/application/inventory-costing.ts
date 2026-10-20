@@ -166,3 +166,29 @@ export function allocate(total: Decimal, weights: readonly Decimal[], places: nu
   });
   return parts;
 }
+
+/**
+ * Value moves with no quantity (a landed cost, or its void). A negative `delta` takes value away and
+ * is refused when it would leave the stock with negative value (block policy).
+ */
+export function revalue(
+  state: StockState,
+  delta: Decimal,
+  allowNegative: boolean,
+  scale = DEFAULT_VALUE_SCALE,
+): StockStep {
+  const val = round(delta, scale);
+  const value = round(state.value.plus(val), scale);
+  if (value.lt(0) && !allowNegative) throw new InsufficientStock(state.quantity, decimal(0));
+  return {
+    quantity: decimal(0),
+    value: val,
+    after: {
+      quantity: state.quantity,
+      value,
+      lastUnitCost: state.quantity.gt(0)
+        ? round(value.div(state.quantity), QTY_SCALE)
+        : state.lastUnitCost,
+    },
+  };
+}

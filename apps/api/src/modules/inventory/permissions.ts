@@ -11,6 +11,7 @@ export const InventoryPermissions = {
   SettingsManage: 'inventory.settings.manage',
   AdjustmentsCreate: 'inventory.adjustments.create',
   AdjustmentsVoid: 'inventory.adjustments.void',
+  CountsManage: 'inventory.counts.manage',
 } as const;
 
 export const inventoryViewPermissions = [InventoryPermissions.View] as const;
@@ -40,5 +41,10 @@ export const inventoryPermissionDefinitions: readonly PermissionDefinition[] = [
     key: InventoryPermissions.AdjustmentsVoid,
     module: 'inventory',
     description: 'Void stock adjustments',
+  },
+  {
+    key: InventoryPermissions.CountsManage,
+    module: 'inventory',
+    description: 'Start, enter, post and cancel physical stock counts',
   },
 ];

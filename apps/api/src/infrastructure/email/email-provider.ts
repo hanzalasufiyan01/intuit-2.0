@@ -9,7 +9,13 @@ export interface EmailMessage {
    * Phase 3B E4: files attached by reference (a stored file id). The provider resolves the
    * content when delivering; the message itself never carries file bytes.
    */
-  attachments?: { fileId: string; fileName: string; contentType: string }[];
+  attachments?: {
+    /** The organization that owns the file (a real provider needs it to load the content). */
+    organizationId?: string;
+    fileId: string;
+    fileName: string;
+    contentType: string;
+  }[];
 }
 
 /** Provider abstraction for outbound email (real providers are added in later phases). */

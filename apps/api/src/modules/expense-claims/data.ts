@@ -229,3 +229,34 @@ export async function listClaims(tx: Transaction, query: ClaimListQuery) {
     .limit(query.limit + 1);
   return { items: rows.slice(0, query.limit), hasMore: rows.length > query.limit };
 }
+
+/** Claim totals per claimant (the employee party) for claim dates in a range; cancelled and draft claims are left out. */
+export async function claimantTotals(
+  tx: Transaction,
+  organizationId: string,
+  range: { from: string; to: string },
+) {
+  const result = await tx.execute<{
+    party_id: string;
+    display_name: string;
+    status: string;
+    claims: number;
+    total: string;
+  }>(sql`
+    SELECT c.employee_party_id AS party_id, p.display_name, c.status,
+           count(*)::int AS claims, coalesce(sum(c.total), 0)::text AS total
+      FROM expense_claims c
+      JOIN parties p ON p.id = c.employee_party_id AND p.organization_id = c.organization_id
+     WHERE c.organization_id = ${organizationId}
+       AND c.claim_date BETWEEN ${range.from}::date AND ${range.to}::date
+       AND c.status IN ('PENDING_APPROVAL', 'APPROVED', 'POSTED')
+     GROUP BY c.employee_party_id, p.display_name, c.status
+     ORDER BY p.display_name, c.status`);
+  return result.rows.map((r) => ({
+    partyId: r.party_id,
+    displayName: r.display_name,
+    status: r.status,
+    claims: r.claims,
+    total: r.total,
+  }));
+}

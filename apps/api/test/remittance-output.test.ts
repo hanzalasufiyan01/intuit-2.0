@@ -388,8 +388,8 @@ describe('remittance advice generation', () => {
     expect((await snapshotOf(p.id)).s).toEqual(frozen.s);
     // Audit: requested, then generated (system), without the vendor's address.
     const audit = await owner.query(
-      `SELECT action, metadata FROM audit_events WHERE resource_id = $1 AND action LIKE 'vendor_payment.remittance_%' ORDER BY occurred_at, id`,
-      [p.id],
+      `SELECT action, metadata FROM audit_events WHERE organization_id = $2 AND resource_id = $1 AND action LIKE 'vendor_payment.remittance_%' ORDER BY occurred_at, id`,
+      [p.id, o.organizationId],
     );
     expect(audit.rows.map((r) => r.action)).toEqual([
       'vendor_payment.remittance_requested',
@@ -649,6 +649,7 @@ describe('remittance advice email', () => {
         fileId: ready.fileId,
         fileName: `${p.number}-remittance.pdf`,
         contentType: 'application/pdf',
+        organizationId: o.organizationId,
       },
     ]);
     const list = (await o.owner.get(`${path(p.id)}/emails`)).body.data;
@@ -656,8 +657,8 @@ describe('remittance advice email', () => {
     expect(list[0]).toMatchObject({ recipient: 'ap@island.test', status: 'sent' });
     // The address is on the email row only.
     const audit = await owner.query(
-      `SELECT action, metadata::text AS metadata FROM audit_events WHERE resource_id = $1 AND action LIKE 'vendor_payment.remittance_%' ORDER BY occurred_at, id`,
-      [p.id],
+      `SELECT action, metadata::text AS metadata FROM audit_events WHERE organization_id = $2 AND resource_id = $1 AND action LIKE 'vendor_payment.remittance_%' ORDER BY occurred_at, id`,
+      [p.id, o.organizationId],
     );
     expect(audit.rows.map((r) => r.action)).toEqual([
       'vendor_payment.remittance_email_requested',

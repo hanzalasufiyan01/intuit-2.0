@@ -48,7 +48,12 @@ import {
 import type { TaxTreatment } from '../modules/tax/index.js';
 import { requireAccountingSettings } from './accounting-service.js';
 import type { ApprovalService } from './approval-service.js';
-import { requirePermission, type AuthorizationContext, type Principal } from './authorization.js';
+import {
+  assertWithinBranchScope,
+  requirePermission,
+  type AuthorizationContext,
+  type Principal,
+} from './authorization.js';
 import type { AppDependencies } from './dependencies.js';
 import type { PublicEventEmitter } from './public-event-publisher.js';
 import type { IdempotencyService } from './idempotency-service.js';
@@ -696,6 +701,7 @@ export class InvoiceService {
     input: InvoiceDraftInput,
     origin: EventOrigin,
   ): Promise<Invoice> {
+    assertWithinBranchScope(ctx, input.dimensionValueIds, { required: true });
     const resolved = await this.validateDraftInTransaction(tx, ctx, input);
     const now = this.now;
     const invoice = await insertInvoice(tx, {
@@ -748,6 +754,7 @@ export class InvoiceService {
     origin: EventOrigin,
   ): Promise<void> {
     requirePermission(ctx, SalesPermissions.InvoicesEditDraft);
+    assertWithinBranchScope(ctx, input.dimensionValueIds, { required: false });
     const invoice = await this.lockDraft(tx, ctx, id, input.version, 'edited');
     const accounting = await requireAccountingSettings(tx, ctx.organizationId);
     const sales = await getSalesSettings(tx, ctx.organizationId);

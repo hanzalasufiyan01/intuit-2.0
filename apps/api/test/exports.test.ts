@@ -73,6 +73,11 @@ async function noDimensionsUser(permissionKeys: string[]) {
 
 beforeAll(async () => {
   ctx = await createTestContext();
+  // The job queue is shared by every test file. Files that ran earlier can leave due jobs behind
+  // (2026-10-20: about 200 document PDFs from earlier sales and purchases tests), and the worker
+  // takes the oldest first, so this file's exports would wait behind them. Process what is
+  // already due before the first export; the budget per export in runExport stays the same.
+  for (let pass = 0; pass < 1000 && (await ctx.worker.runOnce()) > 0; pass++);
   org = await setUpAccountingOrg(ctx);
   await postJournal(org, cashSale(org, '100.00', '2026-03-15'));
   await postJournal(org, cashSale(org, '40.50', '2026-04-02'));
@@ -375,8 +380,8 @@ describe('limits, access and lifecycle', () => {
     const view = await runExport(org.owner, 'dimension_values');
     await download(org.owner, view.id);
     const audit = await ownerSql(
-      `SELECT action, metadata FROM audit_events WHERE resource_id = $1 OR metadata->>'fileId' = $2`,
-      [view.id, view.fileId],
+      `SELECT action, metadata FROM audit_events WHERE organization_id = $3 AND (resource_id = $1 OR metadata->>'fileId' = $2)`,
+      [view.id, view.fileId, org.organizationId],
     );
     expect(audit.rows.map((r) => r.action)).toEqual(['export.generated']);
     expect(audit.rows[0].metadata).toMatchObject({
@@ -453,5 +458,123 @@ describe('limits, access and lifecycle', () => {
         .status,
     ).toBe(400);
     expect((await org.owner.post('/exports', { domain: 'nope', params: {} })).status).toBe(400);
+  });
+});
+
+describe('expense trend export (R-02)', () => {
+  const spend = (o: AccountingOrg, entryDate: string, code: string, amount: string) => ({
+    entryDate,
+    description: `Spend ${code}`,
+    currency: 'MVR',
+    lines: [
+      { accountId: o.accounts[code]!, description: '', debit: amount, credit: null },
+      { accountId: o.accounts['1110']!, description: '', debit: null, credit: amount },
+    ],
+  });
+
+  it('writes the same figures as the screen, with a preamble and a total row', async () => {
+    const o = await setUpAccountingOrg(ctx);
+    await postJournal(o, spend(o, '2026-01-10', '5400', '100.00'));
+    await postJournal(o, spend(o, '2026-02-05', '5400', '50.00'));
+    await postJournal(o, spend(o, '2026-02-20', '5300', '30.00'));
+    const screen = (
+      await o.owner.get('/accounting/reports/expense-trend?from=2026-01-01&to=2026-02-28')
+    ).body.data;
+
+    const view = await runExport(o.owner, 'expense_trend', {
+      from: '2026-01-01',
+      to: '2026-02-28',
+    });
+    expect(view).toMatchObject({ status: 'ready', rowCount: 2 });
+    const { rows, headers } = await download(o.owner, view.id);
+    expect(String(headers['content-disposition'])).toMatch(/expense-trend-\d{4}-\d{2}-\d{2}\.csv/);
+    expect(rows.find((r) => r[0] === 'Report')).toEqual(['Report', 'Expense Trend']);
+    expect(rows.find((r) => r[0] === 'Period')).toEqual(['Period', '2026-01-01 to 2026-02-28']);
+    expect(rows.find((r) => r[0] === 'Base currency')).toEqual(['Base currency', 'MVR']);
+    const header = rows.findIndex((r) => r[0] === 'code');
+    expect(rows[header]).toEqual(['code', 'name', 'section', '2026-01', '2026-02', 'total']);
+    const body = rows.slice(header + 1).filter((r) => r.length > 1);
+    expect(body).toEqual([
+      ['5300', 'Rent', 'operating_expenses', '0.00', '30.00', '30.00'],
+      [
+        '5400',
+        screen.accounts.find((a: { code: string }) => a.code === '5400').name,
+        'operating_expenses',
+        '100.00',
+        '50.00',
+        '150.00',
+      ],
+      ['', 'Total', '', '100.00', '80.00', '180.00'],
+    ]);
+    // Reconciliation with the report on screen.
+    expect(body.at(-1)!.slice(3)).toEqual([...screen.totals, screen.total]);
+    // Generation is audited, with the domain and without amounts.
+    const audit = await ownerSql(
+      `SELECT metadata FROM audit_events
+        WHERE organization_id = $1 AND action = 'export.generated' AND resource_id = $2`,
+      [o.organizationId, view.id],
+    );
+    expect(audit.rows).toHaveLength(1);
+    expect(audit.rows[0].metadata).toMatchObject({ domain: 'expense_trend' });
+    expect(JSON.stringify(audit.rows[0].metadata)).not.toContain('180.00');
+  });
+
+  it('exports a header and a zero total when there are no expenses', async () => {
+    const o = await setUpAccountingOrg(ctx);
+    const view = await runExport(o.owner, 'expense_trend', {
+      from: '2026-03-01',
+      to: '2026-03-31',
+    });
+    expect(view).toMatchObject({ status: 'ready', rowCount: 0 });
+    const rows = (await download(o.owner, view.id)).rows;
+    const header = rows.findIndex((r) => r[0] === 'code');
+    expect(rows.slice(header + 1).filter((r) => r.length > 1)).toEqual([
+      ['', 'Total', '', '0.00', '0.00'],
+    ]);
+  });
+
+  it('fails with the report message for a reversed range, and validates parameters', async () => {
+    const o = await setUpAccountingOrg(ctx);
+    const failed = await runExport(o.owner, 'expense_trend', {
+      from: '2026-03-01',
+      to: '2026-02-01',
+    });
+    expect(failed).toMatchObject({
+      status: 'failed',
+      error: expect.stringMatching(/must not be before/),
+    });
+    for (const params of [{ from: '2026-01-01' }, { from: 'soon', to: '2026-01-31' }, {}]) {
+      const res = await o.owner.post('/exports', { domain: 'expense_trend', params });
+      expect(res.status, JSON.stringify(params)).toBe(400);
+    }
+  });
+
+  it('needs the reports permission to create and to download, and stays in its organization', async () => {
+    const a = await setUpAccountingOrg(ctx);
+    const b = await setUpAccountingOrg(ctx);
+    await postJournal(a, spend(a, '2026-01-10', '5400', '100.00'));
+    const created = await a.owner.post('/organizations/current/roles', {
+      name: 'Customer clerk',
+      permissionKeys: ['customers.view'],
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const clerk = (await joinWithRole(ctx, a.owner, 'Customer clerk')).client;
+    const denied = await clerk.post('/exports', {
+      domain: 'expense_trend',
+      params: { from: '2026-01-01', to: '2026-01-31' },
+    });
+    expect(denied.status).toBe(403);
+    const view = await runExport(a.owner, 'expense_trend', {
+      from: '2026-01-01',
+      to: '2026-01-31',
+    });
+    expect(view.status).toBe('ready');
+    // Another organization cannot see or download it.
+    expect((await b.owner.get(`/exports/${view.id}`)).status).toBe(404);
+    expect((await b.owner.get(`/exports/${view.id}/download-url`)).status).toBe(404);
+    // B's own export of the same period has none of A's expenses.
+    const own = await runExport(b.owner, 'expense_trend', { from: '2026-01-01', to: '2026-01-31' });
+    expect(own).toMatchObject({ status: 'ready', rowCount: 0 });
+    expect((await download(b.owner, own.id)).text).not.toContain('100.00');
   });
 });

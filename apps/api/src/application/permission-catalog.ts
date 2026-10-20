@@ -8,10 +8,14 @@ import { approvalPermissionDefinitions } from '../modules/approvals/index.js';
 import { auditPermissionDefinitions } from '../modules/audit/index.js';
 import { bankingPermissionDefinitions } from '../modules/banking/index.js';
 import { catalogPermissionDefinitions } from '../modules/catalog/index.js';
+import { clinicPermissionDefinitions } from '../modules/clinic/index.js';
 import { apiIntegrationPermissionDefinitions } from '../modules/api-integrations/index.js';
 import { expenseClaimPermissionDefinitions } from '../modules/expense-claims/index.js';
 import { fixedAssetPermissionDefinitions } from '../modules/fixed-assets/index.js';
 import { inventoryPermissionDefinitions } from '../modules/inventory/index.js';
+import { payrollPermissionDefinitions } from '../modules/payroll/index.js';
+import { projectPermissionDefinitions } from '../modules/projects/index.js';
+import { quotePermissionDefinitions } from '../modules/quotes/index.js';
 import { purchaseOrderPermissionDefinitions } from '../modules/purchase-orders/index.js';
 import { organizationPermissionDefinitions } from '../modules/organizations/index.js';
 import { customerPermissionDefinitions } from '../modules/customers/index.js';
@@ -20,6 +24,8 @@ import {
   expensePermissionDefinitions,
   purchasesPermissionDefinitions,
 } from '../modules/purchases/index.js';
+import { paymentPermissionDefinitions } from '../modules/payments/index.js';
+import { salesExtraPermissionDefinitions } from '../modules/sales-extras/index.js';
 import { salesPermissionDefinitions } from '../modules/sales/index.js';
 import { taxPermissionDefinitions } from '../modules/tax/index.js';
 import { vendorPermissionDefinitions } from '../modules/vendors/index.js';
@@ -50,6 +56,12 @@ export const permissionCatalog: readonly PermissionDefinition[] = validatePermis
   ...bankingPermissionDefinitions,
   // Inventory: tracked items, the stock ledger, adjustments and valuation.
   ...inventoryPermissionDefinitions,
+  ...payrollPermissionDefinitions,
+  ...projectPermissionDefinitions,
+  ...clinicPermissionDefinitions,
+  ...quotePermissionDefinitions,
+  ...salesExtraPermissionDefinitions,
+  ...paymentPermissionDefinitions,
   // Purchase orders, goods receiving and three-way matching.
   ...purchaseOrderPermissionDefinitions,
   // Fixed assets: register, depreciation, disposal and transfers.

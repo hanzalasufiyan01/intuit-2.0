@@ -4,7 +4,9 @@
  * tables and never accesses the database (S3-04).
  */
 export * from './balance-sheet.js';
+export * from './cash-flow.js';
 export * from './engine.js';
+export * from './equity.js';
 export * from './profit-and-loss.js';
 export * from './sections.js';
 export * from './trial-balance.js';

@@ -192,6 +192,12 @@ export class FileService {
     }
     const target = this.target(found.link.linkType);
     await this.authorizeTarget(tx, ctx, target, found.link.linkId, access);
+    // The permission alone is not enough: the linked record must be visible to this caller under
+    // row-level security (a member limited to some branches must not read files of another
+    // branch's invoice by id). A hidden record answers exactly like a missing file.
+    if (!(await target.resolve(tx, ctx.organizationId, found.link.linkId))) {
+      throw new NotFoundError('File not found.');
+    }
     return { ...found, target };
   }
 

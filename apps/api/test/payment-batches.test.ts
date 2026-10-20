@@ -259,8 +259,8 @@ describe('batch Pay bills (P4-32)', () => {
       rateOverrideReason: 'Bank deal',
     });
     const { rows } = await owner.query(
-      `SELECT metadata FROM audit_events WHERE resource_id = $1 AND action = 'vendor_payment.rate_overridden'`,
-      [payment.id],
+      `SELECT metadata FROM audit_events WHERE organization_id = $2 AND resource_id = $1 AND action = 'vendor_payment.rate_overridden'`,
+      [payment.id, o.organizationId],
     );
     expect(rows[0].metadata).toMatchObject({ reason: 'Bank deal', tableRate: '15.5000000000' });
     const noReason = await batch(o.owner, {

@@ -37,7 +37,7 @@ export type FileLinkType = (typeof fileLinkTypes)[number];
 export const files = pgTable('files', {
   id: uuid('id').primaryKey(),
   organizationId: uuid('organization_id').notNull(),
-  storageProvider: text('storage_provider', { enum: ['local'] }).notNull(),
+  storageProvider: text('storage_provider', { enum: ['local', 's3'] }).notNull(),
   storageKey: text('storage_key').notNull(),
   originalName: text('original_name').notNull(),
   detectedType: text('detected_type').$type<DetectedType>().notNull(),

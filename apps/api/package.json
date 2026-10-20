@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "openapi:generate": "tsx scripts/generate-openapi.ts",
+    "openapi:check": "tsx scripts/check-openapi.ts",
     "db:bootstrap": "tsx scripts/db-bootstrap.ts",
     "db:migrate": "tsx src/database/cli/migrate.ts",
     "db:seed": "tsx src/database/cli/seed.ts",

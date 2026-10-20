@@ -207,7 +207,9 @@ export class TestClient {
         }
       }
     }
-    const parsed = response.body ? (JSON.parse(response.body) as T) : (undefined as T);
+    // Binary downloads (PDFs) are not JSON; callers read them from `raw.rawPayload`.
+    const isJson = String(response.headers['content-type'] ?? '').includes('json');
+    const parsed = response.body && isJson ? (JSON.parse(response.body) as T) : (undefined as T);
     const data = (parsed as { data?: Record<string, any> } | undefined)?.data;
     const maybeCsrf = data?.csrfToken;
     if (typeof maybeCsrf === 'string') this.csrfToken = maybeCsrf;

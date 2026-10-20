@@ -462,6 +462,19 @@ export class ReceiptService {
     );
   }
 
+  /**
+   * Records a receipt inside the caller's transaction for the payment gateway, which has already
+   * authorized the acting user. Not exposed over HTTP.
+   */
+  recordForGateway(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    input: ReceiptInput,
+    origin: EventOrigin,
+  ) {
+    return this.recordInTransaction(tx, ctx, input, origin);
+  }
+
   private async recordInTransaction(
     tx: Transaction,
     ctx: AuthorizationContext,

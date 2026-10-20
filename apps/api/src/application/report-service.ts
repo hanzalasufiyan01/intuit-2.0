@@ -4,6 +4,7 @@ import {
   ValidationError,
   type ValidationIssue,
 } from '../domain/errors.js';
+import type { Decimal } from 'decimal.js';
 import type { Transaction } from '../database/client.js';
 import {
   AccountingPermissions,
@@ -12,22 +13,28 @@ import {
   findPeriodForDate,
   getDesignatedAccountId,
   getDimensionValuesByIds,
+  getDimensionType,
   getFiscalYear,
   getPeriod,
   isValidIsoDate,
   listDimensionTypes,
+  listDimensionValues,
   listFiscalYears,
   queryAccountBalances,
   type FiscalYear,
   type ReportAccount,
 } from '../modules/accounting/index.js';
+import { listCategories } from '../modules/fixed-assets/index.js';
 import {
   buildBalanceSheet,
+  buildCashFlow,
+  buildEquity,
   buildProfitAndLoss,
   buildTrialBalance,
   type CurrencyView,
   type Integrity,
 } from '../modules/reports/index.js';
+import { decimal, minorUnits } from '../domain/money.js';
 import { requireAccountingSettings } from './accounting-service.js';
 import {
   hasPermission,
@@ -74,6 +81,42 @@ export interface BalanceSheetInput extends CommonInput {
 }
 
 const invalid = (path: string, message: string) => new ValidationError([{ path, message }]);
+
+const MAX_TREND_MONTHS = 24;
+/** The profit and loss sections that hold expense accounts. */
+const EXPENSE_SECTIONS = new Set([
+  'cost_of_goods_sold',
+  'operating_expenses',
+  'other_expenses',
+  'unclassified_expenses',
+]);
+
+/** Validates an expense-trend range and returns its months. */
+function expenseTrendMonths(input: { from: string; to: string }) {
+  if (!isValidIsoDate(input.from)) throw invalid('from', 'A valid date (YYYY-MM-DD) is required.');
+  if (!isValidIsoDate(input.to)) throw invalid('to', 'A valid date (YYYY-MM-DD) is required.');
+  if (input.from > input.to) throw invalid('to', 'The end date must not be before the start.');
+  const months = monthBuckets(input.from, input.to);
+  if (months.length > MAX_TREND_MONTHS) {
+    throw invalid('to', `At most ${MAX_TREND_MONTHS} months can be shown in one report.`);
+  }
+  return months;
+}
+
+/** Calendar months from `from` to `to`, the first and last clipped to the range. */
+function monthBuckets(from: string, to: string) {
+  const out: { label: string; from: string; to: string }[] = [];
+  let cursor = from;
+  while (cursor <= to && out.length <= MAX_TREND_MONTHS) {
+    const year = Number(cursor.slice(0, 4));
+    const month = Number(cursor.slice(5, 7));
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const monthEnd = `${cursor.slice(0, 7)}-${String(lastDay).padStart(2, '0')}`;
+    out.push({ label: cursor.slice(0, 7), from: cursor, to: monthEnd < to ? monthEnd : to });
+    cursor = addDays(monthEnd, 1);
+  }
+  return out;
+}
 
 function fiscalYearNotFound(date: string, what: string) {
   return new AppError(
@@ -276,8 +319,180 @@ export class ReportService {
   // Profit & Loss (S3-11, S3-18)
   // ---------------------------------------------------------------------------
 
+  /**
+   * Profit and loss side by side for each value of ONE dimension type (for example every branch or
+   * department), plus what is not tagged with any value of that type. Derived from the ledger by
+   * running the ordinary statement once per value, so each column agrees with the statement
+   * filtered on that value; "unassigned" is the whole statement minus the values (a line carries at
+   * most one value per type). Needs `accounting.reports.view` and `accounting.dimensions.view`.
+   */
+  profitAndLossByDimension(principal: Principal, input: RangeInput & { dimensionTypeId: string }) {
+    return this.run(principal, async (tx, ctx) => {
+      if (!hasPermission(ctx, AccountingPermissions.DimensionsView)) {
+        throw new PermissionDeniedError('You need permission to view dimensions for this report.');
+      }
+      const type = await getDimensionType(tx, ctx.organizationId, input.dimensionTypeId);
+      if (!type) throw invalid('dimensionTypeId', 'Unknown dimension type.');
+      const values = (await listDimensionValues(tx, ctx.organizationId)).filter(
+        (v) => v.dimensionTypeId === type.id,
+      );
+      if (values.length > 100) {
+        throw invalid('dimensionTypeId', 'At most 100 values can be compared in one report.');
+      }
+      const base = { includeZero: false, currencyView: input.currencyView } as const;
+      const range = {
+        from: input.from,
+        to: input.to,
+        periodId: input.periodId,
+        fiscalYearId: input.fiscalYearId,
+      };
+      const whole = await this.profitAndLossInTransaction(tx, ctx, { ...base, ...range });
+      const pick = (r: typeof whole) => {
+        const section = (key: string) =>
+          decimal(r.sections.find((s) => s.key === key)?.total[0] ?? '0');
+        return {
+          revenue: section('revenue'),
+          costOfGoodsSold: section('cost_of_goods_sold'),
+          operatingExpenses: section('operating_expenses'),
+          grossProfit: decimal(r.summary.grossProfit[0] ?? '0'),
+          netProfit: decimal(r.summary.netProfit[0] ?? '0'),
+        };
+      };
+      const show = (m: ReturnType<typeof pick>) => ({
+        revenue: m.revenue.toFixed(),
+        costOfGoodsSold: m.costOfGoodsSold.toFixed(),
+        operatingExpenses: m.operatingExpenses.toFixed(),
+        grossProfit: m.grossProfit.toFixed(),
+        netProfit: m.netProfit.toFixed(),
+      });
+      const total = pick(whole);
+      const rows = [];
+      const sum = { ...total };
+      for (const k of Object.keys(sum) as (keyof typeof sum)[]) sum[k] = decimal(0);
+      for (const v of values) {
+        const r = await this.profitAndLossInTransaction(tx, ctx, {
+          ...base,
+          ...range,
+          dimensionValueIds: [v.id],
+        });
+        const m = pick(r);
+        for (const k of Object.keys(sum) as (keyof typeof sum)[]) sum[k] = sum[k].plus(m[k]);
+        if (v.status === 'ARCHIVED' && Object.values(m).every((x) => x.isZero())) continue;
+        rows.push({
+          dimensionValueId: v.id,
+          code: v.code,
+          name: v.name,
+          status: v.status,
+          ...show(m),
+        });
+      }
+      const unassigned = { ...total };
+      for (const k of Object.keys(unassigned) as (keyof typeof unassigned)[]) {
+        unassigned[k] = total[k].minus(sum[k]);
+      }
+      return {
+        report: 'profit_and_loss_by_dimension' as const,
+        dimensionType: { id: type.id, code: type.code, name: type.name },
+        baseCurrency: whole.baseCurrency,
+        from: whole.columns[0]?.from ?? null,
+        to: whole.columns[0]?.to ?? null,
+        values: rows,
+        unassigned: show(unassigned),
+        total: show(total),
+        note: 'Each column is the ordinary profit and loss filtered on that value. Unassigned is the statement minus the listed values.',
+        generatedAt: this.deps.clock.now().toISOString(),
+      };
+    });
+  }
+
   profitAndLoss(principal: Principal, input: ProfitAndLossInput) {
     return this.run(principal, (tx, ctx) => this.profitAndLossInTransaction(tx, ctx, input));
+  }
+
+  /**
+   * Expense trend (master specification section 16; R-02): the expense accounts of the profit and
+   * loss, month by month, for a date range. Every month is the ordinary profit and loss for that
+   * month (the same engine and the same sections), so the figures agree with the statement to the
+   * cent. Only posted ledger activity is counted; nothing is derived from documents. A range that
+   * does not start or end on a month boundary gets a shorter first or last month. At most 24
+   * months are shown. Needs `accounting.reports.view`.
+   */
+  expenseTrend(principal: Principal, input: { from: string; to: string }) {
+    expenseTrendMonths(input);
+    return this.run(principal, (tx, ctx) => this.expenseTrendInTransaction(tx, ctx, input));
+  }
+
+  /** The same report inside the caller's (read-only snapshot) transaction, for its export. */
+  async expenseTrendInTransaction(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    input: { from: string; to: string },
+  ) {
+    requirePermission(ctx, AccountingPermissions.ReportsView);
+    const months = expenseTrendMonths(input);
+    {
+      const rows = new Map<
+        string,
+        {
+          accountId: string;
+          code: string | null;
+          name: string;
+          section: string;
+          amounts: Decimal[];
+        }
+      >();
+      const totals = months.map(() => decimal(0));
+      let baseCurrency = '';
+      for (const [i, month] of months.entries()) {
+        const statement = await this.profitAndLossInTransaction(tx, ctx, {
+          from: month.from,
+          to: month.to,
+          includeZero: false,
+          currencyView: 'base',
+        });
+        baseCurrency = statement.baseCurrency;
+        for (const section of statement.sections) {
+          if (!EXPENSE_SECTIONS.has(section.key)) continue;
+          totals[i] = totals[i]!.plus(decimal(section.total[0] ?? '0'));
+          for (const row of section.rows) {
+            if (row.rowType !== 'account' || !row.isLeaf || !row.accountId) continue;
+            const entry = rows.get(row.accountId) ?? {
+              accountId: row.accountId,
+              code: row.code,
+              name: row.name,
+              section: section.key,
+              amounts: months.map(() => decimal(0)),
+            };
+            rows.set(row.accountId, entry);
+            entry.amounts[i] = entry.amounts[i]!.plus(decimal(row.amounts[0] ?? '0'));
+          }
+        }
+      }
+      const digits = minorUnits(baseCurrency);
+      const show = (v: Decimal) => v.toFixed(digits);
+      const accounts = [...rows.values()]
+        .sort((a, b) => (a.code ?? '').localeCompare(b.code ?? ''))
+        .map((r) => ({
+          accountId: r.accountId,
+          code: r.code,
+          name: r.name,
+          section: r.section,
+          amounts: r.amounts.map(show),
+          total: show(r.amounts.reduce((sum, v) => sum.plus(v), decimal(0))),
+        }));
+      return {
+        report: 'expense_trend' as const,
+        baseCurrency,
+        from: input.from,
+        to: input.to,
+        months: months.map((m) => ({ label: m.label, from: m.from, to: m.to })),
+        accounts,
+        totals: totals.map(show),
+        total: show(totals.reduce((sum, v) => sum.plus(v), decimal(0))),
+        note: 'Each month is the ordinary profit and loss for that month, expense sections only, from posted ledger activity.',
+        generatedAt: this.deps.clock.now().toISOString(),
+      };
+    }
   }
 
   /** S6 (L-7): the same statement inside the caller's (read-only snapshot) transaction. */
@@ -365,6 +580,105 @@ export class ReportService {
       throw invalid('compareTo', 'The comparison end date must not be before its start date.');
     }
     return { from: input.compareFrom!, to: input.compareTo! };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cash flows and changes in equity (master context section 16, ADR 0012)
+  // ---------------------------------------------------------------------------
+
+  cashFlow(principal: Principal, input: ProfitAndLossInput) {
+    return this.run(principal, (tx, ctx) => this.cashFlowInTransaction(tx, ctx, input));
+  }
+
+  async cashFlowInTransaction(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    input: ProfitAndLossInput,
+  ) {
+    requirePermission(ctx, AccountingPermissions.ReportsView);
+    const env = await this.prepare(tx, ctx, input);
+    const range = await this.resolveRange(tx, ctx.organizationId, input, env.fiscalYearOf);
+    const ranges: { key: 'current' | 'comparison'; from: string; to: string }[] = [
+      { key: 'current', ...range },
+    ];
+    const comparison = this.profitAndLossComparison(range, input);
+    if (comparison) ranges.push({ key: 'comparison', ...comparison });
+    const depreciationAccountIds = new Set(
+      (await listCategories(tx, ctx.organizationId)).map((c) => c.accumulatedAccountId),
+    );
+    const columns = [];
+    for (const r of ranges) {
+      const accounts = await queryAccountBalances(tx, {
+        organizationId: ctx.organizationId,
+        fiscalYearStart: r.from,
+        from: r.from,
+        to: r.to,
+        dimensionValueIds: env.dimensionValueIds,
+      });
+      const statement = buildCashFlow({
+        accounts,
+        depreciationAccountIds,
+        baseCurrency: env.settings.baseCurrency,
+        includeZero: input.includeZero,
+        tagged: env.dimensionFilter.length > 0,
+      });
+      this.logIntegrity(ctx, 'cash_flow', statement.integrity);
+      columns.push({
+        key: r.key,
+        label: `${r.from} – ${r.to}`,
+        from: r.from,
+        to: r.to,
+        ...statement,
+      });
+    }
+    return {
+      report: 'cash_flow' as const,
+      method: 'indirect' as const,
+      baseCurrency: env.settings.baseCurrency,
+      compare: input.compare ?? null,
+      dimensionFilter: env.dimensionFilter,
+      taggedActivityOnly: env.dimensionFilter.length > 0,
+      columns,
+      generatedAt: this.deps.clock.now().toISOString(),
+    };
+  }
+
+  changesInEquity(principal: Principal, input: RangeInput) {
+    return this.run(principal, (tx, ctx) => this.changesInEquityInTransaction(tx, ctx, input));
+  }
+
+  async changesInEquityInTransaction(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    input: RangeInput,
+  ) {
+    requirePermission(ctx, AccountingPermissions.ReportsView);
+    const env = await this.prepare(tx, ctx, input);
+    const range = await this.resolveRange(tx, ctx.organizationId, input, env.fiscalYearOf);
+    const accounts = await queryAccountBalances(tx, {
+      organizationId: ctx.organizationId,
+      fiscalYearStart: range.from,
+      from: range.from,
+      to: range.to,
+      dimensionValueIds: env.dimensionValueIds,
+    });
+    const statement = buildEquity({
+      accounts,
+      baseCurrency: env.settings.baseCurrency,
+      includeZero: input.includeZero,
+      tagged: env.dimensionFilter.length > 0,
+    });
+    this.logIntegrity(ctx, 'changes_in_equity', statement.integrity);
+    return {
+      report: 'changes_in_equity' as const,
+      baseCurrency: env.settings.baseCurrency,
+      from: range.from,
+      to: range.to,
+      dimensionFilter: env.dimensionFilter,
+      taggedActivityOnly: env.dimensionFilter.length > 0,
+      ...statement,
+      generatedAt: this.deps.clock.now().toISOString(),
+    };
   }
 
   // ---------------------------------------------------------------------------

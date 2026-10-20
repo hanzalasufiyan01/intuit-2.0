@@ -38,3 +38,13 @@ export async function inTransaction<T>(
       : undefined,
   );
 }
+
+/**
+ * Narrows the session to a member's branches (migration 0084): row-level security then shows only
+ * invoices and bills tagged with one of them. `null` (or empty) means unrestricted.
+ */
+export async function setBranchScope(tx: Transaction, branchIds: readonly string[] | null) {
+  await tx.execute(
+    sql`SELECT set_config('app.branch_scope', ${branchIds && branchIds.length ? branchIds.join(',') : ''}, true)`,
+  );
+}

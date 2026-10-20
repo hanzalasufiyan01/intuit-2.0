@@ -98,8 +98,8 @@ describe('upload', () => {
       );
       expect(await readFile(path.join(TEST_STORAGE_ROOT, ...key.split('/')))).toEqual(PDF);
       const audit = await owner.query(
-        "SELECT metadata FROM audit_events WHERE action = 'file.uploaded' AND resource_id = $1",
-        [res.body.data.id],
+        "SELECT metadata FROM audit_events WHERE organization_id = $2 AND action = 'file.uploaded' AND resource_id = $1",
+        [res.body.data.id, org.organizationId],
       );
       expect(audit.rows[0].metadata).toMatchObject({
         linkType: 'party',
@@ -367,8 +367,8 @@ describe('soft delete and legal hold', () => {
       );
       expect(row.rows[0]).toMatchObject({ status: 'deleted', days: '90' });
       const audit = await owner.query(
-        "SELECT 1 FROM audit_events WHERE action = 'file.deleted' AND resource_id = $1",
-        [up.body.data.id],
+        "SELECT 1 FROM audit_events WHERE organization_id = $2 AND action = 'file.deleted' AND resource_id = $1",
+        [up.body.data.id, org.organizationId],
       );
       expect(audit.rowCount).toBe(1);
     } finally {

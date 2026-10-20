@@ -109,8 +109,8 @@ describe('debit-note PDF and email (P4-46)', () => {
       ]),
     ).rejects.toMatchObject({ code: '23514' });
     const audit = await owner.query(
-      `SELECT metadata FROM audit_events WHERE resource_id = $1 AND action = 'debit_note.pdf_generated'`,
-      [note.id],
+      `SELECT metadata FROM audit_events WHERE organization_id = $2 AND resource_id = $1 AND action = 'debit_note.pdf_generated'`,
+      [note.id, o.organizationId],
     );
     expect(audit.rows[0].metadata).toMatchObject({ fileId: ready.fileId, renderer: 'pdfkit' });
   });
@@ -133,7 +133,12 @@ describe('debit-note PDF and email (P4-46)', () => {
     });
     const pdf = (await o.owner.get(`${path}/pdf`)).body.data;
     expect(sent!.attachments).toEqual([
-      { fileId: pdf.fileId, fileName: `${note.number}.pdf`, contentType: 'application/pdf' },
+      {
+        fileId: pdf.fileId,
+        fileName: `${note.number}.pdf`,
+        contentType: 'application/pdf',
+        organizationId: o.organizationId,
+      },
     ]);
     // Sending needs vendor_credits.post; Members only view.
     const member = await joinWithRole(ctx, o.owner, 'Member');

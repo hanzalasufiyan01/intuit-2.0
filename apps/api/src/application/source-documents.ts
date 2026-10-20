@@ -2,7 +2,11 @@ import { sql } from 'drizzle-orm';
 import type { Transaction } from '../database/client.js';
 import { getBankEntry, getBankTransfer } from '../modules/banking/index.js';
 import { getAsset, getDisposal, getRun } from '../modules/fixed-assets/index.js';
-import { getAdjustment } from '../modules/inventory/index.js';
+import { getAdjustment, getLandedCost } from '../modules/inventory/index.js';
+import {
+  getAdvance as getPayrollAdvance,
+  getRun as getPayrollRun,
+} from '../modules/payroll/index.js';
 import {
   getBill,
   getExpense,
@@ -207,6 +211,19 @@ export function createSourceDocumentRegistry(): SourceDocumentRegistry {
         )
       : null;
   });
+  registry.register('inventory', 'landed_cost', async (tx, organizationId, id) => {
+    const cost = await getLandedCost(tx, organizationId, id);
+    return cost
+      ? doc(
+          'inventory',
+          'landed_cost',
+          id,
+          cost.number,
+          'Landed cost',
+          `/inventory/landed-costs/${id}`,
+        )
+      : null;
+  });
   registry.register('inventory', 'sale', async (tx, organizationId, id) => {
     const invoice = await getInvoice(tx, organizationId, id);
     return invoice
@@ -219,6 +236,17 @@ export function createSourceDocumentRegistry(): SourceDocumentRegistry {
           `/sales/invoices/${id}`,
         )
       : null;
+  });
+  // Payroll: a pay run (PAY-), for both its posting and its payment journal.
+  registry.register('payroll', 'advance', async (tx, organizationId, id) => {
+    const advance = await getPayrollAdvance(tx, organizationId, id);
+    return advance
+      ? doc('payroll', 'advance', id, advance.number, 'Salary advance', '/payroll/advances')
+      : null;
+  });
+  registry.register('payroll', 'run', async (tx, organizationId, id) => {
+    const run = await getPayrollRun(tx, organizationId, id);
+    return run ? doc('payroll', 'run', id, run.number, 'Pay run', `/payroll/runs/${id}`) : null;
   });
   // Fixed assets: an asset (FA-), a depreciation run (DEP-), a disposal and a category transfer
   // (the last two are shown as the asset they concern).

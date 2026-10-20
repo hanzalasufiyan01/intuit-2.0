@@ -8,6 +8,8 @@ import {
   inventoryItems,
   inventoryMovements,
   inventoryNumberSequences,
+  inventoryReturnLines,
+  inventoryReturns,
   inventorySettings,
   type MovementKind,
 } from './schema.js';
@@ -20,6 +22,8 @@ export type StockBalance = typeof inventoryBalances.$inferSelect;
 export type StockMovement = typeof inventoryMovements.$inferSelect;
 export type StockAdjustment = typeof inventoryAdjustments.$inferSelect;
 export type StockAdjustmentLine = typeof inventoryAdjustmentLines.$inferSelect;
+export type StockReturn = typeof inventoryReturns.$inferSelect;
+export type StockReturnLine = typeof inventoryReturnLines.$inferSelect;
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -191,6 +195,13 @@ export interface TrackedItemRow {
   inventoryAccountId: string;
   cogsAccountId: string;
   reorderPoint: string | null;
+  trackingMode: 'none' | 'lot' | 'serial';
+  expiryTracked: boolean;
+  baseUnit: string;
+  purchaseUnit: string | null;
+  purchaseFactor: string | null;
+  salesUnit: string | null;
+  salesFactor: string | null;
   quantity: string;
   value: string;
   lastUnitCost: string;
@@ -209,6 +220,13 @@ export async function listTrackedItems(
       inventoryAccountId: inventoryItems.inventoryAccountId,
       cogsAccountId: inventoryItems.cogsAccountId,
       reorderPoint: inventoryItems.reorderPoint,
+      trackingMode: inventoryItems.trackingMode,
+      expiryTracked: inventoryItems.expiryTracked,
+      baseUnit: inventoryItems.baseUnit,
+      purchaseUnit: inventoryItems.purchaseUnit,
+      purchaseFactor: inventoryItems.purchaseFactor,
+      salesUnit: inventoryItems.salesUnit,
+      salesFactor: inventoryItems.salesFactor,
       quantity: inventoryBalances.quantity,
       value: inventoryBalances.value,
       lastUnitCost: inventoryBalances.lastUnitCost,
@@ -512,4 +530,154 @@ export async function takeNextAdjustmentNumber(
     .returning();
   const value = BigInt(row!.nextNumber) - 1n;
   return `${row!.prefix}${value.toString().padStart(row!.minDigits, '0')}`;
+}
+
+// ---------------------------------------------------------------------------
+// Customer returns (migration 0062)
+// ---------------------------------------------------------------------------
+
+export async function insertReturn(
+  tx: Transaction,
+  values: typeof inventoryReturns.$inferInsert,
+): Promise<StockReturn> {
+  const [row] = await tx.insert(inventoryReturns).values(values).returning();
+  return row!;
+}
+
+export async function insertReturnLines(
+  tx: Transaction,
+  values: (typeof inventoryReturnLines.$inferInsert)[],
+) {
+  if (values.length) await tx.insert(inventoryReturnLines).values(values);
+}
+
+export async function getReturn(
+  tx: Transaction,
+  organizationId: string,
+  id: string,
+  options: { forUpdate?: boolean } = {},
+): Promise<StockReturn | undefined> {
+  const query = tx
+    .select()
+    .from(inventoryReturns)
+    .where(and(eq(inventoryReturns.organizationId, organizationId), eq(inventoryReturns.id, id)));
+  const [row] = options.forUpdate ? await query.for('update') : await query;
+  return row;
+}
+
+export async function getReturnLines(
+  tx: Transaction,
+  organizationId: string,
+  returnId: string,
+): Promise<StockReturnLine[]> {
+  return tx
+    .select()
+    .from(inventoryReturnLines)
+    .where(
+      and(
+        eq(inventoryReturnLines.organizationId, organizationId),
+        eq(inventoryReturnLines.returnId, returnId),
+      ),
+    )
+    .orderBy(asc(inventoryReturnLines.lineNo));
+}
+
+export async function listReturns(
+  tx: Transaction,
+  organizationId: string,
+  limit: number,
+): Promise<StockReturn[]> {
+  return tx
+    .select()
+    .from(inventoryReturns)
+    .where(eq(inventoryReturns.organizationId, organizationId))
+    .orderBy(desc(inventoryReturns.returnDate), desc(inventoryReturns.id))
+    .limit(limit);
+}
+
+export async function updateReturn(
+  tx: Transaction,
+  input: {
+    organizationId: string;
+    id: string;
+    version: number;
+    set: Partial<typeof inventoryReturns.$inferInsert>;
+  },
+): Promise<StockReturn | undefined> {
+  const [row] = await tx
+    .update(inventoryReturns)
+    .set({ ...input.set, version: sql`${inventoryReturns.version} + 1` })
+    .where(
+      and(
+        eq(inventoryReturns.organizationId, input.organizationId),
+        eq(inventoryReturns.id, input.id),
+        eq(inventoryReturns.version, input.version),
+        eq(inventoryReturns.status, 'POSTED'),
+      ),
+    )
+    .returning();
+  return row;
+}
+
+export async function returnNumberExists(tx: Transaction, organizationId: string, number: string) {
+  const [row] = await tx
+    .select({ id: inventoryReturns.id })
+    .from(inventoryReturns)
+    .where(
+      and(eq(inventoryReturns.organizationId, organizationId), eq(inventoryReturns.number, number)),
+    )
+    .limit(1);
+  return Boolean(row);
+}
+
+export async function takeNextReturnNumber(
+  tx: Transaction,
+  organizationId: string,
+): Promise<string> {
+  await tx
+    .insert(inventoryNumberSequences)
+    .values({ organizationId, documentType: 'return', prefix: 'RET-' })
+    .onConflictDoNothing();
+  const [row] = await tx
+    .update(inventoryNumberSequences)
+    .set({ nextNumber: sql`${inventoryNumberSequences.nextNumber} + 1` })
+    .where(
+      and(
+        eq(inventoryNumberSequences.organizationId, organizationId),
+        eq(inventoryNumberSequences.documentType, 'return'),
+      ),
+    )
+    .returning();
+  const value = BigInt(row!.nextNumber) - 1n;
+  return `${row!.prefix}${value.toString().padStart(row!.minDigits, '0')}`;
+}
+
+/** Quantity already returned per item against a credit note, by returns that are not void. */
+export async function returnedQuantities(
+  tx: Transaction,
+  organizationId: string,
+  creditNoteId: string,
+): Promise<Map<string, string>> {
+  const rows = await tx
+    .select({
+      itemId: inventoryReturnLines.itemId,
+      quantity: sql<string>`sum(${inventoryReturnLines.quantity})::text`,
+    })
+    .from(inventoryReturnLines)
+    .innerJoin(
+      inventoryReturns,
+      and(
+        eq(inventoryReturns.id, inventoryReturnLines.returnId),
+        eq(inventoryReturns.organizationId, inventoryReturnLines.organizationId),
+      ),
+    )
+    .where(
+      and(
+        eq(inventoryReturns.organizationId, organizationId),
+        eq(inventoryReturns.creditNoteId, creditNoteId),
+        eq(inventoryReturns.status, 'POSTED'),
+      ),
+    )
+    .groupBy(inventoryReturnLines.itemId);
+  return new Map(rows.map((r) => [r.itemId, r.quantity]));
 }

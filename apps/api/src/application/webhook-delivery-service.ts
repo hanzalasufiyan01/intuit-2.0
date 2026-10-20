@@ -1,7 +1,7 @@
 import type { Transaction } from '../database/client.js';
 import { recordAuditEvent } from '../modules/audit/index.js';
 import { getIntegration } from '../modules/api-integrations/index.js';
-import { findMembershipById } from '../modules/organizations/index.js';
+import { findMembership, findMembershipById } from '../modules/organizations/index.js';
 import { getUserProfiles } from '../modules/identity/index.js';
 import { RetryAfterError } from '../modules/jobs/index.js';
 import type { OutboxDispatcher, OutboxEvent } from '../modules/outbox/index.js';
@@ -19,6 +19,7 @@ import {
   getEndpoint,
   insertAttempt,
   insertDelivery,
+  noSuccessBaseline,
   orphanedDeliveries,
   organizationsWithWebhooks,
   purgePublicOutbox,
@@ -517,9 +518,9 @@ export class WebhookDeliveryService {
     const endpoint = await getEndpoint(tx, organizationId, endpointId, { forUpdate: true });
     if (!endpoint) return null;
     const failures = endpoint.consecutiveFailures + 1;
+    // The window starts at the later of the last success and the last enablement (0059).
     const stale =
-      (endpoint.lastSuccessAt ?? endpoint.createdAt).getTime() <
-      this.now.getTime() - AUTO_DISABLE_AFTER_MS;
+      noSuccessBaseline(endpoint).getTime() < this.now.getTime() - AUTO_DISABLE_AFTER_MS;
     const disable = endpoint.status === 'active' && (failures >= AUTO_DISABLE_FAILURES || stale);
     const updated = await updateEndpoint(tx, {
       organizationId,
@@ -575,11 +576,21 @@ export class WebhookDeliveryService {
                 integration.responsibleMembershipId,
               )
             : undefined;
-          const ids = [endpoint.createdByUserId, responsible?.userId].filter(
-            (id): id is string => !!id,
+          const creator = await findMembership(
+            tx,
+            endpoint.organizationId,
+            endpoint.createdByUserId,
           );
-          const profiles = await getUserProfiles(tx, [...new Set(ids)]);
-          return [...profiles.values()].map((p) => p.email);
+          // ADR 0011 section 25.3: the responsible administrator and the creator, once per person,
+          // and only while the MEMBERSHIP in this organization is active and the USER is active.
+          // E-mail verification is not a condition; there is no fallback to organization Owners.
+          const ids = new Set(
+            [creator, responsible]
+              .filter((m): m is NonNullable<typeof m> => m !== undefined && m.status === 'active')
+              .map((m) => m.userId),
+          );
+          const profiles = await getUserProfiles(tx, [...ids]);
+          return [...profiles.values()].filter((p) => p.status === 'active').map((p) => p.email);
         },
       );
       for (const to of recipients) {

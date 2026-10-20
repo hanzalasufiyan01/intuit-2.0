@@ -1,9 +1,11 @@
 import {
+  AppError,
   ConflictError,
   NotFoundError,
   ValidationError,
   type ValidationIssue,
 } from '../domain/errors.js';
+import { Decimal } from 'decimal.js';
 import { decimal, minorUnits } from '../domain/money.js';
 import type { Transaction } from '../database/client.js';
 import { designationsOfAccount, getAccount, isValidIsoDate } from '../modules/accounting/index.js';
@@ -26,6 +28,11 @@ import {
   type ExpenseClaim,
   type ExpenseClaimLine,
 } from '../modules/expense-claims/index.js';
+import {
+  countAttachments,
+  evaluateExpensePolicies,
+  listExpensePolicies,
+} from '../modules/expense-policies/index.js';
 import { listLinkedFiles } from '../modules/files/index.js';
 import { getParty, getPartyDetail, partyIdsMatching } from '../modules/parties/index.js';
 import { getBill, getPurchasesSettings } from '../modules/purchases/index.js';
@@ -601,7 +608,12 @@ export class ExpenseClaimService {
   // Submit, withdraw, cancel
   // ---------------------------------------------------------------------------
 
-  submit(principal: Principal, id: string, input: { version: number }, origin: EventOrigin) {
+  submit(
+    principal: Principal,
+    id: string,
+    input: { version: number; policyReason?: string | null | undefined },
+    origin: EventOrigin,
+  ) {
     return withOrganization(
       this.deps,
       principal,
@@ -636,6 +648,49 @@ export class ExpenseClaimService {
                 message: `Attach a receipt: a line is ${decimal(settings.receiptRequiredOver).toFixed()} or more.`,
               },
             ]);
+          }
+        }
+        // The organization's expense policies (migration 0092), the same rules and the same pure
+        // evaluation as a direct expense. A claim's lines are in the base currency, so its total
+        // and its per-account totals are compared with the limits as they are. The check runs here,
+        // before approval starts: a hard block stops the submission, and a warning needs a reason
+        // that is audited. Approval, permissions and posting are untouched.
+        let policyConfirmed: { names: string[]; reason: string } | null = null;
+        const policies = await listExpensePolicies(tx, ctx.organizationId);
+        if (policies.some((p) => p.status === 'ACTIVE')) {
+          const byAccount = new Map<string, Decimal>();
+          for (const l of lines) {
+            byAccount.set(
+              l.accountId,
+              (byAccount.get(l.accountId) ?? new Decimal(0)).plus(decimal(l.amount)),
+            );
+          }
+          const violations = evaluateExpensePolicies(policies, {
+            total: lines.reduce((acc, l) => acc.plus(decimal(l.amount)), new Decimal(0)),
+            byAccount,
+            attachments: await countAttachments(tx, ctx.organizationId, 'expense_claim', id),
+          });
+          const blocking = violations.filter((v) => v.action === 'block');
+          if (blocking.length) {
+            throw new AppError(
+              'EXPENSE_POLICY_BLOCKED',
+              409,
+              'This expense claim breaks an expense policy and cannot be submitted.',
+              { issues: blocking.map((v) => ({ path: 'policy', message: v.message })) },
+            );
+          }
+          const warnings = violations.filter((v) => v.action === 'warn');
+          if (warnings.length) {
+            const reason = input.policyReason?.trim() || null;
+            if (!reason) {
+              throw new AppError(
+                'EXPENSE_POLICY_WARNING',
+                409,
+                'This expense claim breaks an expense policy. Confirm with a reason to submit it anyway.',
+                { issues: warnings.map((v) => ({ path: 'policy', message: v.message })) },
+              );
+            }
+            policyConfirmed = { names: warnings.map((v) => v.name), reason };
           }
         }
         const accounting = await requireAccountingSettings(tx, ctx.organizationId);
@@ -695,6 +750,12 @@ export class ExpenseClaimService {
             facts,
           },
         );
+        if (policyConfirmed) {
+          await this.audit(tx, ctx, 'expense_claim.policy_confirmed', id, now, origin, {
+            policies: policyConfirmed.names,
+            reason: policyConfirmed.reason,
+          });
+        }
         return this.detail(tx, ctx, id);
       },
     );

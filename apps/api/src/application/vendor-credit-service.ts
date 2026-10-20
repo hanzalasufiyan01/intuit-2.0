@@ -1092,12 +1092,22 @@ export class VendorCreditService {
     const inputTax = await inputTaxCheck(tx, ctx.organizationId, resolved.lines);
     issues.push(...inputTax.issues);
     if (issues.length) throw new ValidationError(issues, 'The vendor credit cannot be posted yet.');
-    await this.inventory?.assertNoTrackedItems(
-      tx,
-      ctx.organizationId,
-      resolved.lines.map((l) => ({ itemId: l.itemId ?? null })),
-      'vendor credits',
-    );
+    if (credit.kind === 'opening') {
+      await this.inventory?.assertNoTrackedItems(
+        tx,
+        ctx.organizationId,
+        resolved.lines.map((l) => ({ itemId: l.itemId ?? null })),
+        'opening vendor credits',
+      );
+    } else {
+      // Goods returned to the supplier: a tracked line credits the item's inventory account.
+      await this.inventory?.assertBillLines(
+        tx,
+        ctx.organizationId,
+        resolved.lines.map((l) => ({ itemId: l.itemId ?? null, accountId: l.accountId ?? null })),
+        'vendor credit',
+      );
+    }
 
     const now = this.now;
     const snapshot = await updateVendorCredit(tx, {
@@ -1290,6 +1300,20 @@ export class VendorCreditService {
       },
     });
     if (!posted) throw versionConflict();
+    // Inventory: returned tracked goods leave stock at the value the credit booked (additive).
+    if (posted.kind !== 'opening') {
+      await this.inventory?.returnToVendor(tx, ctx, {
+        vendorCreditId: id,
+        date: posted.creditDate,
+        journalId: event.journalId,
+        lines: lines.map((l) => ({
+          itemId: l.itemId,
+          quantity: l.quantity,
+          netAmount: l.netAmount,
+          nonRecoverableTax: l.nonRecoverableTax,
+        })),
+      });
+    }
     await lockApAccount(tx, ctx.organizationId, now);
     if (credit.origin === 'debit_note') {
       // The PDF is rendered from the frozen snapshot off the request path (P4-46).
@@ -1365,6 +1389,8 @@ export class VendorCreditService {
           );
         }
         const reason = input.reason.trim();
+        // Inventory: the goods the credit sent back return to stock at the value they left.
+        await this.inventory?.voidVendorReturn(tx, ctx, id);
         const reversal = await this.journals.reverseSubledgerJournalInTransaction(
           tx,
           ctx,

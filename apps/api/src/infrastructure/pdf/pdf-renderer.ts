@@ -44,6 +44,9 @@ export class PdfkitRenderer implements PdfRenderer {
     if (snapshot.documentType === 'remittance_advice') {
       return renderRemittance(snapshot as unknown as RemittanceSnapshot, resources);
     }
+    if (snapshot.documentType === 'payslip') {
+      return renderPayslip(snapshot as unknown as PayslipSnapshot);
+    }
     return new Promise((resolve, reject) => {
       const s = snapshot as unknown as Snapshot;
       const doc = new PDFDocument({
@@ -663,5 +666,129 @@ function drawRemittance(doc: PDFDocument, s: RemittanceSnapshot, resources: PdfR
       size: 8,
       align: 'right',
     });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Payslip (payroll, FP-25)
+// ---------------------------------------------------------------------------
+
+/** What a payslip PDF shows; built from the frozen payslip rows by the payroll service. */
+export interface PayslipSnapshot {
+  documentType: 'payslip';
+  organizationName: string;
+  currencyCode: string;
+  employeeName: string;
+  employeeNumber: string;
+  runNumber: string;
+  periodStart: string;
+  periodEnd: string;
+  payDate: string;
+  /** DRAFT and APPROVED runs are not final; the page says so. */
+  runStatus: string;
+  basicSalary: string;
+  gross: string;
+  deductions: string;
+  net: string;
+  lines: { kind: string; name: string; amount: string }[];
+}
+
+function renderPayslip(s: PayslipSnapshot): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({
+      size: 'A4',
+      margin: 10,
+      autoFirstPage: true,
+      bufferPages: true,
+      info: {
+        Title: `Payslip ${s.runNumber} ${s.employeeNumber}`,
+        Producer: 'Intuit 2.0',
+        Creator: 'Intuit 2.0',
+        CreationDate: FIXED_DATE,
+        ModDate: FIXED_DATE,
+      },
+    });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+    try {
+      doc.registerFont('regular', FONTS.regular);
+      doc.registerFont('bold', FONTS.bold);
+      doc.registerFont('thaana', FONTS.thaana);
+      doc.registerFont('thaanaBold', FONTS.thaanaBold);
+      drawPayslip(doc, s);
+      doc.end();
+    } catch (error) {
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+}
+
+function drawPayslip(doc: PDFDocument, s: PayslipSnapshot) {
+  const right = doc.page.width - MARGIN;
+  const bottom = doc.page.height - MARGIN;
+  let y = MARGIN;
+  rtlLine(doc, s.organizationName, MARGIN, y, { size: 14, bold: true });
+  rtlLine(doc, 'PAYSLIP', right, y, { size: 16, bold: true, align: 'right' });
+  y += 30;
+  if (s.runStatus === 'DRAFT' || s.runStatus === 'APPROVED') {
+    rtlLine(doc, 'NOT FINAL: this pay run has not been posted.', MARGIN, y, { bold: true });
+    y += 16;
+  }
+  const meta: [string, string][] = [
+    ['Employee', s.employeeName],
+    ['Employee number', s.employeeNumber],
+    ['Pay run', s.runNumber],
+    ['Period', `${s.periodStart} to ${s.periodEnd}`],
+    ['Pay date', s.payDate],
+    ['Currency', s.currencyCode],
+  ];
+  for (const [label, value] of meta) {
+    rtlLine(doc, label, MARGIN, y, { bold: true });
+    rtlLine(doc, value, MARGIN + 130, y);
+    y += 14;
+  }
+  y += 10;
+
+  const section = (title: string, kinds: string[]) => {
+    const rows = s.lines.filter((l) => kinds.includes(l.kind));
+    if (rows.length === 0) return;
+    if (y + 14 * (rows.length + 2) > bottom) {
+      doc.addPage();
+      y = MARGIN;
+    }
+    rtlLine(doc, title, MARGIN, y, { bold: true });
+    y += 14;
+    doc
+      .lineWidth(0.5)
+      .strokeColor('#999999')
+      .moveTo(MARGIN, y - 2)
+      .lineTo(right, y - 2)
+      .stroke();
+    for (const row of rows) {
+      rtlLine(doc, row.name, MARGIN, y);
+      rtlLine(doc, money(row.amount, s.currencyCode), right, y, { align: 'right' });
+      y += 14;
+    }
+    y += 8;
+  };
+  section('Earnings', ['basic', 'earning']);
+  section('Deductions', ['deduction']);
+
+  y += 4;
+  const totals: [string, string, boolean][] = [
+    ['Gross pay', s.gross, false],
+    ['Total deductions', s.deductions, false],
+    ['Net pay', s.net, true],
+  ];
+  for (const [label, value, strong] of totals) {
+    rtlLine(doc, label, MARGIN, y, { bold: strong, size: strong ? 11 : 9 });
+    rtlLine(doc, money(value, s.currencyCode), right, y, {
+      bold: strong,
+      size: strong ? 11 : 9,
+      align: 'right',
+    });
+    y += strong ? 18 : 14;
   }
 }

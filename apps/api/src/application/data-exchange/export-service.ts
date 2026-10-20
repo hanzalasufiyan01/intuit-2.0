@@ -306,10 +306,13 @@ export class ExportService {
       });
     } catch (error) {
       if (!(error instanceof AppError)) throw error; // transient: retried by the job runner
+      // A validation failure carries its reasons in its issues; show those, not the generic line.
+      const issues = error.details?.issues ?? [];
+      const reason = issues.length ? issues.map((i) => i.message).join(' ') : error.message;
       await job.run(async (tx) => {
         await updateExport(tx, job.organizationId, started.id, {
           status: 'failed',
-          error: error.message.slice(0, 500),
+          error: reason.slice(0, 500),
           finishedAt: this.now,
         });
       });

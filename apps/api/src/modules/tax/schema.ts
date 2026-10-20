@@ -4,6 +4,9 @@ import { timestamptz } from '../../database/column-types.js';
 /** Phase 3B step 1: tax codes and their effective-dated rate versions (Decision 15). */
 
 export const taxCodeStatuses = ['ACTIVE', 'ARCHIVED'] as const;
+/** Classification only (migration 0087); no tax rule is encoded by it. */
+export const taxCodeTreatments = ['standard', 'zero_rated', 'exempt', 'out_of_scope'] as const;
+export type TaxCodeTreatment = (typeof taxCodeTreatments)[number];
 export type TaxCodeStatus = (typeof taxCodeStatuses)[number];
 
 export const taxCodes = pgTable('tax_codes', {
@@ -16,6 +19,9 @@ export const taxCodes = pgTable('tax_codes', {
   /** Recoverable purchase tax posts here (ADR 0004 P4-11, migration 0032); NULL until mapped. */
   inputTaxAccountId: uuid('input_tax_account_id'),
   status: text('status', { enum: taxCodeStatuses }).notNull().default('ACTIVE'),
+  treatment: text('treatment', { enum: taxCodeTreatments }).notNull().default('standard'),
+  taxType: text('tax_type'),
+  reportingCategory: text('reporting_category'),
   version: integer('version').notNull().default(1),
   createdByUserId: uuid('created_by_user_id'),
   createdAt: timestamptz('created_at').notNull(),

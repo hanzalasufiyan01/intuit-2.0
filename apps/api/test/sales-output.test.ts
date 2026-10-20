@@ -125,8 +125,8 @@ describe('issued document PDFs (Decisions 21, 29; D14)', () => {
         ]),
       ).rejects.toMatchObject({ code: '23514' });
       const audit = await db.query(
-        `SELECT metadata FROM audit_events WHERE resource_id = $1 AND action = 'invoice.pdf_generated'`,
-        [inv.id],
+        `SELECT metadata FROM audit_events WHERE organization_id = $2 AND resource_id = $1 AND action = 'invoice.pdf_generated'`,
+        [inv.id, o.organizationId],
       );
       expect(audit.rows[0].metadata).toMatchObject({ fileId, renderer: 'pdfkit' });
     });
@@ -180,7 +180,12 @@ describe('document email (step 15, E4)', () => {
     });
     const pdf = (await o.owner.get(`/sales/invoices/${inv.id}/pdf`)).body.data;
     expect(sent!.attachments).toEqual([
-      { fileId: pdf.fileId, fileName: `${inv.number}.pdf`, contentType: 'application/pdf' },
+      {
+        fileId: pdf.fileId,
+        fileName: `${inv.number}.pdf`,
+        contentType: 'application/pdf',
+        organizationId: o.organizationId,
+      },
     ]);
     const log = (await o.owner.get(`/sales/invoices/${inv.id}/emails`)).body.data;
     expect(log).toMatchObject([{ recipient: 'accounts@resort.test', status: 'sent' }]);

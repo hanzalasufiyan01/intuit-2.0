@@ -6,6 +6,7 @@ export type ErrorCode =
   | 'VALIDATION_FAILED'
   | 'UNAUTHENTICATED'
   | 'FORBIDDEN'
+  | 'MODULE_DISABLED'
   | 'PERMISSION_DENIED'
   | 'REAUTHENTICATION_REQUIRED'
   | 'CSRF_REJECTED'
@@ -60,6 +61,8 @@ export type ErrorCode =
   | 'MFA_UNAVAILABLE'
   // Phase 4A-5 (ADR 0004 P4-18): a bill's supplier reference is already used by the vendor.
   | 'DUPLICATE_VENDOR_REFERENCE'
+  | 'EXPENSE_POLICY_BLOCKED'
+  | 'EXPENSE_POLICY_WARNING'
   // Inventory: an issue would take the stock below zero while negative stock is blocked.
   | 'INSUFFICIENT_STOCK'
   // Fixed assets: the cost is already capitalized by a posted bill.

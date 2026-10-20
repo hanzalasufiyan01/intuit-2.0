@@ -212,8 +212,8 @@ describe('worker', () => {
     expect(row).toMatchObject({ status: 'dead', attempts: 5 });
     expect(row.finished_at).not.toBeNull();
     const audit = await ownerSql(
-      "SELECT actor_type, metadata FROM audit_events WHERE action = 'job.failed' AND resource_id = $1",
-      [job.id],
+      "SELECT actor_type, metadata FROM audit_events WHERE organization_id = $2 AND action = 'job.failed' AND resource_id = $1",
+      [job.id, org.organizationId],
     );
     expect(audit.rows).toEqual([
       { actor_type: 'system', metadata: { type: testType, status: 'dead', attempts: 5 } },
@@ -234,8 +234,8 @@ describe('worker', () => {
     const failed = await drain(worker, unknown.job.id);
     expect(failed).toMatchObject({ status: 'failed' });
     const audit = await ownerSql(
-      "SELECT count(*)::int AS n FROM audit_events WHERE action = 'job.failed' AND resource_id = ANY($1)",
-      [[job.id, unknown.job.id]],
+      "SELECT count(*)::int AS n FROM audit_events WHERE organization_id = $2 AND action = 'job.failed' AND resource_id = ANY($1)",
+      [[job.id, unknown.job.id], org.organizationId],
     );
     // S5-18 / §12: only dead-lettered jobs are audited; permanent failures stay on the job row.
     expect(audit.rows[0].n).toBe(0);
@@ -380,8 +380,8 @@ describe('file purge (S5-13, S5-19)', () => {
     expect(purged.status).toBe('purged');
     await expect(import('node:fs/promises').then((fs) => fs.stat(objectPath))).rejects.toThrow();
     const audit = await ownerSql(
-      "SELECT actor_type FROM audit_events WHERE action = 'file.purged' AND resource_id = $1",
-      [up.body.data.id],
+      "SELECT actor_type FROM audit_events WHERE organization_id = $2 AND action = 'file.purged' AND resource_id = $1",
+      [up.body.data.id, org.organizationId],
     );
     expect(audit.rows).toEqual([{ actor_type: 'system' }]);
     // Live files are untouched.

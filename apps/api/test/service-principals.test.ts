@@ -656,7 +656,12 @@ describe('audit actors', () => {
   it('keeps audit history append-only and visible only inside its organization', async () => {
     const f = await fixture();
     await record(f, { actorUserId: f.serviceId, resourceId: 'visible' });
-    const id = (await sql(`SELECT id FROM audit_events WHERE resource_id = 'visible'`)).rows[0].id;
+    const id = (
+      await sql(
+        `SELECT id FROM audit_events WHERE organization_id = $1 AND resource_id = 'visible'`,
+        [f.org.organizationId],
+      )
+    ).rows[0].id;
     await expect(
       sql(`UPDATE audit_events SET actor_type = 'user' WHERE id = $1`, [id]),
     ).rejects.toThrow();

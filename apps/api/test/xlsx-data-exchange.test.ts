@@ -70,7 +70,8 @@ async function downloadBytes(client: TestClient, exportId: string) {
   return { bytes: res.rawPayload, headers: res.headers };
 }
 
-describe('XLSX import', () => {
+// The worker rounds share the job queue with every other test file: allow for a loaded run.
+describe('XLSX import', { timeout: 120_000 }, () => {
   it('imports a workbook through the same staging, mapping and commit as a CSV', async () => {
     const file = sheetOf([
       ['Account Code', 'Account Name', 'Type', 'Description'],

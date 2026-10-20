@@ -500,8 +500,8 @@ describe('draft manual journals (S6-15..S6-17, L-8, L-9)', () => {
       .data as any[];
     expect(explicit.some((j) => j.id === journalIds[1])).toBe(true);
     const audit = await ownerSql(
-      `SELECT count(*)::int AS n FROM audit_events WHERE action = 'journal.discarded' AND resource_id = $1`,
-      [journalIds[1]],
+      `SELECT count(*)::int AS n FROM audit_events WHERE organization_id = $2 AND action = 'journal.discarded' AND resource_id = $1`,
+      [journalIds[1], org.organizationId],
     );
     expect(audit.rows[0].n).toBe(1);
     // A discarded journal can never change again.
@@ -869,7 +869,23 @@ describe('housekeeping (S6-36, L-11)', () => {
     );
     const scheduled = await ctx.services.dataExchangeCleanup.schedule();
     expect(scheduled).toBeGreaterThanOrEqual(1);
-    for (let i = 0; i < 10; i++) await ctx.worker.runOnce();
+    // The job queue is shared with every other test file, so a worker round may claim someone
+    // else's jobs first: run rounds until this test's three cleanup effects have happened.
+    for (let i = 0; i < 100; i++) {
+      await ctx.worker.runOnce();
+      const [idleView, doneView, stuckView] = await Promise.all(
+        [idle.id, done.id, stuck.id].map(
+          async (id) => (await org.owner.get(`/imports/${id}`)).body.data,
+        ),
+      );
+      if (
+        idleView.status === 'expired' &&
+        doneView.redacted === true &&
+        stuckView.status === 'ready'
+      ) {
+        break;
+      }
+    }
     expect((await org.owner.get(`/imports/${idle.id}`)).body.data.status).toBe('expired');
     const redacted = (await org.owner.get(`/imports/${done.id}`)).body.data;
     expect(redacted.redacted).toBe(true);

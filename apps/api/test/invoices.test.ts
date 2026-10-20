@@ -335,7 +335,10 @@ describe('invoice issue (D1, D9, Decision 13)', () => {
     expect((await o.owner.get('/sales/settings')).body.data.arLocked).toBe(true);
     await withOwnerDb(async (db) => {
       const { rows } = await db.query(
-        `SELECT action FROM audit_events WHERE organization_id = $1 AND resource_id = $2 ORDER BY occurred_at, id`,
+        // The PDF is rendered by a background job that any worker sharing the database may run at
+        // any moment, so its own audit event is not part of the issue trail asserted here.
+        `SELECT action FROM audit_events WHERE organization_id = $1 AND resource_id = $2
+            AND action <> 'invoice.pdf_generated' ORDER BY occurred_at, id`,
         [o.organizationId, inv.id],
       );
       expect(rows.map((r) => r.action)).toEqual(['invoice.created', 'invoice.issued']);

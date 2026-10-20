@@ -120,9 +120,13 @@ export interface Actor {
  * subledger and the GL never drift apart. The Sales wording is the Phase 3B one, unchanged.
  */
 /** Modules whose journals only they reverse: the two subledgers, Banking and Inventory. */
-export type JournalOwner = Subledger | 'banking' | 'inventory' | 'fixed_assets';
+export type JournalOwner = Subledger | 'banking' | 'inventory' | 'fixed_assets' | 'payroll';
 
 const SUBLEDGER_JOURNALS: Record<JournalOwner, { label: string; refusal: string }> = {
+  payroll: {
+    label: 'Payroll',
+    refusal: 'Payroll journals are reversed by voiding their pay run in Payroll, not manually.',
+  },
   fixed_assets: {
     label: 'Fixed assets',
     refusal:
@@ -155,6 +159,7 @@ const isSubledger = (module: string | null): module is JournalOwner =>
   (module === 'banking' ||
     module === 'inventory' ||
     module === 'fixed_assets' ||
+    module === 'payroll' ||
     (subledgers as readonly string[]).includes(module));
 
 const CONTROL_ACCOUNT_MESSAGE =

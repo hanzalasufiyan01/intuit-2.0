@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { TaxService } from '../../application/tax-service.js';
 import { eventOrigin, requirePrincipal } from '../http/session.js';
 import { fields, parseInput } from '../http/validation.js';
+import { taxCodeTreatments } from '../../modules/tax/index.js';
 
 /** Tax codes and rate versions (Phase 3B step 2). Every schema is strict. */
 
@@ -18,6 +19,8 @@ const code = z
 const name = z.string().trim().min(1, 'The name is required.').max(100);
 const description = z.string().trim().max(500);
 const version = z.number().int().min(1);
+const taxType = z.string().trim().min(1).max(40);
+const reportingCategory = z.string().trim().min(1).max(60);
 
 const createBody = z
   .object({
@@ -27,6 +30,10 @@ const createBody = z
     taxAccountId: fields.id,
     // ADR 0004 P4-11: optional input tax account for purchases.
     inputTaxAccountId: fields.id.nullable().default(null),
+    // Master specification section 15: zero-rated and exempt stay distinct (migration 0087).
+    treatment: z.enum(taxCodeTreatments).default('standard'),
+    taxType: taxType.nullable().default(null),
+    reportingCategory: reportingCategory.nullable().default(null),
     rate,
     effectiveFrom: isoDate,
   })
@@ -38,6 +45,8 @@ const updateBody = z
     description: description.optional(),
     taxAccountId: fields.id.optional(),
     inputTaxAccountId: fields.id.nullable().optional(),
+    taxType: taxType.nullable().optional(),
+    reportingCategory: reportingCategory.nullable().optional(),
   })
   .strict();
 const versionBody = z.object({ version }).strict();

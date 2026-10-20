@@ -1,8 +1,19 @@
 import type { Decimal } from 'decimal.js';
-import { ConflictError, NotFoundError, ValidationError } from '../domain/errors.js';
+import {
+  ConflictError,
+  NotFoundError,
+  PermissionDeniedError,
+  ValidationError,
+} from '../domain/errors.js';
 import { decimal, minorUnits } from '../domain/money.js';
 import type { Transaction } from '../database/client.js';
-import { isValidIsoDate } from '../modules/accounting/index.js';
+import {
+  AccountingPermissions,
+  getDimensionType,
+  getDimensionValuesByIds,
+  isValidIsoDate,
+} from '../modules/accounting/index.js';
+import { itemCategories, listNamed } from '../modules/classification/index.js';
 import { getCustomer } from '../modules/customers/index.js';
 import {
   arControlBalance,
@@ -11,8 +22,11 @@ import {
   getSalesSettings,
   openCreditsAsOf,
   openInvoicesAsOf,
+  salesByCategory,
   salesByCustomer,
+  salesByDimension,
   salesByItem,
+  salesTrend,
   SalesPermissions,
   taxSummary,
   type OpenCredit,
@@ -20,7 +34,7 @@ import {
 } from '../modules/sales/index.js';
 import { getTaxCode } from '../modules/tax/index.js';
 import { requireAccountingSettings } from './accounting-service.js';
-import type { Principal } from './authorization.js';
+import { hasPermission, type Principal } from './authorization.js';
 import type { AppDependencies } from './dependencies.js';
 import { withOrganization } from './organization-service.js';
 import type { DocumentExposure, RevaluationExposureProvider } from './revaluation-exposures.js';
@@ -68,6 +82,30 @@ function requireDate(value: string, path: string) {
   if (!isValidIsoDate(value)) {
     throw new ValidationError([{ path, message: 'Enter a valid date (YYYY-MM-DD).' }]);
   }
+}
+
+/** Taxable amount and tax per tax-code treatment; lines with no tax code count as 'untaxed'. */
+function summariseByTreatment(
+  rows: { treatment: string | null; taxable: string; tax: string }[],
+  base: string,
+) {
+  const places = minorUnits(base);
+  const groups = new Map<
+    string,
+    { taxable: ReturnType<typeof decimal>; tax: ReturnType<typeof decimal> }
+  >();
+  for (const r of rows) {
+    const key = r.treatment ?? 'untaxed';
+    const g = groups.get(key) ?? { taxable: decimal(0), tax: decimal(0) };
+    groups.set(key, { taxable: g.taxable.plus(r.taxable), tax: g.tax.plus(r.tax) });
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([treatment, g]) => ({
+      treatment,
+      taxable: g.taxable.toFixed(places),
+      tax: g.tax.toFixed(places),
+    }));
 }
 
 export class ArReportService implements RevaluationExposureProvider {
@@ -363,6 +401,111 @@ export class ArReportService implements RevaluationExposureProvider {
     }
   }
 
+  /**
+   * Net sales and tax per value of one dimension type (branch, department...), in the base
+   * currency; what is tagged with no value of that type is reported as unassigned. Needs the
+   * dimension view permission as well, because it names dimension values.
+   */
+  salesByDimension(
+    principal: Principal,
+    input: { from: string; to: string; dimensionTypeId: string },
+  ) {
+    this.period(input);
+    return withOrganization(
+      this.deps,
+      principal,
+      { permission: SalesPermissions.ReportsView, readOnlySnapshot: true },
+      async (tx, ctx) => {
+        if (!hasPermission(ctx, AccountingPermissions.DimensionsView)) {
+          throw new PermissionDeniedError(
+            'You need permission to view dimensions for this report.',
+          );
+        }
+        const type = await getDimensionType(tx, ctx.organizationId, input.dimensionTypeId);
+        if (!type) {
+          throw new ValidationError([
+            { path: 'dimensionTypeId', message: 'Unknown dimension type.' },
+          ]);
+        }
+        const accounting = await requireAccountingSettings(tx, ctx.organizationId);
+        const places = minorUnits(accounting.baseCurrency);
+        const rows = await salesByDimension(tx, {
+          organizationId: ctx.organizationId,
+          ...input,
+          places,
+        });
+        const ids = rows.flatMap((r) => (r.value_id ? [r.value_id] : []));
+        const values = await getDimensionValuesByIds(tx, ctx.organizationId, ids);
+        let net = decimal(0);
+        let tax = decimal(0);
+        const out = rows.map((r) => {
+          net = net.plus(decimal(r.net));
+          tax = tax.plus(decimal(r.tax));
+          const v = r.value_id ? values.get(r.value_id) : undefined;
+          return {
+            dimensionValueId: r.value_id,
+            code: v?.code ?? null,
+            name: v?.name ?? null,
+            invoices: r.invoices,
+            creditNotes: r.credit_notes,
+            netSales: decimal(r.net).toFixed(places),
+            tax: decimal(r.tax).toFixed(places),
+            total: decimal(r.net).plus(decimal(r.tax)).toFixed(places),
+          };
+        });
+        return {
+          ...input,
+          dimensionType: { id: type.id, code: type.code, name: type.name },
+          baseCurrency: accounting.baseCurrency,
+          values: out,
+          totals: { netSales: net.toFixed(places), tax: tax.toFixed(places) },
+        };
+      },
+    );
+  }
+
+  /** Net sales and tax per item category, in the base currency; the rest is "uncategorized". */
+  salesByCategory(principal: Principal, input: { from: string; to: string }) {
+    this.period(input);
+    return withOrganization(
+      this.deps,
+      principal,
+      { permission: SalesPermissions.ReportsView, readOnlySnapshot: true },
+      async (tx, ctx) => {
+        const accounting = await requireAccountingSettings(tx, ctx.organizationId);
+        const places = minorUnits(accounting.baseCurrency);
+        const rows = await salesByCategory(tx, {
+          organizationId: ctx.organizationId,
+          ...input,
+          places,
+        });
+        const names = new Map(
+          (await listNamed(tx, itemCategories, ctx.organizationId)).map((c) => [c.id, c.name]),
+        );
+        let net = decimal(0);
+        let tax = decimal(0);
+        const categories = rows.map((r) => {
+          net = net.plus(decimal(r.net));
+          tax = tax.plus(decimal(r.tax));
+          return {
+            categoryId: r.category_id,
+            name: r.category_id ? (names.get(r.category_id) ?? null) : null,
+            quantity: decimal(r.quantity).toFixed(),
+            netSales: decimal(r.net).toFixed(places),
+            tax: decimal(r.tax).toFixed(places),
+            lines: r.lines,
+          };
+        });
+        return {
+          ...input,
+          baseCurrency: accounting.baseCurrency,
+          categories,
+          totals: { netSales: net.toFixed(places), tax: tax.toFixed(places) },
+        };
+      },
+    );
+  }
+
   /** Net sales (before tax), tax and document counts per customer, in the base currency. */
   salesByCustomer(principal: Principal, input: { from: string; to: string }) {
     this.period(input);
@@ -398,6 +541,42 @@ export class ArReportService implements RevaluationExposureProvider {
           ...input,
           baseCurrency: accounting.baseCurrency,
           customers: out,
+          totals: {
+            netSales: net.toFixed(places),
+            tax: tax.toFixed(places),
+            total: net.plus(tax).toFixed(places),
+          },
+        };
+      },
+    );
+  }
+
+  /** Net sales and tax per day, week or month; credit notes count negatively. */
+  salesTrend(
+    principal: Principal,
+    input: { from: string; to: string; granularity: 'day' | 'week' | 'month' },
+  ) {
+    this.period(input);
+    return withOrganization(
+      this.deps,
+      principal,
+      { permission: SalesPermissions.ReportsView, readOnlySnapshot: true },
+      async (tx, ctx) => {
+        const accounting = await requireAccountingSettings(tx, ctx.organizationId);
+        const places = minorUnits(accounting.baseCurrency);
+        const rows = await salesTrend(tx, { organizationId: ctx.organizationId, ...input, places });
+        const net = rows.reduce((sum, r) => sum.plus(decimal(r.net)), decimal(0));
+        const tax = rows.reduce((sum, r) => sum.plus(decimal(r.tax)), decimal(0));
+        return {
+          ...input,
+          baseCurrency: accounting.baseCurrency,
+          periods: rows.map((r) => ({
+            periodStart: r.period,
+            invoices: r.invoices,
+            creditNotes: r.credit_notes,
+            netSales: decimal(r.net).toFixed(places),
+            tax: decimal(r.tax).toFixed(places),
+          })),
           totals: {
             netSales: net.toFixed(places),
             tax: tax.toFixed(places),
@@ -470,6 +649,9 @@ export class ArReportService implements RevaluationExposureProvider {
           out.push({
             taxCodeId: r.tax_code_id,
             code: code?.code ?? null,
+            treatment: code?.treatment ?? null,
+            taxType: code?.taxType ?? null,
+            reportingCategory: code?.reportingCategory ?? null,
             rate: r.tax_rate === null ? null : decimal(r.tax_rate).toFixed(),
             taxable: decimal(r.taxable).toFixed(places),
             tax: decimal(r.tax).toFixed(places),
@@ -480,6 +662,8 @@ export class ArReportService implements RevaluationExposureProvider {
           baseCurrency: accounting.baseCurrency,
           note: 'Summary for review only; not a tax return. Foreign-currency tax uses the document rate pending the MIRA conversion rule.',
           codes: out,
+          // Zero-rated, exempt and out-of-scope sales stay separate (specification section 15).
+          byTreatment: summariseByTreatment(out, accounting.baseCurrency),
           totals: {
             taxable: rows
               .reduce((sum, r) => sum.plus(decimal(r.taxable)), decimal(0))

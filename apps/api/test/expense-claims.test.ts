@@ -521,3 +521,243 @@ describe('security', () => {
     expect(randomUUID()).toBeTruthy();
   });
 });
+
+// ---------------------------------------------------------------------------
+// R-04: the organization's expense policies (migration 0092) apply to claims at submission
+// ---------------------------------------------------------------------------
+
+describe('expense policies on employee claims', () => {
+  const policy = (o: AccountingOrg, body: object) =>
+    o.owner.post('/purchases/expense-policies', body);
+  const submit = (o: AccountingOrg, claim: { id: string; version: number }, extra = {}) =>
+    o.owner.post(`/expense-claims/${claim.id}/submit`, { version: claim.version, ...extra });
+
+  it('warns above a limit until a reason is given, then audits the confirmation without amounts', async () => {
+    const o = await claimOrg();
+    const created = await policy(o, {
+      name: 'Claim cap',
+      ruleType: 'max_amount',
+      amount: '200',
+      action: 'warn',
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    // The draft claim totals 60.00 + 140.50 = 200.50, which is above 200.
+    const claim = await createClaim(o);
+    const refused = await submit(o, claim);
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.code).toBe('EXPENSE_POLICY_WARNING');
+    expect(refused.body.error.details.issues[0].message).toMatch(/Claim cap.*200\.5/);
+    // Nothing happened: still a draft, no number, same version.
+    const still = (await o.owner.get(`/expense-claims/${claim.id}`)).body.data;
+    expect(still).toMatchObject({ status: 'DRAFT', number: null, version: claim.version });
+    // A blank reason does not count.
+    expect((await submit(o, claim, { policyReason: '   ' })).status).toBe(400);
+    const confirmed = await submit(o, claim, {
+      policyReason: 'Client visit approved by the director',
+    });
+    expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
+    expect(confirmed.body.data.status).toBe('APPROVED');
+    // The approval and the confirmation are recorded in one transaction at the same instant, so
+    // their relative order is not defined: compare them as a set after the creation.
+    const actions = await auditActions(o, claim.id);
+    expect(actions[0]).toBe('expense_claim.created');
+    expect(actions.slice(1).sort()).toEqual([
+      'expense_claim.approved',
+      'expense_claim.policy_confirmed',
+    ]);
+    expect(actions).toHaveLength(3);
+    const { rows } = await owner.query(
+      `SELECT metadata FROM audit_events
+        WHERE organization_id = $1 AND resource_id = $2 AND action = 'expense_claim.policy_confirmed'`,
+      [o.organizationId, claim.id],
+    );
+    expect(rows[0].metadata).toEqual({
+      policies: ['Claim cap'],
+      reason: 'Client visit approved by the director',
+    });
+    // No amount reaches the confirmation event.
+    expect(JSON.stringify(rows[0].metadata)).not.toMatch(/\d+\.\d{2}/);
+    // The claim can still be posted: the policy changed nothing about accounting.
+    const posted = await o.owner.post(`/expense-claims/${claim.id}/post`, {
+      version: confirmed.body.data.version,
+    });
+    expect(posted.status, JSON.stringify(posted.body)).toBe(200);
+  });
+
+  it('treats a claim exactly at the limit as within it', async () => {
+    const o = await claimOrg();
+    await policy(o, { name: 'Exact', ruleType: 'max_amount', amount: '200.50', action: 'block' });
+    const claim = await createClaim(o);
+    expect((await submit(o, claim)).status).toBe(200);
+  });
+
+  it('refuses a blocking rule whatever the reason, and archiving the rule lifts it', async () => {
+    const o = await claimOrg();
+    const block = await policy(o, {
+      name: 'Hard cap',
+      ruleType: 'max_amount',
+      amount: '150',
+      action: 'block',
+    });
+    const claim = await createClaim(o);
+    const refused = await submit(o, claim, { policyReason: 'please' });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.code).toBe('EXPENSE_POLICY_BLOCKED');
+    expect(refused.body.error.details.issues[0].message).toMatch(/Hard cap/);
+    expect((await o.owner.get(`/expense-claims/${claim.id}`)).body.data.status).toBe('DRAFT');
+    expect(await auditActions(o, claim.id)).toEqual(['expense_claim.created']);
+    const archived = await o.owner.patch(`/purchases/expense-policies/${block.body.data.id}`, {
+      version: block.body.data.version,
+      status: 'ARCHIVED',
+    });
+    expect(archived.status, JSON.stringify(archived.body)).toBe(200);
+    expect((await submit(o, claim)).status).toBe(200);
+  });
+
+  it('applies a limit to one expense account only', async () => {
+    const o = await claimOrg();
+    await policy(o, {
+      name: 'Rent cap',
+      ruleType: 'max_amount',
+      amount: '50',
+      accountId: o.accounts['5300'],
+      action: 'block',
+    });
+    const over = await createClaim(o, {
+      lines: [
+        {
+          expenseDate: '2026-03-18',
+          description: 'Hall hire',
+          accountId: o.accounts['5300'],
+          amount: '60.00',
+        },
+        { expenseDate: '2026-03-19', description: 'Lunch', amount: '140.50' },
+      ],
+    });
+    const refused = await submit(o, over);
+    expect(refused.body.error.code).toBe('EXPENSE_POLICY_BLOCKED');
+    expect(refused.body.error.details.issues[0].message).toMatch(/Rent cap.*60/);
+    // The same total spread elsewhere, and a smaller amount on the capped account, are fine.
+    const fine = await createClaim(o, {
+      lines: [
+        {
+          expenseDate: '2026-03-18',
+          description: 'Hall hire',
+          accountId: o.accounts['5300'],
+          amount: '40.00',
+        },
+        { expenseDate: '2026-03-19', description: 'Lunch', amount: '160.50' },
+      ],
+    });
+    expect((await submit(o, fine)).status).toBe(200);
+  });
+
+  it('requires a receipt above an amount, and a receipt satisfies it', async () => {
+    const o = await claimOrg();
+    await policy(o, {
+      name: 'Receipt over 100',
+      ruleType: 'receipt_required_above',
+      amount: '100',
+      action: 'block',
+    });
+    const claim = await createClaim(o);
+    const refused = await submit(o, claim);
+    expect(refused.body.error.code).toBe('EXPENSE_POLICY_BLOCKED');
+    const upload = await o.owner.upload(
+      `/files?linkType=expense_claim&linkId=${claim.id}`,
+      PDF,
+      'receipts.pdf',
+    );
+    expect(upload.status, JSON.stringify(upload.body)).toBe(201);
+    const ok = await submit(o, claim);
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    expect(ok.body.data.receiptCount).toBe(1);
+    // A small claim never needed one.
+    const small = await createClaim(o, {
+      lines: [{ expenseDate: '2026-03-18', description: 'Taxi', amount: '60.00' }],
+    });
+    expect((await submit(o, small)).status).toBe(200);
+  });
+
+  it('keeps conditional approval in place after a confirmed warning', async () => {
+    const o = await claimOrg();
+    await createRole(o.owner, 'Claim approver', ['expense_claims.view', 'expense_claims.approve']);
+    const roles = (await o.owner.get('/organizations/current/roles')).body.data as {
+      id: string;
+      name: string;
+    }[];
+    const roleId = roles.find((r) => r.name === 'Claim approver')!.id;
+    const approval = await o.owner.put('/approvals/policies/expense_claims.approve', {
+      steps: [
+        {
+          name: 'Finance manager',
+          requiredApprovals: 1,
+          roleIds: [roleId],
+          membershipIds: [],
+          conditions: { minBaseAmount: '0' },
+        },
+      ],
+    });
+    expect(approval.status, JSON.stringify(approval.body)).toBe(200);
+    const approver = (await joinWithRole(ctx, o.owner, 'Claim approver')).client;
+    await policy(o, { name: 'Claim cap', ruleType: 'max_amount', amount: '100', action: 'warn' });
+    const claim = await createClaim(o);
+    expect((await submit(o, claim)).body.error.code).toBe('EXPENSE_POLICY_WARNING');
+    const confirmed = await submit(o, claim, { policyReason: 'Agreed with finance' });
+    expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
+    // The warning did not skip approval: the claim waits, and the preparer cannot approve it.
+    expect(confirmed.body.data.status).toBe('PENDING_APPROVAL');
+    const requestId = confirmed.body.data.approval.requestId;
+    expect(
+      (await o.owner.post(`/approvals/requests/${requestId}/approve`, {})).body.error.code,
+    ).toBe('SELF_APPROVAL_PROHIBITED');
+    expect((await approver.post(`/approvals/requests/${requestId}/approve`, {})).status).toBe(200);
+    expect((await o.owner.get(`/expense-claims/${claim.id}`)).body.data.status).toBe('APPROVED');
+    // Submission and the confirmation share one instant (order undefined); creation comes before
+    // and the later approval comes after.
+    const flow = await auditActions(o, claim.id);
+    expect(flow).toHaveLength(4);
+    expect(flow[0]).toBe('expense_claim.created');
+    expect(flow.slice(1, 3).sort()).toEqual([
+      'expense_claim.policy_confirmed',
+      'expense_claim.submitted',
+    ]);
+    expect(flow[3]).toBe('expense_claim.approved');
+  });
+
+  it('applies to every preparer, cannot be changed by one, and stays inside its organization', async () => {
+    const a = await claimOrg();
+    const b = await claimOrg();
+    await policy(a, { name: 'Hard cap', ruleType: 'max_amount', amount: '100', action: 'block' });
+    // A preparer who may create claims but not manage policies.
+    await createRole(a.owner, 'Claim preparer', ['expense_claims.view', 'expense_claims.create']);
+    const preparer = (await joinWithRole(ctx, a.owner, 'Claim preparer')).client;
+    const mine = await preparer.post('/expense-claims', draft(a));
+    expect(mine.status, JSON.stringify(mine.body)).toBe(201);
+    const refused = await preparer.post(`/expense-claims/${mine.body.data.id}/submit`, {
+      version: mine.body.data.version,
+      policyReason: 'I am in a hurry',
+    });
+    expect(refused.body.error.code).toBe('EXPENSE_POLICY_BLOCKED');
+    expect(
+      (
+        await preparer.post('/purchases/expense-policies', {
+          name: 'Mine',
+          ruleType: 'max_amount',
+          amount: '9999',
+          action: 'warn',
+        })
+      ).status,
+    ).toBe(403);
+    // Someone without the claims permissions is refused before any policy is described.
+    const member = await joinWithRole(ctx, a.owner, 'Member');
+    const stranger = await member.client.post(`/expense-claims/${mine.body.data.id}/submit`, {
+      version: mine.body.data.version,
+    });
+    expect(stranger.status).toBe(403);
+    expect(JSON.stringify(stranger.body)).not.toMatch(/Hard cap|policy/i);
+    // Another organization's policies never reach this one.
+    const other = await createClaim(b);
+    expect((await submit(b, other)).status).toBe(200);
+  });
+});

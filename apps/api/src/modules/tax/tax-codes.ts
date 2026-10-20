@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 import type { Transaction } from '../../database/client.js';
 import { findAccountByCode, hasChildAccounts } from '../accounting/index.js';
-import { taxCodeRates, taxCodes } from './schema.js';
+import { taxCodeRates, taxCodes, type TaxCodeTreatment } from './schema.js';
 
 /** Tax code data access (Decision 15). No calculation happens here. */
 
@@ -60,6 +60,9 @@ export async function insertTaxCode(
     description: string;
     taxAccountId: string;
     inputTaxAccountId?: string | null;
+    treatment?: TaxCodeTreatment;
+    taxType?: string | null;
+    reportingCategory?: string | null;
     userId: string | null;
     now: Date;
   },
@@ -73,6 +76,9 @@ export async function insertTaxCode(
       description: input.description,
       taxAccountId: input.taxAccountId,
       inputTaxAccountId: input.inputTaxAccountId ?? null,
+      treatment: input.treatment ?? 'standard',
+      taxType: input.taxType ?? null,
+      reportingCategory: input.reportingCategory ?? null,
       createdByUserId: input.userId,
       createdAt: input.now,
       updatedByUserId: input.userId,
@@ -91,7 +97,16 @@ export async function updateTaxCode(
     id: string;
     version: number;
     set: Partial<
-      Pick<TaxCode, 'name' | 'description' | 'taxAccountId' | 'inputTaxAccountId' | 'status'>
+      Pick<
+        TaxCode,
+        | 'name'
+        | 'description'
+        | 'taxAccountId'
+        | 'inputTaxAccountId'
+        | 'status'
+        | 'taxType'
+        | 'reportingCategory'
+      >
     >;
     userId: string;
     now: Date;

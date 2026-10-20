@@ -3,3 +3,4 @@ export * from './permission-catalog.js';
 export * from './role-templates.js';
 export * from './roles.js';
 export * from './assignments.js';
+export * from './branch-scopes.js';

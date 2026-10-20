@@ -6,5 +6,5 @@ export * from './calculation.js';
 export * from './input-tax.js';
 export * from './permissions.js';
 export * from './tax-codes.js';
-export { taxCodeStatuses } from './schema.js';
-export type { TaxCodeStatus } from './schema.js';
+export { taxCodeStatuses, taxCodeTreatments } from './schema.js';
+export type { TaxCodeStatus, TaxCodeTreatment } from './schema.js';

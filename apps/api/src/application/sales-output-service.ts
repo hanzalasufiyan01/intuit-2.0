@@ -363,6 +363,7 @@ export class SalesOutputService {
       template: `sales.${email.documentType}`,
       attachments: [
         {
+          organizationId: job.organizationId,
           fileId: prepared.fileId,
           fileName: `${prepared.number}.pdf`,
           contentType: 'application/pdf',

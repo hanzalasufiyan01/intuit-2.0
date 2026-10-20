@@ -25,6 +25,7 @@ import {
   updateTaxCode,
   type TaxCode,
   type TaxCodeRate,
+  type TaxCodeTreatment,
 } from '../modules/tax/index.js';
 import { requireAccountingSettings } from './accounting-service.js';
 import { hasPermission, type AuthorizationContext, type Principal } from './authorization.js';
@@ -69,6 +70,9 @@ function codeView(code: TaxCode, rates: readonly TaxCodeRate[]) {
     description: code.description,
     taxAccountId: code.taxAccountId,
     inputTaxAccountId: code.inputTaxAccountId,
+    treatment: code.treatment,
+    taxType: code.taxType,
+    reportingCategory: code.reportingCategory,
     status: code.status,
     version: code.version,
     systemSeeded: code.createdByUserId === null,
@@ -87,9 +91,15 @@ export interface TaxCodeInput {
   taxAccountId: string;
   /** Optional input tax account for purchases (ADR 0004 P4-11). */
   inputTaxAccountId?: string | null | undefined;
+  /** Classification (migration 0087): zero-rated and exempt stay apart; fixed at creation. */
+  treatment?: TaxCodeTreatment | undefined;
+  taxType?: string | null | undefined;
+  reportingCategory?: string | null | undefined;
   rate: string;
   effectiveFrom: string;
 }
+
+const isZero = (rate: string) => Number(rate) === 0;
 
 /**
  * Tax codes and their effective-dated rate versions (Decisions 15, 33, 60; Phase 3B D4).
@@ -195,6 +205,12 @@ export class TaxService {
         if (input.inputTaxAccountId) {
           await this.assertInputTaxAccount(tx, ctx.organizationId, input.inputTaxAccountId);
         }
+        const treatment = input.treatment ?? 'standard';
+        if (treatment !== 'standard' && !isZero(input.rate)) {
+          throw new ValidationError([
+            { path: 'rate', message: 'A zero-rated, exempt or out-of-scope code has a rate of 0.' },
+          ]);
+        }
         const code = await insertTaxCode(tx, {
           organizationId: ctx.organizationId,
           code: input.code,
@@ -202,6 +218,9 @@ export class TaxService {
           description: input.description.trim(),
           taxAccountId: input.taxAccountId,
           inputTaxAccountId: input.inputTaxAccountId ?? null,
+          treatment,
+          taxType: input.taxType?.trim() || null,
+          reportingCategory: input.reportingCategory?.trim() || null,
           userId: ctx.userId,
           now: this.now,
         });
@@ -224,6 +243,9 @@ export class TaxService {
             name: code.name,
             taxAccountId: code.taxAccountId,
             inputTaxAccountId: code.inputTaxAccountId,
+            treatment: code.treatment,
+            taxType: code.taxType,
+            reportingCategory: code.reportingCategory,
             rate: input.rate,
             effectiveFrom: input.effectiveFrom,
           },
@@ -244,6 +266,8 @@ export class TaxService {
       taxAccountId?: string;
       /** null clears the mapping (purchases with the code are then blocked, P4-11). */
       inputTaxAccountId?: string | null;
+      taxType?: string | null;
+      reportingCategory?: string | null;
     },
     origin: EventOrigin,
   ) {
@@ -258,7 +282,15 @@ export class TaxService {
           description?: string;
           taxAccountId?: string;
           inputTaxAccountId?: string | null;
+          taxType?: string | null;
+          reportingCategory?: string | null;
         } = {};
+        for (const key of ['taxType', 'reportingCategory'] as const) {
+          const value = input[key];
+          if (value !== undefined && (value?.trim() || null) !== code[key]) {
+            set[key] = value?.trim() || null;
+          }
+        }
         if (input.name !== undefined && input.name.trim() !== code.name)
           set.name = input.name.trim();
         if (input.description !== undefined && input.description.trim() !== code.description) {
@@ -361,6 +393,11 @@ export class TaxService {
       { permission: TaxPermissions.CodesManage, sensitive: true },
       async (tx, ctx) => {
         const code = await this.requireCode(tx, ctx.organizationId, id);
+        if (code.treatment !== 'standard' && !isZero(input.rate)) {
+          throw new ValidationError([
+            { path: 'rate', message: 'A zero-rated, exempt or out-of-scope code has a rate of 0.' },
+          ]);
+        }
         const rate = await insertTaxCodeRate(tx, {
           organizationId: ctx.organizationId,
           taxCodeId: id,

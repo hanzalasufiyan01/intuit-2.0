@@ -70,6 +70,13 @@ const draftShape = {
 const createBody = z.object(draftShape).strict();
 const updateBody = z.object({ version: z.number().int().min(1), ...draftShape }).strict();
 const versionBody = z.object({ version: z.number().int().min(1) }).strict();
+const postBody = z
+  .object({
+    version: z.number().int().min(1),
+    duplicateReason: z.string().trim().min(1).max(500).nullable().optional(),
+    policyReason: z.string().trim().min(1).max(500).nullable().optional(),
+  })
+  .strict();
 const voidBody = z
   .object({
     version: z.number().int().min(1),
@@ -146,7 +153,7 @@ export function registerExpenseRoutes(
     const principal = requirePrincipal(request);
     const key = idempotencyKey(request);
     const { id } = parseInput(idParams, request.params);
-    const body = parseInput(versionBody, request.body);
+    const body = parseInput(postBody, request.body);
     const result = await expenses.post(
       principal,
       id,

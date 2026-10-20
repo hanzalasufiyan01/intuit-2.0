@@ -1,4 +1,9 @@
-import { NotFoundError, ProtectedResourceError, ValidationError } from '../domain/errors.js';
+import {
+  AppError,
+  NotFoundError,
+  ProtectedResourceError,
+  ValidationError,
+} from '../domain/errors.js';
 import type { Transaction } from '../database/client.js';
 import {
   AccessControlPermissions,
@@ -17,12 +22,14 @@ import { getUserProfiles, setSessionActiveOrganization } from '../modules/identi
 import {
   findMembershipById,
   getOrganization,
+  isModuleEnabled,
   listOrganizationMemberships,
   listUserOrganizations,
   OrganizationPermissions,
   renameOrganization,
   setMembershipStatus,
   type MembershipStatus,
+  type OptionalModule,
 } from '../modules/organizations/index.js';
 import { enqueueOutboxEvent } from '../modules/outbox/index.js';
 import {
@@ -47,6 +54,8 @@ export interface OperationOptions {
   stepUp?: boolean;
   /** Read-only reporting: one REPEATABLE READ, READ ONLY snapshot for all queries. */
   readOnlySnapshot?: boolean;
+  /** An optional module that must be switched on for the organization (migration 0065). */
+  module?: OptionalModule;
 }
 
 /**
@@ -66,6 +75,13 @@ export async function withOrganization<T>(
     async (tx) => {
       const context = await resolveAuthorizationContext(tx, principal);
       if (options.permission) requirePermission(context, options.permission);
+      if (options.module && !(await isModuleEnabled(tx, context.organizationId, options.module))) {
+        throw new AppError(
+          'MODULE_DISABLED',
+          403,
+          `The ${options.module} module is not enabled for this organization.`,
+        );
+      }
       if (options.sensitive || options.stepUp) {
         requireRecentAuthentication(
           principal,

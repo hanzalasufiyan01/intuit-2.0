@@ -17,6 +17,7 @@ export interface InventoryHooks {
     tx: Transaction,
     organizationId: string,
     lines: readonly { itemId: string | null; accountId: string | null }[],
+    noun?: string,
   ): Promise<void>;
 
   /** Refuses tracked items on a document that cannot move stock yet (expenses, vendor credits). */
@@ -42,6 +43,33 @@ export interface InventoryHooks {
         nonRecoverableTax: string;
       }[];
     },
+  ): Promise<void>;
+
+  /**
+   * Goods returned to a supplier on a posted vendor credit leave stock at the value the credit's
+   * journal booked to the inventory account.
+   */
+  returnToVendor(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    input: {
+      vendorCreditId: string;
+      date: string;
+      journalId: string;
+      lines: readonly {
+        itemId: string | null;
+        quantity: string;
+        netAmount: string;
+        nonRecoverableTax: string;
+      }[];
+    },
+  ): Promise<void>;
+
+  /** Puts the goods of a voided vendor credit back into stock at the value they left. */
+  voidVendorReturn(
+    tx: Transaction,
+    ctx: AuthorizationContext,
+    vendorCreditId: string,
   ): Promise<void>;
 
   /** Removes the stock a bill brought (refused when it has been sold). */

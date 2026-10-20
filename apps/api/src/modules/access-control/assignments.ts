@@ -71,6 +71,59 @@ export async function assignOwnerRole(
 }
 
 /**
+ * The ownership change of a completed transfer (ADR 0012): the Owner role moves from one
+ * membership to another and the previous owner receives the replacement role, in the caller's
+ * transaction. The unique index `membership_roles_single_owner_idx` keeps exactly one Owner; the
+ * previous owner's other (non-owner) roles are replaced by the replacement role.
+ */
+export async function transferOwnerRole(
+  tx: Transaction,
+  input: {
+    organizationId: string;
+    fromMembershipId: string;
+    toMembershipId: string;
+    ownerRole: Role;
+    replacementRole: Role;
+    assignedByUserId: string;
+  },
+): Promise<void> {
+  if (!input.ownerRole.isOwner || input.ownerRole.organizationId !== input.organizationId) {
+    throw new Error('transferOwnerRole requires the Owner role of the same organization');
+  }
+  if (
+    input.replacementRole.isOwner ||
+    input.replacementRole.organizationId !== input.organizationId
+  ) {
+    throw new Error('transferOwnerRole requires a non-owner replacement role of the organization');
+  }
+  const removed = await tx
+    .delete(membershipRoles)
+    .where(
+      and(
+        eq(membershipRoles.organizationId, input.organizationId),
+        eq(membershipRoles.membershipId, input.fromMembershipId),
+        eq(membershipRoles.roleIsOwner, true),
+      ),
+    )
+    .returning({ roleId: membershipRoles.roleId });
+  if (removed.length !== 1) {
+    throw new Error('The previous owner does not hold the Owner role');
+  }
+  await assignOwnerRole(tx, {
+    organizationId: input.organizationId,
+    membershipId: input.toMembershipId,
+    ownerRole: input.ownerRole,
+    assignedByUserId: input.assignedByUserId,
+  });
+  await replaceMembershipRoles(tx, {
+    organizationId: input.organizationId,
+    membershipId: input.fromMembershipId,
+    roles: [input.replacementRole],
+    assignedByUserId: input.assignedByUserId,
+  });
+}
+
+/**
  * Replaces a membership's non-owner roles. Never grants or removes the Owner role:
  * callers must reject owner roles and owner memberships before calling.
  */

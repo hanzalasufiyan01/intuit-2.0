@@ -543,8 +543,8 @@ describe('public API draft invoice writes', () => {
     ).rows[0];
     expect(row).toEqual({ status: 'DRAFT', number: null, journal_id: null });
     const audit = await sql(
-      `SELECT action, actor_type FROM audit_events WHERE resource_id = $1 ORDER BY occurred_at, action`,
-      [data.id],
+      `SELECT action, actor_type FROM audit_events WHERE organization_id = $2 AND resource_id = $1 ORDER BY occurred_at, action`,
+      [data.id, w.org.organizationId],
     );
     expect(audit.rows.map((r) => r.action).sort()).toEqual(['invoice.created', 'invoice.updated']);
     expect(audit.rows.every((r) => r.actor_type === 'api_token')).toBe(true);

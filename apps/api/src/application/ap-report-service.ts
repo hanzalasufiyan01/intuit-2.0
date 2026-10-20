@@ -174,6 +174,30 @@ interface RegisterInput {
   currencyCode?: string | undefined;
 }
 
+/** Taxable amount and tax per tax-code treatment; lines with no tax code count as 'untaxed'. */
+function summariseByTreatment(
+  rows: { treatment: string | null; taxable: string; tax: string }[],
+  base: string,
+) {
+  const places = minorUnits(base);
+  const groups = new Map<
+    string,
+    { taxable: ReturnType<typeof decimal>; tax: ReturnType<typeof decimal> }
+  >();
+  for (const r of rows) {
+    const key = r.treatment ?? 'untaxed';
+    const g = groups.get(key) ?? { taxable: decimal(0), tax: decimal(0) };
+    groups.set(key, { taxable: g.taxable.plus(r.taxable), tax: g.tax.plus(r.tax) });
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([treatment, g]) => ({
+      treatment,
+      taxable: g.taxable.toFixed(places),
+      tax: g.tax.toFixed(places),
+    }));
+}
+
 export class ApReportService implements RevaluationExposureProvider {
   readonly key = 'purchases.payables';
 
@@ -771,6 +795,9 @@ export class ApReportService implements RevaluationExposureProvider {
           codes.push({
             taxCodeId: g.taxCodeId,
             code: code?.code ?? null,
+            treatment: code?.treatment ?? null,
+            taxType: code?.taxType ?? null,
+            reportingCategory: code?.reportingCategory ?? null,
             rate: g.rate,
             taxable: s.net,
             recoverableTax: s.recoverableTax,
@@ -793,6 +820,8 @@ export class ApReportService implements RevaluationExposureProvider {
           baseCurrency: base,
           reviewOnly: true,
           codes,
+          // Zero-rated, exempt and out-of-scope purchases stay separate (specification section 15).
+          byTreatment: summariseByTreatment(codes, base),
           totals: {
             taxable: t.net,
             recoverableTax: t.recoverableTax,

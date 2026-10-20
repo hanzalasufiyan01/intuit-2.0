@@ -5,13 +5,14 @@ import {
   MfaStepUpRequiredError,
   PermissionDeniedError,
   ReauthenticationRequiredError,
+  ValidationError,
 } from '../domain/errors.js';
 import type { Transaction } from '../database/client.js';
-import { getEffectiveAccess } from '../modules/access-control/index.js';
+import { getEffectiveAccess, scopeAccess } from '../modules/access-control/index.js';
 import { hasActiveFactor, type Session, type User } from '../modules/identity/index.js';
 import { findMembership, getOrganization } from '../modules/organizations/index.js';
 import { enforceActingUserMfa, enforceOrganizationMfa } from './mfa-policy.js';
-import { setDbContext } from './unit-of-work.js';
+import { setBranchScope, setDbContext } from './unit-of-work.js';
 
 /** The authenticated caller, resolved by the server from the session cookie. */
 export interface Principal {
@@ -32,6 +33,11 @@ export interface AuthorizationContext {
   isOwner: boolean;
   roleIds: string[];
   permissions: ReadonlySet<string>;
+  /**
+   * The branches (dimension values) a restricted member is limited to; null when unrestricted.
+   * Row-level security enforces it on invoices and bills; the permissions are already narrowed.
+   */
+  branchScope?: string[] | null;
   /**
    * Set only for a Public API request (ADR 0011): the integration and token behind the service
    * principal in `userId`. Absent for people. Audit and idempotency read it from here, so domain
@@ -78,6 +84,8 @@ export async function resolveAuthorizationContext(
     organizationId,
     access,
   });
+  const scoped = await scopeAccess(tx, organizationId, membership.id, access);
+  await setBranchScope(tx, scoped.branchScope);
   return {
     userId: principal.user.id,
     sessionId: principal.session.id,
@@ -85,7 +93,8 @@ export async function resolveAuthorizationContext(
     membershipId: membership.id,
     isOwner: access.isOwner,
     roleIds: access.roleIds,
-    permissions: access.permissions,
+    permissions: scoped.permissions,
+    branchScope: scoped.branchScope,
   };
 }
 
@@ -113,6 +122,8 @@ export async function resolveActingUserContext(
   const access = await getEffectiveAccess(tx, organizationId, membership.id);
   // S7-31: jobs never bypass the MFA requirement of the user they act for.
   await enforceActingUserMfa(tx, { userId, organizationId, access });
+  const scoped = await scopeAccess(tx, organizationId, membership.id, access);
+  await setBranchScope(tx, scoped.branchScope);
   return {
     userId,
     sessionId: null,
@@ -120,7 +131,8 @@ export async function resolveActingUserContext(
     membershipId: membership.id,
     isOwner: access.isOwner,
     roleIds: access.roleIds,
-    permissions: access.permissions,
+    permissions: scoped.permissions,
+    branchScope: scoped.branchScope,
   };
 }
 
@@ -157,5 +169,28 @@ export async function requireRecentMfa(
   const verifiedAt = principal.session.mfaVerifiedAt;
   if (!verifiedAt || now.getTime() - verifiedAt.getTime() > stepUpWindowMs) {
     throw new MfaStepUpRequiredError();
+  }
+}
+
+/**
+ * A branch-restricted member (migration 0084) must tag invoices and bills with at least one of
+ * their own branches; the database enforces it too, but this gives a readable answer and never
+ * reveals anything about branches outside the member's list. `ids` undefined = unchanged on edit.
+ */
+export function assertWithinBranchScope(
+  context: AuthorizationContext,
+  ids: readonly string[] | undefined,
+  options: { required: boolean },
+): void {
+  const scope = context.branchScope;
+  if (!scope || scope.length === 0) return;
+  if (ids === undefined && !options.required) return;
+  if (!(ids ?? []).some((id) => scope.includes(id))) {
+    throw new ValidationError([
+      {
+        path: 'dimensionValueIds',
+        message: 'Choose at least one of the branches you are allowed to work in.',
+      },
+    ]);
   }
 }

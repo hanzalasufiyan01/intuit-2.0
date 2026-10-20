@@ -855,3 +855,276 @@ describe('expense lists', () => {
     expect((await o.owner.get('/purchases/expenses?after=nonsense')).status).toBe(400);
   });
 });
+
+describe('duplicate supplier references (master specification section 13)', () => {
+  it('warns on the draft, blocks the post until a reason is given, and audits the confirmation', async () => {
+    const o = await expenseOrg();
+    const first = await posted(o.owner, draft(o, { vendorReference: ' rcp-100 ' }));
+    expect(first.vendorReference).toBeTruthy();
+    // Same reference (case and spaces ignored) on another expense: warned on the draft.
+    const second = await createExpense(o.owner, draft(o, { vendorReference: 'RCP-100' }));
+    const view = (await o.owner.get(`/purchases/expenses/${second.id}`)).body.data;
+    const warning = view.warnings.find(
+      (w: { code: string }) => w.code === 'DUPLICATE_VENDOR_REFERENCE',
+    );
+    expect(warning.matches).toEqual([
+      expect.objectContaining({ kind: 'expense', id: first.id, number: first.number }),
+    ]);
+    // Posting is refused without a reason, and posts nothing.
+    const refused = await post(o.owner, second);
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.code).toBe('DUPLICATE_VENDOR_REFERENCE');
+    expect((await o.owner.get(`/purchases/expenses/${second.id}`)).body.data.status).toBe('DRAFT');
+    // With a reason it posts, and the confirmation is audited.
+    const confirmed = await o.owner.post(`/purchases/expenses/${second.id}/post`, {
+      version: second.version,
+      duplicateReason: 'Second receipt for the return trip.',
+    });
+    expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
+    const audit = await owner.query(
+      `SELECT metadata FROM audit_events WHERE organization_id = $1 AND action = 'expense.duplicate_confirmed'`,
+      [o.organizationId],
+    );
+    expect(audit.rows).toHaveLength(1);
+    expect(audit.rows[0].metadata.reason).toBe('Second receipt for the return trip.');
+    // A different vendor, a void expense or no reference never counts as a duplicate.
+    const other = await o.owner.post('/vendors', {
+      party: { kind: 'organization', displayName: 'Other Supplier' },
+    });
+    const elsewhere = await createExpense(
+      o.owner,
+      draft(o, { vendorId: other.body.data.id, vendorReference: 'RCP-100' }),
+    );
+    expect((await post(o.owner, elsewhere)).status).toBe(200);
+    expect((await post(o.owner, await createExpense(o.owner, draft(o)))).status).toBe(200);
+  });
+
+  it('also sees a bill of the same vendor with that reference, and ignores other tenants', async () => {
+    const o = await expenseOrg();
+    const bill = await o.owner.post('/purchases/bills', {
+      vendorId: o.vendorId,
+      billDate: '2026-03-10',
+      vendorReference: 'INV-77',
+      lines: [{ description: 'Supplies', quantity: '1', unitPrice: '10', taxCodeId: null }],
+    });
+    expect(bill.status, JSON.stringify(bill.body)).toBe(201);
+    const exp = await createExpense(o.owner, draft(o, { vendorReference: 'inv-77' }));
+    const view = (await o.owner.get(`/purchases/expenses/${exp.id}`)).body.data;
+    expect(
+      view.warnings.find((w: { code: string }) => w.code === 'DUPLICATE_VENDOR_REFERENCE').matches,
+    ).toEqual([expect.objectContaining({ kind: 'bill', id: bill.body.data.id })]);
+    expect((await post(o.owner, exp)).status).toBe(409);
+    const stranger = await expenseOrg();
+    const same = await createExpense(
+      stranger.owner,
+      draft(stranger, { vendorReference: 'INV-77' }),
+    );
+    expect((await post(stranger.owner, same)).status).toBe(200);
+  });
+});
+
+describe('expense policies (master specification section 13, migration 0092)', () => {
+  const policy = (o: ExpenseOrg, body: object) => o.owner.post('/purchases/expense-policies', body);
+
+  it('warns above a limit until a reason is given, blocks where the rule says so, and ignores archived rules', async () => {
+    const o = await expenseOrg();
+    const warn = await policy(o, {
+      name: 'Large expense',
+      ruleType: 'max_amount',
+      amount: '100',
+      action: 'warn',
+    });
+    expect(warn.status, JSON.stringify(warn.body)).toBe(201);
+    // 2 x 50 = 100 is not above the limit; 2 x 60 = 120 is.
+    expect((await post(o.owner, await createExpense(o.owner, draft(o)))).status).toBe(200);
+    const big = await createExpense(
+      o.owner,
+      draft(o, {
+        lines: [{ description: 'Taxi', quantity: '2', unitPrice: '60', taxCodeId: null }],
+      }),
+    );
+    const refused = await post(o.owner, big);
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.code).toBe('EXPENSE_POLICY_WARNING');
+    expect(refused.body.error.details.issues[0].message).toMatch(/120/);
+    expect((await o.owner.get(`/purchases/expenses/${big.id}`)).body.data.status).toBe('DRAFT');
+    const confirmed = await o.owner.post(`/purchases/expenses/${big.id}/post`, {
+      version: big.version,
+      policyReason: 'Client dinner approved by the director',
+    });
+    expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
+    const audit = await owner.query(
+      `SELECT metadata FROM audit_events WHERE organization_id = $1 AND action = 'expense.policy_confirmed'`,
+      [o.organizationId],
+    );
+    expect(audit.rows).toHaveLength(1);
+    expect(audit.rows[0].metadata).toMatchObject({
+      policies: ['Large expense'],
+      reason: 'Client dinner approved by the director',
+    });
+
+    // A blocking rule cannot be overridden by a reason; archiving it lifts it.
+    const block = await policy(o, {
+      name: 'Hard cap',
+      ruleType: 'max_amount',
+      amount: '500',
+      action: 'block',
+    });
+    const huge = await createExpense(
+      o.owner,
+      draft(o, {
+        lines: [{ description: 'Trip', quantity: '1', unitPrice: '600', taxCodeId: null }],
+      }),
+    );
+    const blocked = await o.owner.post(`/purchases/expenses/${huge.id}/post`, {
+      version: huge.version,
+      policyReason: 'please',
+    });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.code).toBe('EXPENSE_POLICY_BLOCKED');
+    for (const p of [warn.body.data, block.body.data]) {
+      const archived = await o.owner.patch(`/purchases/expense-policies/${p.id}`, {
+        version: p.version,
+        status: 'ARCHIVED',
+      });
+      expect(archived.status, JSON.stringify(archived.body)).toBe(200);
+    }
+    expect((await post(o.owner, huge)).status).toBe(200);
+  });
+
+  it('applies a limit to one expense account and requires a receipt above an amount', async () => {
+    const o = await expenseOrg();
+    const account = await policy(o, {
+      name: 'Entertainment cap',
+      ruleType: 'max_amount',
+      amount: '50',
+      accountId: o.accounts['5400'],
+      action: 'block',
+    });
+    expect(account.status, JSON.stringify(account.body)).toBe(201);
+    const travel = await o.owner.post('/accounting/accounts', {
+      code: '5450',
+      name: 'Travel',
+      type: 'EXPENSE',
+      subtype: 'OPERATING_EXPENSE',
+    });
+    const line = (accountId: string, unitPrice: string, description: string) => ({
+      description,
+      quantity: '1',
+      unitPrice,
+      taxCodeId: null,
+      accountId,
+    });
+    // Over the cap on the capped account is blocked; the same amount on another account is not.
+    const capped = await createExpense(
+      o.owner,
+      draft(o, { lines: [line(o.accounts['5400']!, '80', 'Meal')] }),
+    );
+    expect((await post(o.owner, capped)).status).toBe(409);
+    const other = await createExpense(
+      o.owner,
+      draft(o, { lines: [line(travel.body.data.id, '80', 'Flight')] }),
+    );
+    expect((await post(o.owner, other)).status).toBe(200);
+
+    // A receipt is needed above 200: blocked without a file, fine with one.
+    expect(
+      (
+        await policy(o, {
+          name: 'Receipt rule',
+          ruleType: 'receipt_required_above',
+          amount: '200',
+          action: 'block',
+        })
+      ).status,
+    ).toBe(201);
+    const noReceipt = await createExpense(
+      o.owner,
+      draft(o, { lines: [line(travel.body.data.id, '250', 'Hotel')] }),
+    );
+    const refused = await post(o.owner, noReceipt);
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.details.issues[0].message).toMatch(/receipt/i);
+    const upload = await o.owner.upload(
+      `/files?linkType=expense&linkId=${noReceipt.id}`,
+      PDF,
+      'receipt.pdf',
+    );
+    expect(upload.status, JSON.stringify(upload.body)).toBe(201);
+    expect((await post(o.owner, noReceipt)).status).toBe(200);
+  });
+
+  it('is managed with purchases settings, validated, versioned and tenant-isolated', async () => {
+    const o = await expenseOrg();
+    const created = await policy(o, {
+      name: 'Cap',
+      ruleType: 'max_amount',
+      amount: '100',
+      action: 'warn',
+    });
+    expect(
+      (await policy(o, { name: ' cap ', ruleType: 'max_amount', amount: '5', action: 'warn' }))
+        .status,
+    ).toBe(409);
+    for (const bad of [
+      { name: 'x', ruleType: 'max_amount', amount: '0', action: 'warn' },
+      { name: 'x', ruleType: 'max_amount', amount: '5', action: 'maybe' },
+      {
+        name: 'x',
+        ruleType: 'receipt_required_above',
+        amount: '5',
+        action: 'warn',
+        accountId: o.accounts['5400'],
+      },
+      {
+        name: 'x',
+        ruleType: 'max_amount',
+        amount: '5',
+        action: 'warn',
+        accountId: o.accounts['1120'],
+      },
+    ]) {
+      expect((await policy(o, bad)).status, JSON.stringify(bad)).toBe(400);
+    }
+    const p = created.body.data;
+    const edited = await o.owner.patch(`/purchases/expense-policies/${p.id}`, {
+      version: 1,
+      amount: '150',
+      action: 'block',
+    });
+    expect(edited.status, JSON.stringify(edited.body)).toBe(200);
+    expect(edited.body.data).toMatchObject({ amount: '150', action: 'block', version: 2 });
+    expect(
+      (await o.owner.patch(`/purchases/expense-policies/${p.id}`, { version: 1, amount: '1' }))
+        .status,
+    ).toBe(409);
+    await expect(
+      owner.query(
+        `UPDATE expense_policies SET rule_type = 'receipt_required_above' WHERE id = $1`,
+        [p.id],
+      ),
+    ).rejects.toThrow(/cannot change/);
+    const member = await joinWithRole(ctx, o.owner, 'Member');
+    expect((await member.client.get('/purchases/expense-policies')).status).toBe(200);
+    expect(
+      (
+        await member.client.post('/purchases/expense-policies', {
+          name: 'y',
+          ruleType: 'max_amount',
+          amount: '1',
+          action: 'warn',
+        })
+      ).status,
+    ).toBe(403);
+    const stranger = await expenseOrg();
+    expect((await stranger.owner.get('/purchases/expense-policies')).body.data).toEqual([]);
+    expect(
+      (
+        await stranger.owner.patch(`/purchases/expense-policies/${p.id}`, {
+          version: 2,
+          amount: '1',
+        })
+      ).status,
+    ).toBe(404);
+  });
+});

@@ -801,6 +801,10 @@ describe('public API rate limiting', () => {
         });
         return res;
       };
+      // The limiter uses fixed one-minute windows on the clock. Start just after a window opens so
+      // the three counted requests cannot straddle a boundary on a slow machine (seen 2026-10-20:
+      // remaining 2, 2, 1 when the window rolled over between requests).
+      limited.clock.advance(60_000 - (limited.clock.now().getTime() % 60_000) + 1_000);
       const remaining = [];
       for (let i = 0; i < 3; i += 1) {
         const res = await hit();

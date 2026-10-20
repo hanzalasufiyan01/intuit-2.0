@@ -16,7 +16,7 @@ export interface StorageObject {
 }
 
 export interface StorageProvider {
-  readonly name: 'local';
+  readonly name: 'local' | 's3';
   put(key: string, content: Readable): Promise<void>;
   get(key: string): Promise<Readable>;
   delete(key: string): Promise<void>;

@@ -837,3 +837,52 @@ describe('tenant isolation', () => {
     });
   });
 });
+
+describe('profit and loss by dimension (specification section 16: branch / department reports)', () => {
+  it('shows each value side by side, derives unassigned, and needs both permissions', async () => {
+    const org = await setUpAccountingOrg(ctx);
+    const dept = await department(org);
+    const sale = async (dims: [string, string][], amount: string) =>
+      postJournal(
+        org,
+        saleBody(org, tagged(org.accounts['4100']!, 'credit', amount, dims), amount) as never,
+      );
+    await sale([[dept.type.id, dept.sales]], '100.00');
+    await sale([[dept.type.id, dept.sales]], '50.00');
+    await sale([[dept.type.id, dept.ops]], '30.00');
+    await sale([], '20.00'); // not tagged
+    const url = `/accounting/reports/profit-and-loss-by-dimension?dimensionTypeId=${dept.type.id}&from=2026-01-01&to=2026-12-31`;
+    const report = await org.owner.get(url);
+    expect(report.status, JSON.stringify(report.body)).toBe(200);
+    const d = report.body.data;
+    const byCode = Object.fromEntries(
+      d.values.map((v: { code: string; revenue: string }) => [v.code, Number(v.revenue)]),
+    );
+    expect(byCode).toEqual({ OPS: 30, SALES: 150 });
+    expect(Number(d.unassigned.revenue)).toBe(20);
+    expect(Number(d.total.revenue)).toBe(200);
+    expect(d.dimensionType).toMatchObject({ code: 'DEPT' });
+    // Each column agrees with the ordinary statement filtered on that value.
+    const filtered = await org.owner.get(
+      `/accounting/reports/profit-and-loss?dimensionValueIds=${dept.sales}&from=2026-01-01&to=2026-12-31`,
+    );
+    expect(Number(filtered.body.data.summary.netProfit[0])).toBe(Number(byCode.SALES));
+    // Unknown type, missing dimension permission and other tenants are refused.
+    expect(
+      (
+        await org.owner.get(
+          `/accounting/reports/profit-and-loss-by-dimension?dimensionTypeId=11111111-1111-4111-8111-111111111111`,
+        )
+      ).status,
+    ).toBe(400);
+    const role = await org.owner.post('/organizations/current/roles', {
+      name: 'Report reader',
+      permissionKeys: ['accounting.reports.view'],
+    });
+    expect(role.status).toBe(201);
+    const reader = await joinWithRole(ctx, org.owner, 'Report reader');
+    expect((await reader.client.get(url)).status).toBe(403);
+    const other = await setUpAccountingOrg(ctx);
+    expect((await other.owner.get(url)).status).toBe(400);
+  });
+});

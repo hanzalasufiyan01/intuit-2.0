@@ -35,6 +35,10 @@ const draftShape = {
 const createBody = z.object(draftShape).strict();
 const updateBody = z.object({ version, ...draftShape }).strict();
 const versionBody = z.object({ version }).strict();
+// Submitting may carry the reason that confirms a warning from an expense policy (R-04).
+const submitBody = z
+  .object({ version, policyReason: z.string().trim().min(1).max(500).nullable().optional() })
+  .strict();
 const versionQuery = z.object({ version: z.coerce.number().int().min(1) }).strict();
 const reasonBody = z
   .object({ version, reason: z.string().trim().min(1, 'Give a reason.').max(500) })
@@ -120,20 +124,20 @@ export function registerExpenseClaimRoutes(
       ),
     };
   });
-  for (const action of ['submit', 'withdraw'] as const) {
-    app.post(`/expense-claims/:id/${action}`, async (request) => {
-      const { id } = parseInput(idParams, request.params);
-      const body = parseInput(versionBody, request.body);
-      return {
-        data: await expenseClaims[action](
-          requirePrincipal(request),
-          id,
-          body,
-          eventOrigin(request),
-        ),
-      };
-    });
-  }
+  app.post('/expense-claims/:id/submit', async (request) => {
+    const { id } = parseInput(idParams, request.params);
+    const body = parseInput(submitBody, request.body);
+    return {
+      data: await expenseClaims.submit(requirePrincipal(request), id, body, eventOrigin(request)),
+    };
+  });
+  app.post('/expense-claims/:id/withdraw', async (request) => {
+    const { id } = parseInput(idParams, request.params);
+    const body = parseInput(versionBody, request.body);
+    return {
+      data: await expenseClaims.withdraw(requirePrincipal(request), id, body, eventOrigin(request)),
+    };
+  });
   app.post('/expense-claims/:id/cancel', async (request) => {
     const { id } = parseInput(idParams, request.params);
     const body = parseInput(reasonBody, request.body);

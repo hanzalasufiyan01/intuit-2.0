@@ -12,6 +12,16 @@ const agingQuery = z.object({ asOf: isoDate, customerId: fields.id.optional() })
 const statementQuery = z.object({ customerId: fields.id, from: isoDate, to: isoDate }).strict();
 const reconciliationQuery = z.object({ asOf: isoDate }).strict();
 const periodQuery = z.object({ from: isoDate, to: isoDate }).strict();
+const byDimensionQuery = z
+  .object({ from: isoDate, to: isoDate, dimensionTypeId: fields.id })
+  .strict();
+const trendQuery = z
+  .object({
+    from: isoDate,
+    to: isoDate,
+    granularity: z.enum(['day', 'week', 'month']).default('month'),
+  })
+  .strict();
 const searchQuery = z
   .object({
     q: z.string().max(100),
@@ -48,6 +58,24 @@ export function registerSalesReportRoutes(
       ),
     }));
   }
+  app.get('/sales/reports/sales-by-category', async (request) => ({
+    data: await arReports.salesByCategory(
+      requirePrincipal(request),
+      parseInput(periodQuery, request.query),
+    ),
+  }));
+  app.get('/sales/reports/sales-by-dimension', async (request) => ({
+    data: await arReports.salesByDimension(
+      requirePrincipal(request),
+      parseInput(byDimensionQuery, request.query),
+    ),
+  }));
+  app.get('/sales/reports/sales-trend', async (request) => ({
+    data: await arReports.salesTrend(
+      requirePrincipal(request),
+      parseInput(trendQuery, request.query),
+    ),
+  }));
   app.get('/sales/reports/ar-reconciliation', async (request) => ({
     data: await arReports.reconciliation(
       requirePrincipal(request),

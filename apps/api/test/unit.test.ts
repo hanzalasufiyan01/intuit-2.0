@@ -121,6 +121,11 @@ describe('permission catalog', () => {
       'bills.view',
       'bills.void',
       'catalog.items.manage', // Phase 4A-4 (ADR 0004 P4-06)
+      'clinic.appointments.manage', // Clinic (FP-27, ADR 0013): owners and administrators only
+      'clinic.billing.create',
+      'clinic.patients.manage',
+      'clinic.patients.view',
+      'clinic.reports.view',
       'credit_notes.approve', // Phase 3B (D11, Decision 30)
       'credit_notes.create',
       'credit_notes.issue',
@@ -146,9 +151,11 @@ describe('permission catalog', () => {
       'fixed_assets.void',
       'inventory.adjustments.create',
       'inventory.adjustments.void',
+      'inventory.counts.manage', // Stock counts (FP-29 A5)
       'inventory.items.manage',
       'inventory.settings.manage',
       'inventory.view',
+      'invoice_links.manage', // Invoice share links (FP-28)
       'invoices.approve', // Phase 3B (D11, Decision 30)
       'invoices.create',
       'invoices.delete_draft',
@@ -165,6 +172,28 @@ describe('permission catalog', () => {
       'parties.create',
       'parties.update',
       'parties.view',
+      'payment_reminders.send', // Payment reminders (FP-28)
+      'payment_reminders.settings.manage',
+      'payment_reminders.view',
+      'payments.intents.create', // Online payments (migration 0075)
+      'payments.reconcile',
+      'payments.settings.manage',
+      'payments.view',
+      'payroll.advances.manage', // Payroll advances and leave (FP-25)
+      'payroll.employees.manage', // Payroll (FP-25): owners and administrators only
+      'payroll.leave.manage',
+      'payroll.runs.approve',
+      'payroll.runs.create',
+      'payroll.runs.pay',
+      'payroll.runs.post',
+      'payroll.runs.void',
+      'payroll.settings.manage',
+      'payroll.view',
+      'projects.bill', // Projects (FP-26): owners and administrators only
+      'projects.manage',
+      'projects.time.approve',
+      'projects.time.log',
+      'projects.view',
       'purchase_orders.approve',
       'purchase_orders.close',
       'purchase_orders.create',
@@ -173,14 +202,22 @@ describe('permission catalog', () => {
       'purchase_orders.view',
       'purchases.reports.view', // Phase 4B-5 (ADR 0004 P4-39, PD3)
       'purchases.settings.manage', // Phase 4A-4 (ADR 0004 P4-39)
+      'quotes.convert', // Sales quotes (FP-28)
+      'quotes.create',
+      'quotes.view',
       'receipts.create', // Phase 3B (D11, Decision 40)
       'receipts.view',
       'receipts.void',
+      'recurring_invoices.manage', // Recurring invoices (FP-28)
+      'recurring_invoices.view',
       'roles.manage',
       'roles.read',
       'sales.items.manage', // Phase 3B (Decision 31)
       'sales.reports.view',
       'sales.settings.manage',
+      'sales_orders.create', // Sales orders (FP-28)
+      'sales_orders.invoice',
+      'sales_orders.view',
       'tax.codes.manage', // Phase 3B (Decision 60)
       'vendor_credits.approve', // Phase 4B-1 (ADR 0004 P4-39)
       'vendor_credits.create',

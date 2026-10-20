@@ -37,6 +37,8 @@ export interface WebhookEndpoint {
   inFlightUntil: Date | null;
   nextSendAt: Date | null;
   pingVerifiedAt: Date | null;
+  /** When the endpoint was created or last returned to `active` (migration 0059). */
+  enabledAt: Date;
   disabledAt: Date | null;
   disabledByUserId: string | null;
   disabledReason: string | null;
@@ -114,6 +116,7 @@ function toEndpoint(r: Raw): WebhookEndpoint {
     inFlightUntil: date(r.in_flight_until),
     nextSendAt: date(r.next_send_at),
     pingVerifiedAt: date(r.ping_verified_at),
+    enabledAt: date(r.enabled_at)!,
     disabledAt: date(r.disabled_at),
     disabledByUserId: (r.disabled_by_user_id as string | null) ?? null,
     disabledReason: (r.disabled_reason as string | null) ?? null,
@@ -171,10 +174,10 @@ export async function insertEndpoint(tx: Transaction, e: NewEndpoint): Promise<W
     tx,
     sql`INSERT INTO webhook_endpoints
           (id, organization_id, integration_id, name, url, payload_mode, secret_key_id, secret_iv,
-           secret_tag, secret_ciphertext, created_by_user_id, created_at, updated_at)
+           secret_tag, secret_ciphertext, created_by_user_id, created_at, updated_at, enabled_at)
         VALUES (${e.id}::uuid, ${e.organizationId}::uuid, ${e.integrationId}::uuid, ${e.name}, ${e.url},
                 ${e.payloadMode}, ${e.secret.keyId}, ${e.secret.iv}, ${e.secret.tag},
-                ${e.secret.ciphertext}, ${e.userId}::uuid, ${e.now}, ${e.now})
+                ${e.secret.ciphertext}, ${e.userId}::uuid, ${e.now}, ${e.now}, ${e.now})
         RETURNING *`,
   );
   return toEndpoint(row!);
@@ -235,6 +238,7 @@ export interface EndpointChanges {
   lastSuccessAt?: Date;
   lastFailureAt?: Date;
   pingVerifiedAt?: Date | null;
+  enabledAt?: Date;
   deletedAt?: Date;
   deletedByUserId?: string;
 }
@@ -252,6 +256,7 @@ const COLUMN: Record<string, string> = {
   lastSuccessAt: 'last_success_at',
   lastFailureAt: 'last_failure_at',
   pingVerifiedAt: 'ping_verified_at',
+  enabledAt: 'enabled_at',
   deletedAt: 'deleted_at',
   deletedByUserId: 'deleted_by_user_id',
 };
@@ -469,16 +474,30 @@ export async function insertDelivery(
   return row ? toDelivery(row) : null;
 }
 
+/** `resource_type IN (...)`: the history visibility filter, evaluated by the database. */
+const visibleTo = (resourceTypes: readonly string[]) =>
+  resourceTypes.length === 0
+    ? sql`false`
+    : sql`resource_type IN (${sql.join(
+        resourceTypes.map((t) => sql`${t}`),
+        sql`, `,
+      )})`;
+
 export async function getDelivery(
   tx: Transaction,
   organizationId: string,
   id: string,
-  options: { forUpdate?: boolean } = {},
+  options: {
+    forUpdate?: boolean;
+    /** When given, a delivery of any other resource type is treated as missing (section 25.2). */
+    visibleResourceTypes?: readonly string[];
+  } = {},
 ): Promise<WebhookDelivery | undefined> {
   const [row] = await rows(
     tx,
     sql`SELECT * FROM webhook_deliveries
          WHERE organization_id = ${organizationId}::uuid AND id = ${id}::uuid
+           ${options.visibleResourceTypes ? sql`AND ${visibleTo(options.visibleResourceTypes)}` : sql``}
          ${options.forUpdate ? sql`FOR UPDATE` : sql``}`,
   );
   return row ? toDelivery(row) : undefined;
@@ -506,9 +525,14 @@ export async function listDeliveries(
     status?: DeliveryStatus;
     limit: number;
     before?: { createdAt: Date; id: string };
+    /** The history visibility filter; applied in the query, before ordering and the limit. */
+    visibleResourceTypes: readonly string[];
   },
 ): Promise<WebhookDelivery[]> {
-  const conditions: SQL[] = [sql`organization_id = ${input.organizationId}::uuid`];
+  const conditions: SQL[] = [
+    sql`organization_id = ${input.organizationId}::uuid`,
+    visibleTo(input.visibleResourceTypes),
+  ];
   if (input.endpointId) conditions.push(sql`endpoint_id = ${input.endpointId}::uuid`);
   if (input.status) conditions.push(sql`status = ${input.status}`);
   if (input.before) {
@@ -582,6 +606,26 @@ export async function insertAttempt(
   );
 }
 
+/**
+ * The creation time of the endpoint's latest `webhook.ping` delivery (sent, failed or still in
+ * progress, by anyone) if it is later than `since`; null when there is none that recent. Bounded by
+ * `since`, it reads only the last few seconds of the endpoint's history, however long that is.
+ */
+export async function latestPingSince(
+  tx: Transaction,
+  organizationId: string,
+  endpointId: string,
+  since: Date,
+): Promise<Date | null> {
+  const [row] = await rows(
+    tx,
+    sql`SELECT max(created_at) AS at FROM webhook_deliveries
+         WHERE organization_id = ${organizationId}::uuid AND endpoint_id = ${endpointId}::uuid
+           AND event_type = 'webhook.ping' AND created_at > ${since}`,
+  );
+  return date(row?.at);
+}
+
 export async function listAttempts(
   tx: Transaction,
   organizationId: string,
@@ -634,7 +678,23 @@ export async function purgePublicOutbox(
   return Number(row!.n);
 }
 
-/** Active endpoints with failed deliveries since their last success and no success for `staleBefore`. */
+/**
+ * The start of an endpoint's no-success window (ADR 0011, CR-0011-S6-01): the LATER of its last
+ * successful delivery and the time it was last enabled. Re-enabling therefore restarts the window.
+ * `staleEndpoints` applies the same rule in SQL (`greatest(last_success_at, enabled_at)`, where
+ * `greatest` ignores a NULL `last_success_at`); both must stay identical.
+ */
+export function noSuccessBaseline(
+  endpoint: Pick<WebhookEndpoint, 'lastSuccessAt' | 'enabledAt'>,
+): Date {
+  const success = endpoint.lastSuccessAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+  return new Date(Math.max(success, endpoint.enabledAt.getTime()));
+}
+
+/**
+ * Active endpoints with failed deliveries whose no-success window (`noSuccessBaseline`) started
+ * before `staleBefore`.
+ */
 export async function staleEndpoints(
   tx: Transaction,
   organizationId: string,
@@ -646,7 +706,7 @@ export async function staleEndpoints(
       sql`SELECT * FROM webhook_endpoints
            WHERE organization_id = ${organizationId}::uuid AND deleted_at IS NULL
              AND status = 'active' AND consecutive_failures >= 1
-             AND coalesce(last_success_at, created_at) < ${staleBefore}`,
+             AND greatest(last_success_at, enabled_at) < ${staleBefore}`,
     )
   ).map(toEndpoint);
 }

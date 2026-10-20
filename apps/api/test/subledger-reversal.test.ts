@@ -243,7 +243,7 @@ describe('the subledger reversal path (reverseSubledgerJournalInTransaction)', (
     const sales = await subledgerJournal(org, 'sales');
     const purchases = await subledgerJournal(org, 'purchases');
     const manual = (await postJournal(org)).id as string;
-    const other = await subledgerJournal(org, 'payroll');
+    const other = await subledgerJournal(org, 'timesheets');
     const refused = (module: Subledger, id: string) =>
       expect(subledgerReverse(org, module, id)).rejects.toMatchObject({
         code: 'SYSTEM_JOURNAL',

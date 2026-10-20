@@ -61,7 +61,7 @@ describe('organizations and ownership', () => {
     // Phase 4 adds 4 vendors.* keys (ADR 0004 P4-39); 4A-4 adds catalog.items.manage and
     // purchases.settings.manage (P4-06, P4-39); 4A-5 adds the 7 bills.* keys; 4B-1 the 5 vendor_credits.* keys;
     // 4B-2 the 4 vendor_payments.* keys; 4B-5 purchases.reports.view (PD3).
-    expect(ownerRole.permissionKeys).toHaveLength(117);
+    expect(ownerRole.permissionKeys).toHaveLength(154);
     const member = roles.body.data.find((r: { name: string }) => r.name === 'Member');
     expect(member.permissionKeys).toEqual([
       'accounting.accounts.view',

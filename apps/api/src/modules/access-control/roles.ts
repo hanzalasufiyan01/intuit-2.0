@@ -92,6 +92,19 @@ export async function getRole(
   return row;
 }
 
+/** The protected Owner role of the organization. */
+export async function getOwnerRole(
+  tx: Transaction,
+  organizationId: string,
+): Promise<Role | undefined> {
+  const [row] = await tx
+    .select()
+    .from(roles)
+    .where(and(eq(roles.organizationId, organizationId), eq(roles.isOwner, true)))
+    .limit(1);
+  return row;
+}
+
 export async function getRolesByIds(
   tx: Transaction,
   organizationId: string,

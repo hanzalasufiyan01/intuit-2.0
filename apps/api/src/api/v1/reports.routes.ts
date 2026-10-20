@@ -50,6 +50,13 @@ export const balanceSheetQuery = z
   })
   .strict();
 
+export const profitAndLossByDimensionQuery = z
+  .object({ ...common, ...range, dimensionTypeId: fields.id })
+  .strict();
+export const cashFlowQuery = profitAndLossQuery;
+export const expenseTrendQuery = z.object({ from: isoDate, to: isoDate }).strict();
+export const changesInEquityQuery = trialBalanceQuery;
+
 export function registerReportRoutes(app: FastifyInstance, deps: { reports: ReportService }): void {
   const base = '/accounting/reports';
   app.get(`${base}/trial-balance`, async (request) => ({
@@ -64,10 +71,34 @@ export function registerReportRoutes(app: FastifyInstance, deps: { reports: Repo
       parseInput(profitAndLossQuery, request.query),
     ),
   }));
+  app.get(`${base}/profit-and-loss-by-dimension`, async (request) => ({
+    data: await deps.reports.profitAndLossByDimension(
+      requirePrincipal(request),
+      parseInput(profitAndLossByDimensionQuery, request.query),
+    ),
+  }));
+  app.get(`${base}/expense-trend`, async (request) => ({
+    data: await deps.reports.expenseTrend(
+      requirePrincipal(request),
+      parseInput(expenseTrendQuery, request.query),
+    ),
+  }));
   app.get(`${base}/balance-sheet`, async (request) => ({
     data: await deps.reports.balanceSheet(
       requirePrincipal(request),
       parseInput(balanceSheetQuery, request.query),
+    ),
+  }));
+  app.get(`${base}/cash-flow`, async (request) => ({
+    data: await deps.reports.cashFlow(
+      requirePrincipal(request),
+      parseInput(cashFlowQuery, request.query),
+    ),
+  }));
+  app.get(`${base}/changes-in-equity`, async (request) => ({
+    data: await deps.reports.changesInEquity(
+      requirePrincipal(request),
+      parseInput(changesInEquityQuery, request.query),
     ),
   }));
 }

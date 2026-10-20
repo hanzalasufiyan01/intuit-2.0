@@ -60,6 +60,7 @@ export function registerApiIntegrationRoutes(
     ),
   }));
   app.post('/api-integrations', async (request, reply) => {
+    requirePrincipal(request); // authenticate before validating the body
     const body = parseInput(createBody, request.body);
     const data = await apiIntegrations.create(
       requirePrincipal(request),
@@ -123,6 +124,7 @@ export function registerApiIntegrationRoutes(
   });
   // The credential is returned once: never cached.
   app.post('/api-integrations/:id/tokens', async (request, reply) => {
+    requirePrincipal(request); // authenticate before validating the input
     const { id } = parseInput(idParams, request.params);
     const body = parseInput(tokenBody, request.body);
     const data = await apiIntegrations.createToken(

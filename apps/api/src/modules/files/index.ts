@@ -7,6 +7,7 @@
 export * from './detect.js';
 export * from './files.js';
 export * from './security.js';
+export * from './s3-storage.js';
 export * from './storage.js';
 export { fileLinkTypes, fileStatuses } from './schema.js';
 export type { FileLinkType, FileStatus } from './schema.js';

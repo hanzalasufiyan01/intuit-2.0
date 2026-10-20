@@ -169,3 +169,55 @@ export async function expenseNumberExists(
     .limit(1);
   return row !== undefined;
 }
+
+export interface DuplicateReference {
+  kind: 'expense' | 'bill';
+  id: string;
+  number: string | null;
+  status: string;
+  date: string;
+  vendorReference: string;
+}
+
+/**
+ * Other non-void expenses AND bills of the same vendor with the same supplier reference (case and
+ * whitespace ignored, as the bills' own check). A supplier document entered once as a bill and once
+ * as an expense is a real duplicate, so both kinds are compared. Rows hidden from the caller by
+ * row-level security (for example another branch) are not seen.
+ */
+export async function findDuplicateExpenseReferences(
+  tx: Transaction,
+  input: { organizationId: string; vendorId: string; vendorReference: string; exceptId: string },
+): Promise<DuplicateReference[]> {
+  const result = await tx.execute<{
+    kind: 'expense' | 'bill';
+    id: string;
+    number: string | null;
+    status: string;
+    date: string;
+    vendor_reference: string;
+  }>(sql`
+    SELECT kind, id, number, status, date, vendor_reference FROM (
+      SELECT 'expense' AS kind, e.id, e.number, e.status, e.expense_date::text AS date, e.vendor_reference
+        FROM purchases_expenses e
+       WHERE e.organization_id = ${input.organizationId} AND e.vendor_id = ${input.vendorId}
+         AND upper(regexp_replace(e.vendor_reference, '\s', '', 'g'))
+             = upper(regexp_replace(${input.vendorReference}::text, '\s', '', 'g'))
+         AND e.status <> 'VOID' AND e.id <> ${input.exceptId}
+      UNION ALL
+      SELECT 'bill', b.id, b.number, b.status, b.bill_date::text, b.vendor_reference
+        FROM purchases_bills b
+       WHERE b.organization_id = ${input.organizationId} AND b.vendor_id = ${input.vendorId}
+         AND b.vendor_reference_key = upper(regexp_replace(${input.vendorReference}::text, '\s', '', 'g'))
+         AND b.status <> 'VOID' AND b.id <> ${input.exceptId}
+    ) d
+    ORDER BY date ASC, id ASC LIMIT 5`);
+  return result.rows.map((r) => ({
+    kind: r.kind,
+    id: r.id,
+    number: r.number,
+    status: r.status,
+    date: r.date,
+    vendorReference: r.vendor_reference,
+  }));
+}

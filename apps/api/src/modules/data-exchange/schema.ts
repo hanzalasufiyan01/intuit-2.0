@@ -49,6 +49,8 @@ export const exportDomainKeys = [
   'purchases_by_vendor',
   'payment_register',
   'expenses',
+  // R-02: the expense trend report (migration 0094).
+  'expense_trend',
 ] as const;
 export type ExportDomainKey = (typeof exportDomainKeys)[number];
 

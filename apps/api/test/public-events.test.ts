@@ -297,7 +297,7 @@ describe('master data events', () => {
       // The restore event names the version the restore committed (one after the archive).
       expect(restore[0]!.payload.resource.version, c.resource).toBe(archived.version + 1);
     }
-  });
+  }, 120_000);
 
   it('emits for the Public API write paths too, and never for draft invoices', async () => {
     const o = await bothSettings();

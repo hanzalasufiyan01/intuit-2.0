@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ledgerQuery } from '../../api/v1/accounting.routes.js';
 import {
   balanceSheetQuery,
+  expenseTrendQuery,
   profitAndLossQuery,
   trialBalanceQuery,
 } from '../../api/v1/reports.routes.js';
@@ -595,6 +596,30 @@ const balanceSheetExport: ExportDomain<z.infer<typeof balanceSheetQuery>> = {
   },
 };
 
+/** R-02: the expense trend, one row per expense account and one column per month. */
+const expenseTrendExport: ExportDomain<z.infer<typeof expenseTrendQuery>> = {
+  key: 'expense_trend',
+  label: 'Expense Trend',
+  params: expenseTrendQuery,
+  permission: async () => AccountingPermissions.ReportsView,
+  snapshot: true,
+  fileName: (_p, now) => `expense-trend-${today(now)}.csv`,
+  async generate(env, params) {
+    const r = await env.services.reports.expenseTrendInTransaction(env.tx, env.ctx, params);
+    await preamble(env, 'Expense Trend', [
+      ['Period', `${r.from} to ${r.to}`],
+      ['Base currency', r.baseCurrency],
+      ['Note', r.note],
+    ]);
+    await env.write(['code', 'name', 'section', ...r.months.map((m) => m.label), 'total']);
+    for (const a of r.accounts) {
+      await env.write([a.code, a.name, a.section, ...a.amounts.map(num), num(a.total)]);
+    }
+    await env.write([null, 'Total', null, ...r.totals.map(num), num(r.total)]);
+    return r.accounts.length;
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Import error report
 // ---------------------------------------------------------------------------
@@ -724,6 +749,7 @@ export const exportDomains: ReadonlyMap<ExportDomainKey, ExportDomain<never>> = 
       trialBalanceExport,
       profitAndLossExport,
       balanceSheetExport,
+      expenseTrendExport,
       importErrorsExport,
       openingBalancesExport,
       // Phase 3B (step 18): customers, items, invoices, receipts, AR aging.

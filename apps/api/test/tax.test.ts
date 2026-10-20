@@ -351,3 +351,149 @@ describe('database protections', () => {
     }
   });
 });
+
+describe('zero-rated and exempt stay apart (master specification section 15, migration 0087)', () => {
+  it('classifies codes, keeps non-standard codes at 0%, fixes the treatment and audits the labels', async () => {
+    const org = await setUpAccountingOrg(ctx);
+    const zero = await createCode(org, {
+      code: 'ZERO',
+      name: 'Zero-rated',
+      treatment: 'zero_rated',
+      taxType: 'GST',
+      reportingCategory: 'Exports',
+    });
+    const exempt = await createCode(org, { code: 'EXEMPT', name: 'Exempt', treatment: 'exempt' });
+    expect(zero).toMatchObject({
+      treatment: 'zero_rated',
+      taxType: 'GST',
+      reportingCategory: 'Exports',
+    });
+    expect(exempt).toMatchObject({ treatment: 'exempt', taxType: null, reportingCategory: null });
+    // The seeded and ordinary codes stay standard.
+    const all = await codes(org.owner);
+    expect(all.find((c) => c.code === 'GST')).toMatchObject({ treatment: 'standard' });
+
+    // A non-standard code cannot carry a rate, at creation or as a new version.
+    const bad = await org.owner.post('/tax/codes', {
+      code: 'BAD',
+      name: 'Bad',
+      taxAccountId: org.accounts['2130'],
+      treatment: 'exempt',
+      rate: '8',
+      effectiveFrom: '2026-01-01',
+    });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error.details.issues[0].path).toBe('rate');
+    const version = await org.owner.post(`/tax/codes/${exempt.id}/rates`, {
+      rate: '5',
+      effectiveFrom: '2026-06-01',
+    });
+    expect(version.status).toBe(400);
+    expect(
+      (
+        await org.owner.post(`/tax/codes/${exempt.id}/rates`, {
+          rate: '0',
+          effectiveFrom: '2026-06-01',
+        })
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await org.owner.post('/tax/codes', {
+          code: 'NOPE',
+          name: 'Nope',
+          taxAccountId: org.accounts['2130'],
+          treatment: 'taxable-ish',
+          rate: '0',
+          effectiveFrom: '2026-01-01',
+        })
+      ).status,
+    ).toBe(400);
+
+    // Labels can be edited (audited); the treatment is not part of the update at all.
+    const relabelled = await org.owner.patch(`/tax/codes/${zero.id}`, {
+      version: zero.version,
+      reportingCategory: 'Export supplies',
+    });
+    expect(relabelled.status, JSON.stringify(relabelled.body)).toBe(200);
+    expect(relabelled.body.data.reportingCategory).toBe('Export supplies');
+    expect(
+      (await org.owner.patch(`/tax/codes/${zero.id}`, { version: 2, treatment: 'exempt' })).status,
+    ).toBe(400);
+
+    // The database holds the same line.
+    const owner = await connectAs('owner');
+    try {
+      await expect(
+        owner.query(`UPDATE tax_codes SET treatment = 'exempt' WHERE id = $1`, [zero.id]),
+      ).rejects.toThrow(/cannot change/);
+      await expect(
+        owner.query(
+          `INSERT INTO tax_code_rates (organization_id, tax_code_id, rate, effective_from, created_at)
+           VALUES ($1, $2, 3, '2027-01-01', now())`,
+          [org.organizationId, exempt.id],
+        ),
+      ).rejects.toThrow(/0% rate/);
+    } finally {
+      await owner.end();
+    }
+  });
+
+  it('reports zero-rated, exempt and standard sales separately', async () => {
+    const org = await setUpAccountingOrg(ctx);
+    expect(
+      (
+        await org.owner.put('/sales/settings', {
+          version: 0,
+          arAccountId: org.accounts['1130'],
+          defaultRevenueAccountId: org.accounts['4100'],
+          defaultDepositAccountId: org.accounts['1120'],
+          defaultTaxCodeId: null,
+          defaultTaxTreatment: 'exclusive',
+          defaultPaymentTermsDays: 0,
+        })
+      ).status,
+    ).toBe(200);
+    const zero = await createCode(org, {
+      code: 'ZERO',
+      name: 'Zero-rated',
+      treatment: 'zero_rated',
+    });
+    const exempt = await createCode(org, { code: 'EXEMPT', name: 'Exempt', treatment: 'exempt' });
+    const gst = (await codes(org.owner)).find((c) => c.code === 'GST')!;
+    const customer = await org.owner.post('/customers', {
+      party: { kind: 'organization', displayName: 'Customer' },
+    });
+    const invoice = await org.owner.post('/sales/invoices', {
+      customerId: customer.body.data.id,
+      invoiceDate: '2026-03-10',
+      lines: [
+        { description: 'Standard', quantity: '1', unitPrice: '100', taxCodeId: gst.id },
+        { description: 'Zero', quantity: '1', unitPrice: '200', taxCodeId: zero.id },
+        { description: 'Exempt', quantity: '1', unitPrice: '300', taxCodeId: exempt.id },
+      ],
+    });
+    expect(invoice.status, JSON.stringify(invoice.body)).toBe(201);
+    const issued = await org.owner.post(`/sales/invoices/${invoice.body.data.id}/issue`, {
+      version: invoice.body.data.version,
+    });
+    expect(issued.status, JSON.stringify(issued.body)).toBe(200);
+    const summary = (
+      await org.owner.get('/sales/reports/tax-summary?from=2026-03-01&to=2026-03-31')
+    ).body.data;
+    const by = Object.fromEntries(
+      summary.byTreatment.map((t: { treatment: string; taxable: string; tax: string }) => [
+        t.treatment,
+        t,
+      ]),
+    );
+    expect(Number(by.standard.taxable)).toBe(100);
+    expect(Number(by.standard.tax)).toBe(8);
+    expect(Number(by.zero_rated.taxable)).toBe(200);
+    expect(Number(by.zero_rated.tax)).toBe(0);
+    expect(Number(by.exempt.taxable)).toBe(300);
+    expect(Number(by.exempt.tax)).toBe(0);
+    const row = summary.codes.find((c: { code: string }) => c.code === 'EXEMPT');
+    expect(row.treatment).toBe('exempt');
+  });
+});
