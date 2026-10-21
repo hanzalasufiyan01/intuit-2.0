@@ -46,6 +46,7 @@ jobs:
         run: |
           {
             echo "APP_ENV=testing"
+            echo "WEB_ORIGIN=http://localhost:5173"
             echo "DATABASE_URL=postgres://intuit_app:ci_app@localhost:5432/intuit2_dev"
             echo "DATABASE_MIGRATION_URL=postgres://intuit_owner:ci_owner@localhost:5432/intuit2_dev"
             echo "SESSION_SECRET=$(openssl rand -hex 32)"
