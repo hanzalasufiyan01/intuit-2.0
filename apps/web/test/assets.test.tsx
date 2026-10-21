@@ -52,6 +52,9 @@ const asset = {
   cost: '12000.00',
   salvageValue: '0.00',
   lifeMonths: 12,
+  depreciationMethod: 'straight_line',
+  decliningRate: null,
+  doubleDecliningRate: null,
   accumulatedDepreciation: '3000.00',
   bookValue: '9000.00',
   status: 'ACTIVE',
@@ -99,6 +102,186 @@ describe('asset register', () => {
     stubApi(common(WORK));
     renderAt('/assets');
     expect(await screen.findByRole('button', { name: 'Register asset' })).toBeTruthy();
+  });
+});
+
+describe('depreciation method (R-11)', () => {
+  const category = {
+    id: 'c1',
+    name: 'Equipment',
+    costAccountId: 'x1',
+    accumulatedAccountId: 'x2',
+    expenseAccountId: 'x3',
+    defaultLifeMonths: 60,
+    status: 'ACTIVE',
+    version: 1,
+  };
+  const bank = {
+    id: 'b1',
+    code: '1010',
+    name: 'Bank',
+    type: 'ASSET',
+    status: 'ACTIVE',
+    isLeaf: true,
+    isControlAccount: false,
+  };
+  const withTerms = (extra: Record<string, Handler> = {}) =>
+    common([...WORK, 'accounting.accounts.view'], {
+      'GET /fixed-assets/categories': ok({ items: [category] }),
+      'GET /accounting/accounts': ok([bank]),
+      'POST /fixed-assets/assets': () => ({ status: 201, body: { data: asset } }),
+      ...extra,
+    });
+
+  async function fillTerms(user: ReturnType<typeof userEvent.setup>) {
+    await user.type(await screen.findByLabelText('Name'), 'Generator');
+    await user.selectOptions(screen.getByLabelText('Category'), 'c1');
+    await user.type(screen.getByLabelText('Cost'), '1000.00');
+    await user.type(screen.getByLabelText('Life in months'), '60');
+    await user.selectOptions(screen.getByLabelText('Paid from'), 'b1');
+  }
+
+  it('registers straight line without sending a method or a rate', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi(withTerms());
+    renderAt('/assets');
+    await fillTerms(user);
+    expect(screen.queryByLabelText('Annual rate (%)')).toBeNull();
+    expect(screen.queryByText('Checking the schedule…')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Register asset' }));
+    await waitFor(() => {
+      const call = calls.find((c) => c.method === 'POST' && c.url.pathname.endsWith('/assets'));
+      expect(call?.body).toMatchObject({ cost: '1000.00', lifeMonths: 60 });
+      // Straight line asks for no schedule check.
+      expect(calls.some((c) => c.url.pathname.endsWith('/schedule-preview'))).toBe(false);
+      expect(call?.body).not.toHaveProperty('depreciationMethod');
+      expect(call?.body).not.toHaveProperty('decliningRate');
+    });
+  });
+
+  it('checks the schedule by itself for declining balance, keeps it current, and still registers', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi(
+      withTerms({
+        'POST /fixed-assets/assets/schedule-preview': (_url, body) => {
+          const rate = (body as { decliningRate: string }).decliningRate;
+          return {
+            status: 200,
+            body: {
+              data: {
+                depreciationMethod: 'declining_balance',
+                lifeMonths: 60,
+                warnings: rate === '20' ? ['STRAIGHT_LINE_EQUIVALENT'] : [],
+                schedule: [
+                  {
+                    monthEnd: rate === '20' ? '2026-10-31' : '2026-11-30',
+                    amount: '16.67',
+                    accumulated: '16.67',
+                    bookValue: '983.33',
+                  },
+                ],
+              },
+            },
+          };
+        },
+      }),
+    );
+    const previews = () => calls.filter((c) => c.url.pathname.endsWith('/schedule-preview'));
+    renderAt('/assets');
+    await fillTerms(user);
+    await user.selectOptions(screen.getByLabelText('Depreciation method'), 'declining_balance');
+    // No rate yet: nothing to check.
+    expect(previews()).toHaveLength(0);
+    await user.type(screen.getByLabelText('Annual rate (%)'), '20');
+    expect(await screen.findByText(/the same as straight line/)).toBeTruthy();
+    expect(screen.getByText('2026-10-31')).toBeTruthy();
+    // One request for the settled terms, not one per keystroke.
+    expect(previews()).toHaveLength(1);
+    expect(previews()[0]!.body).toMatchObject({
+      depreciationMethod: 'declining_balance',
+      decliningRate: '20',
+    });
+    expect(previews()[0]!.body).not.toHaveProperty('name');
+    // Changing a term hides the old result at once, then checks again.
+    await user.clear(screen.getByLabelText('Annual rate (%)'));
+    await user.type(screen.getByLabelText('Annual rate (%)'), '35');
+    expect(screen.queryByText(/the same as straight line/)).toBeNull();
+    expect(screen.queryByText('2026-10-31')).toBeNull();
+    expect(await screen.findByText('2026-11-30')).toBeTruthy();
+    expect(previews().at(-1)!.body).toMatchObject({ decliningRate: '35' });
+    // The warning informs; registering needs no confirmation.
+    await user.click(screen.getByRole('button', { name: 'Register asset' }));
+    await waitFor(() => {
+      const call = calls.find((c) => c.method === 'POST' && c.url.pathname.endsWith('/assets'));
+      expect(call?.body).toMatchObject({
+        name: 'Generator',
+        depreciationMethod: 'declining_balance',
+        decliningRate: '35',
+      });
+    });
+  });
+
+  it('sends double-declining balance without a rate, even when the check fails', async () => {
+    const user = userEvent.setup();
+    // No preview handler: the check fails (404), which must not block registering.
+    const calls = stubApi(withTerms());
+    renderAt('/assets');
+    await fillTerms(user);
+    await user.selectOptions(
+      screen.getByLabelText('Depreciation method'),
+      'double_declining_balance',
+    );
+    expect(screen.queryByLabelText('Annual rate (%)')).toBeNull();
+    expect(await screen.findByText('Not found')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Register asset' }));
+    await waitFor(() => {
+      const call = calls.find((c) => c.method === 'POST' && c.url.pathname.endsWith('/assets'));
+      expect(call?.body).toMatchObject({ depreciationMethod: 'double_declining_balance' });
+      expect(call?.body).not.toHaveProperty('decliningRate');
+    });
+  });
+
+  it('shows a rate error from the server on the rate field', async () => {
+    const user = userEvent.setup();
+    stubApi(
+      withTerms({
+        'POST /fixed-assets/assets/schedule-preview': () => ({
+          status: 422,
+          body: {
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Invalid',
+              requestId: 'r',
+              details: {
+                issues: [{ path: 'decliningRate', message: 'Enter a rate greater than 0.' }],
+              },
+            },
+          },
+        }),
+      }),
+    );
+    renderAt('/assets');
+    await fillTerms(user);
+    await user.selectOptions(screen.getByLabelText('Depreciation method'), 'declining_balance');
+    await user.type(screen.getByLabelText('Annual rate (%)'), '0');
+    expect(await screen.findByText('Enter a rate greater than 0.')).toBeTruthy();
+    expect(screen.queryByText('Checking the schedule…')).toBeNull();
+  });
+
+  it('shows the method on the asset page', async () => {
+    stubApi(
+      common(VIEW, {
+        'GET /fixed-assets/assets/a1': ok({
+          ...asset,
+          depreciationMethod: 'double_declining_balance',
+          doubleDecliningRate: '40.0000',
+          schedule: [],
+          disposals: [],
+        }),
+      }),
+    );
+    renderAt('/assets/a1');
+    expect(await screen.findByText('Double-declining balance (40.0000% a year)')).toBeTruthy();
   });
 });
 

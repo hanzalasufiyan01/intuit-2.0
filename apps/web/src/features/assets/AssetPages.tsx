@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, NavLink, Outlet, useParams } from 'react-router';
 import { useApiMutation, useAuth } from '../../auth/auth-context';
 import { useSensitiveAction } from '../../auth/reauth';
@@ -33,6 +33,9 @@ interface Asset {
   cost: string;
   salvageValue: string;
   lifeMonths: number;
+  depreciationMethod: DepreciationMethod;
+  decliningRate: string | null;
+  doubleDecliningRate: string | null;
   accumulatedDepreciation: string;
   bookValue: string;
   status: 'ACTIVE' | 'DISPOSED';
@@ -40,6 +43,16 @@ interface Asset {
   custodian: string;
   serialNumber: string;
   version: number;
+}
+
+type DepreciationMethod = 'straight_line' | 'declining_balance' | 'double_declining_balance';
+
+/** What the server says an unsaved asset's schedule would be (R-11); nothing is saved. */
+interface SchedulePreview {
+  depreciationMethod: DepreciationMethod;
+  lifeMonths: number;
+  warnings: ('NOTHING_TO_DEPRECIATE' | 'STRAIGHT_LINE_EQUIVALENT')[];
+  schedule: { monthEnd: string; amount: string; accumulated: string; bookValue: string }[];
 }
 
 interface AssetDetail extends Asset {
@@ -156,6 +169,8 @@ export function AssetsPage() {
     cost: '',
     salvageValue: '',
     lifeMonths: '',
+    depreciationMethod: 'straight_line' as DepreciationMethod,
+    decliningRate: '',
     creditAccountId: '',
     sourceBillId: '',
     duplicateOverrideReason: '',
@@ -168,16 +183,46 @@ export function AssetsPage() {
       }>('/purchases/bills?status=POSTED&limit=100'),
     enabled: canBills,
   });
+  // The schedule terms, shared by the schedule check and registration.
+  const terms = () => ({
+    categoryId: form.categoryId,
+    acquisitionDate: form.acquisitionDate,
+    cost: form.cost.trim(),
+    ...(form.salvageValue.trim() ? { salvageValue: form.salvageValue.trim() } : {}),
+    ...(form.lifeMonths.trim() ? { lifeMonths: Number(form.lifeMonths) } : {}),
+    ...(form.depreciationMethod === 'straight_line'
+      ? {}
+      : { depreciationMethod: form.depreciationMethod }),
+    ...(form.depreciationMethod === 'declining_balance'
+      ? { decliningRate: form.decliningRate.trim() }
+      : {}),
+  });
+  // The schedule check runs by itself for the declining methods once the terms are complete and
+  // typing has paused; straight line asks nothing. A result is shown only for the current terms.
+  const termsKey = JSON.stringify(terms());
+  const previewReady =
+    form.depreciationMethod !== 'straight_line' &&
+    Boolean(form.categoryId && form.cost.trim()) &&
+    (form.depreciationMethod !== 'declining_balance' || Boolean(form.decliningRate.trim()));
+  const settledTerms = useSettled(previewReady ? termsKey : null, 400);
+  const previewCurrent = previewReady && settledTerms === termsKey;
+  const preview = useQuery({
+    queryKey: ['asset-schedule-preview', org, settledTerms],
+    queryFn: () =>
+      api.post<SchedulePreview>(
+        '/fixed-assets/assets/schedule-preview',
+        JSON.parse(settledTerms!) as unknown,
+      ),
+    enabled: previewCurrent,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  });
   const create = useApiMutation(() =>
     api.post<Asset>(
       '/fixed-assets/assets',
       {
         name: form.name.trim(),
-        categoryId: form.categoryId,
-        acquisitionDate: form.acquisitionDate,
-        cost: form.cost.trim(),
-        ...(form.salvageValue.trim() ? { salvageValue: form.salvageValue.trim() } : {}),
-        ...(form.lifeMonths.trim() ? { lifeMonths: Number(form.lifeMonths) } : {}),
+        ...terms(),
         // A bill-capitalized asset is registered as already in the ledger (nothing is posted).
         ...(form.sourceBillId
           ? { alreadyInLedger: true, sourceBillId: form.sourceBillId }
@@ -201,7 +246,8 @@ export function AssetsPage() {
   const funding = (accounts.data ?? []).filter(
     (a) => a.status === 'ACTIVE' && a.isLeaf && !a.isControlAccount,
   );
-  const error = create.error instanceof ApiError ? create.error : null;
+  const previewError = previewCurrent && preview.error instanceof ApiError ? preview.error : null;
+  const error = create.error instanceof ApiError ? create.error : previewError;
   return (
     <>
       <PageHeader
@@ -320,7 +366,40 @@ export function AssetsPage() {
               inputMode="numeric"
               onChange={(e) => setForm({ ...form, lifeMonths: e.target.value })}
               hint={t('assets.assetPages.defaultsToTheCategory')}
+              error={error?.fieldError('lifeMonths')}
             />
+            <div className="field">
+              <label htmlFor="asset-method">{t('assets.assetPages.depreciationMethod')}</label>
+              <select
+                id="asset-method"
+                value={form.depreciationMethod}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    depreciationMethod: e.target.value as DepreciationMethod,
+                    decliningRate: '',
+                  })
+                }
+              >
+                <option value="straight_line">{t('assets.assetPages.straightLine')}</option>
+                <option value="declining_balance">{t('assets.assetPages.decliningBalance')}</option>
+                <option value="double_declining_balance">
+                  {t('assets.assetPages.doubleDecliningBalance')}
+                </option>
+              </select>
+              <small className="field__hint">{t('assets.assetPages.methodIsFixedOnce')}</small>
+            </div>
+            {form.depreciationMethod === 'declining_balance' ? (
+              <TextField
+                label={t('assets.assetPages.annualRatePercent')}
+                value={form.decliningRate}
+                required
+                inputMode="decimal"
+                onChange={(e) => setForm({ ...form, decliningRate: e.target.value })}
+                hint={t('assets.assetPages.greaterThan0AtMost100')}
+                error={error?.fieldError('decliningRate')}
+              />
+            ) : null}
             <div className="field">
               <label htmlFor="asset-credit">{t('assets.assetPages.paidFrom')}</label>
               <select
@@ -376,6 +455,13 @@ export function AssetsPage() {
                 onChange={(e) => setForm({ ...form, duplicateOverrideReason: e.target.value })}
               />
             ) : null}
+            {previewReady && previewCurrent && preview.data ? (
+              <ScheduleCheck preview={preview.data} />
+            ) : previewReady && !previewError ? (
+              <p className="muted" role="status">
+                {t('assets.assetPages.checkingSchedule')}
+              </p>
+            ) : null}
             <div>
               <Button type="submit" busy={create.isPending}>
                 {t('assets.assetPages.registerAsset')}
@@ -383,9 +469,65 @@ export function AssetsPage() {
             </div>
           </form>
           {create.isError && !error?.issues.length ? <ErrorAlert error={create.error} /> : null}
+          {previewCurrent && preview.isError && !create.isError && !error?.issues.length ? (
+            <ErrorAlert error={preview.error} />
+          ) : null}
         </Card>
       ) : null}
     </>
+  );
+}
+
+/** A value that follows another once it has stopped changing for `delayMs`. */
+function useSettled<T>(value: T, delayMs: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return settled;
+}
+
+/** The schedule check before registering (R-11): the warnings inform and never block. */
+function ScheduleCheck({ preview }: { preview: SchedulePreview }) {
+  const t = useT();
+  const firstYear = preview.schedule.slice(0, 12);
+  return (
+    <div>
+      {preview.warnings.includes('NOTHING_TO_DEPRECIATE') ? (
+        <Alert tone="info">{t('assets.assetPages.nothingToDepreciate')}</Alert>
+      ) : preview.warnings.includes('STRAIGHT_LINE_EQUIVALENT') ? (
+        <Alert tone="info">{t('assets.assetPages.sameAsStraightLine')}</Alert>
+      ) : null}
+      <table className="table" aria-label={t('assets.assetPages.scheduleCheck')}>
+        <thead>
+          <tr>
+            <th>{t('assets.assetPages.monthEnd')}</th>
+            <th className="num">{t('assets.assetPages.depreciation')}</th>
+            <th className="num">{t('assets.assetPages.accumulated')}</th>
+            <th className="num">{t('assets.assetPages.bookValue')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {firstYear.map((row) => (
+            <tr key={row.monthEnd}>
+              <td>{row.monthEnd}</td>
+              <td className="num">{formatAmount(row.amount, 'MVR')}</td>
+              <td className="num">{formatAmount(row.accumulated, 'MVR')}</td>
+              <td className="num">{formatAmount(row.bookValue, 'MVR')}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {preview.schedule.length > firstYear.length ? (
+        <small className="field__hint">
+          {t('assets.assetPages.firstMonthsOfTotal', {
+            shown: firstYear.length,
+            total: preview.schedule.length,
+          })}
+        </small>
+      ) : null}
+    </div>
   );
 }
 
@@ -459,6 +601,15 @@ export function AssetPage() {
         <span className={`badge badge--${a.status === 'ACTIVE' ? 'posted' : 'reversed'}`}>
           {a.status === 'ACTIVE' ? t('assets.assetPages.inUse') : t('assets.assetPages.disposed')}
         </span>
+      </p>
+      <p className="muted">
+        {a.depreciationMethod === 'declining_balance'
+          ? t('assets.assetPages.decliningBalanceAt', { rate: a.decliningRate ?? '' })
+          : a.depreciationMethod === 'double_declining_balance'
+            ? t('assets.assetPages.doubleDecliningBalanceAt', {
+                rate: a.doubleDecliningRate ?? '',
+              })
+            : t('assets.assetPages.straightLine')}
       </p>
       {canDispose && a.status === 'ACTIVE' ? (
         <Card title={t('assets.assetPages.disposeOfThisAsset')}>

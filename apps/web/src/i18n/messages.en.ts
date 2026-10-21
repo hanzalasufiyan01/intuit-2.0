@@ -1973,6 +1973,23 @@ export const en = {
   'assets.assetPages.salvageValue': 'Salvage value',
   'assets.assetPages.lifeInMonths': 'Life in months',
   'assets.assetPages.defaultsToTheCategory': 'Defaults to the category.',
+  'assets.assetPages.depreciationMethod': 'Depreciation method',
+  'assets.assetPages.straightLine': 'Straight line',
+  'assets.assetPages.decliningBalance': 'Declining balance',
+  'assets.assetPages.doubleDecliningBalance': 'Double-declining balance',
+  'assets.assetPages.methodIsFixedOnce':
+    'Fixed once the asset is registered. Declining methods switch to straight line when that gives more.',
+  'assets.assetPages.annualRatePercent': 'Annual rate (%)',
+  'assets.assetPages.greaterThan0AtMost100': 'Greater than 0 and at most 100, up to 4 decimals.',
+  'assets.assetPages.checkingSchedule': 'Checking the schedule…',
+  'assets.assetPages.scheduleCheck': 'Schedule check',
+  'assets.assetPages.nothingToDepreciate':
+    'The cost equals the salvage value, so there is nothing to depreciate.',
+  'assets.assetPages.sameAsStraightLine':
+    'With these terms the schedule is the same as straight line.',
+  'assets.assetPages.firstMonthsOfTotal': 'First {shown} of {total} months.',
+  'assets.assetPages.decliningBalanceAt': 'Declining balance at {rate}% a year',
+  'assets.assetPages.doubleDecliningBalanceAt': 'Double-declining balance ({rate}% a year)',
   'assets.assetPages.paidFrom': 'Paid from',
   'assets.assetPages.capitalizedByABill': 'Capitalized by a bill',
   'assets.assetPages.noBillPostTheAcquisition': 'No bill: post the acquisition',

@@ -5,5 +5,6 @@
  */
 export * from './data.js';
 export * from './permissions.js';
-export { assetEntryKinds, assetStatuses } from './schema.js';
+export { assetEntryKinds, assetStatuses, depreciationMethods } from './schema.js';
+export type { DepreciationMethod } from './schema.js';
 export type { AssetEntryKind, AssetStatus } from './schema.js';

@@ -5,6 +5,13 @@ import { timestamptz } from '../../database/column-types.js';
 
 export const assetStatuses = ['ACTIVE', 'DISPOSED'] as const;
 export type AssetStatus = (typeof assetStatuses)[number];
+/** Depreciation methods (migration 0095; ADR 0008 FA-12). */
+export const depreciationMethods = [
+  'straight_line',
+  'declining_balance',
+  'double_declining_balance',
+] as const;
+export type DepreciationMethod = (typeof depreciationMethods)[number];
 export const assetEntryKinds = [
   'acquisition',
   'depreciation',
@@ -62,6 +69,11 @@ export const fixedAssets = pgTable('fixed_assets', {
   cost: money('cost').notNull(),
   salvageValue: money('salvage_value').notNull().default('0'),
   lifeMonths: integer('life_months').notNull(),
+  // R-11 (migration 0095): fixed once capitalized, like the other terms.
+  depreciationMethod: text('depreciation_method', { enum: depreciationMethods })
+    .notNull()
+    .default('straight_line'),
+  decliningRate: numeric('declining_rate', { precision: 7, scale: 4 }),
   accumulatedDepreciation: money('accumulated_depreciation').notNull().default('0'),
   status: text('status', { enum: assetStatuses }).notNull().default('ACTIVE'),
   location: text('location').notNull().default(''),

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { FixedAssetService } from '../../application/fixed-asset-service.js';
+import { depreciationMethods } from '../../modules/fixed-assets/index.js';
 import { idempotencyKey, markReplay } from '../http/idempotency.js';
 import { eventOrigin, requirePrincipal } from '../http/session.js';
 import { fields, parseInput } from '../http/validation.js';
@@ -15,6 +16,8 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the YYYY-MM-DD form
 const amount = z
   .string()
   .regex(/^(0|[1-9]\d{0,21})(\.\d{1,4})?$/, 'Enter an amount with up to 4 decimals.');
+// An annual percentage (R-11): the service checks greater than 0 and at most 100.
+const rate = z.string().regex(/^\d{1,3}(\.\d{1,4})?$/, 'Enter a rate with up to 4 decimals.');
 const version = z.number().int().min(1);
 const idParams = z.object({ id: fields.id }).strict();
 const versionBody = z.object({ version }).strict();
@@ -54,6 +57,8 @@ const assetBody = z
     cost: amount,
     salvageValue: amount.optional(),
     lifeMonths: z.number().int().min(1).max(1200).optional(),
+    depreciationMethod: z.enum(depreciationMethods).optional(),
+    decliningRate: rate.optional(),
     creditAccountId: fields.id.optional(),
     alreadyInLedger: z.boolean().optional(),
     sourceBillId: fields.id.optional(),
@@ -61,6 +66,19 @@ const assetBody = z
     location: z.string().trim().max(200).optional(),
     custodian: z.string().trim().max(200).optional(),
     serialNumber: z.string().trim().max(100).optional(),
+  })
+  .strict();
+// The schedule an asset would get, before registering it (nothing is saved).
+const schedulePreviewBody = assetBody
+  .pick({
+    categoryId: true,
+    acquisitionDate: true,
+    inServiceDate: true,
+    cost: true,
+    salvageValue: true,
+    lifeMonths: true,
+    depreciationMethod: true,
+    decliningRate: true,
   })
   .strict();
 const assetUpdateBody = z
@@ -181,6 +199,10 @@ export function registerFixedAssetRoutes(
     );
     markReplay(reply, result.replayed);
     return reply.status(201).send({ data: result.value });
+  });
+  app.post('/fixed-assets/assets/schedule-preview', async (request) => {
+    const body = parseInput(schedulePreviewBody, request.body);
+    return { data: await fixedAssets.previewSchedule(requirePrincipal(request), body) };
   });
   app.get('/fixed-assets/assets/:id', async (request) => {
     const { id } = parseInput(idParams, request.params);
