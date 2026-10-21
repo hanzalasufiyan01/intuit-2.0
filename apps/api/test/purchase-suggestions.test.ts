@@ -219,9 +219,13 @@ describe('quantities and edge cases', () => {
     });
     expect(timed.status, JSON.stringify(timed.body)).toBe(201);
     expect(byName(await listed(o), 'Reserved oil')?.suggestedQuantity).toBe('5');
+    // "Yesterday" by the same clock and UTC date the service uses for "today", not the database's
+    // current_date, which follows the session time zone (Asia/Calcutta locally: from 00:00 to 05:30
+    // its yesterday is still the UTC today, and the reservation would not count as expired).
+    const yesterday = new Date(ctx.clock.now().getTime() - DAY).toISOString().slice(0, 10);
     await db.query(
-      `UPDATE stock_reservations SET expires_on = (current_date - 1) WHERE organization_id = $1 AND id = $2`,
-      [o.organizationId, timed.body.data.id],
+      `UPDATE stock_reservations SET expires_on = $3::date WHERE organization_id = $1 AND id = $2`,
+      [o.organizationId, timed.body.data.id, yesterday],
     );
     expect(byName(await listed(o), 'Reserved oil')?.suggestedQuantity).toBe('3');
   });
