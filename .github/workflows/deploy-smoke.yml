@@ -26,7 +26,8 @@ jobs:
       # teardown removes that project only.
       COMPOSE_PROJECT_NAME: intuit2-smoke-${{ github.run_id }}-${{ github.run_attempt }}
       COMPOSE_FILE: deploy/docker-compose.prod.yml:deploy/docker-compose.smoke.yml
-      SMOKE_DIR: ${{ runner.temp }}/intuit2-smoke
+      # SMOKE_DIR (this job's scratch directory) is derived from $RUNNER_TEMP in the first run step:
+      # the runner context is not available in job-level env.
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -41,6 +42,9 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
+          # A path, not a secret: made available to the later steps.
+          SMOKE_DIR="$RUNNER_TEMP/intuit2-smoke"
+          echo "SMOKE_DIR=$SMOKE_DIR" >> "$GITHUB_ENV"
           mkdir -p "$SMOKE_DIR"
           cat > "$SMOKE_DIR/lib.sh" <<'LIB'
           # Sourced by later steps. Reads values from .env.production; never prints them.
@@ -322,6 +326,8 @@ jobs:
         run: |
           set -u
           rc=0
+          # Same directory as the first run step, even if that step never ran.
+          SMOKE_DIR="${SMOKE_DIR:-$RUNNER_TEMP/intuit2-smoke}"
           # Compose needs the env file to parse the project; recreate an empty one if a failed early
           # step never wrote it. Values are irrelevant for removal.
           [ -f .env.production ] || : > .env.production
