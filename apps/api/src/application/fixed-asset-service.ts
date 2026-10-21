@@ -56,6 +56,7 @@ import {
   updateRun,
   type AssetCategory,
   type AssetDisposal,
+  type DepreciationMethod,
   type DepreciationRun,
   type FixedAsset,
 } from '../modules/fixed-assets/index.js';
@@ -68,6 +69,8 @@ import {
   previousMonthEnd,
   scheduleOf,
   scheduledAccumulated,
+  scheduleWarnings,
+  type DepreciableAsset,
 } from './fixed-asset-schedule.js';
 import type { IdempotencyService } from './idempotency-service.js';
 import type { JournalService } from './journal-service.js';
@@ -119,6 +122,10 @@ export interface AssetInput {
   cost: string;
   salvageValue?: string | undefined;
   lifeMonths?: number | undefined;
+  /** R-11 (ADR 0008 FA-12): straight line unless chosen; fixed once capitalized. */
+  depreciationMethod?: DepreciationMethod | undefined;
+  /** Annual percentage, only for declining balance: greater than 0, at most 100, 4 decimals. */
+  decliningRate?: string | undefined;
   /** The account the cost is credited to (a bank, cash, payable or clearing account). */
   creditAccountId?: string | undefined;
   /** The cost is already in the ledger (for example from a bill): register only, post nothing. */
@@ -130,6 +137,91 @@ export interface AssetInput {
   location?: string | undefined;
   custodian?: string | undefined;
   serialNumber?: string | undefined;
+}
+
+export interface SchedulePreviewInput {
+  categoryId: string;
+  acquisitionDate: string;
+  inServiceDate?: string | undefined;
+  cost: string;
+  salvageValue?: string | undefined;
+  lifeMonths?: number | undefined;
+  depreciationMethod?: DepreciationMethod | undefined;
+  decliningRate?: string | undefined;
+}
+
+/**
+ * The dates and amounts of a new asset, checked the same way for registration and for the
+ * schedule preview: valid dates, in service no earlier than acquired, amounts within the base
+ * currency's decimals, a positive cost and a salvage value of at most the cost.
+ */
+function validateScheduleTerms(
+  input: {
+    acquisitionDate: string;
+    inServiceDate?: string | undefined;
+    cost: string;
+    salvageValue?: string | undefined;
+  },
+  scale: number,
+  issues: ValidationIssue[],
+) {
+  if (!isValidIsoDate(input.acquisitionDate)) {
+    issues.push({ path: 'acquisitionDate', message: 'Enter a valid date (YYYY-MM-DD).' });
+  }
+  const inServiceDate = input.inServiceDate ?? input.acquisitionDate;
+  if (!isValidIsoDate(inServiceDate)) {
+    issues.push({ path: 'inServiceDate', message: 'Enter a valid date (YYYY-MM-DD).' });
+  } else if (input.acquisitionDate > inServiceDate) {
+    issues.push({
+      path: 'inServiceDate',
+      message: 'The asset cannot go into service before it is acquired.',
+    });
+  }
+  const cost = decimal(input.cost);
+  const salvage = decimal(input.salvageValue ?? '0');
+  if (cost.decimalPlaces() > scale || salvage.decimalPlaces() > scale) {
+    issues.push({ path: 'cost', message: `Amounts allow at most ${scale} decimals.` });
+  }
+  if (!cost.gt(0)) issues.push({ path: 'cost', message: 'The cost must be greater than zero.' });
+  if (salvage.gt(cost)) {
+    issues.push({ path: 'salvageValue', message: 'The salvage value cannot exceed the cost.' });
+  }
+  return { inServiceDate, cost, salvage };
+}
+
+/**
+ * The depreciation method and rate of a new asset (R-11): straight line by default; a rate only
+ * for ordinary declining balance, greater than 0 and at most 100 percent, with up to 4 decimals.
+ */
+function validateMethod(
+  input: {
+    depreciationMethod?: DepreciationMethod | undefined;
+    decliningRate?: string | undefined;
+  },
+  issues: ValidationIssue[],
+): { depreciationMethod: DepreciationMethod; decliningRate: string | null } {
+  const depreciationMethod = input.depreciationMethod ?? 'straight_line';
+  if (depreciationMethod !== 'declining_balance') {
+    if (input.decliningRate !== undefined) {
+      issues.push({
+        path: 'decliningRate',
+        message: 'Only the declining-balance method takes a rate.',
+      });
+    }
+    return { depreciationMethod, decliningRate: null };
+  }
+  if (input.decliningRate === undefined) {
+    issues.push({ path: 'decliningRate', message: 'Enter the annual declining-balance rate.' });
+    return { depreciationMethod, decliningRate: null };
+  }
+  const rate = decimal(input.decliningRate);
+  if (!rate.gt(0) || rate.gt(100) || rate.decimalPlaces() > 4) {
+    issues.push({
+      path: 'decliningRate',
+      message: 'Enter a rate greater than 0 and at most 100 percent, with up to 4 decimals.',
+    });
+  }
+  return { depreciationMethod, decliningRate: rate.toFixed(4) };
 }
 
 interface JournalLineInput {
@@ -575,6 +667,13 @@ export class FixedAssetService {
       cost: decimal(a.cost).toFixed(scale),
       salvageValue: decimal(a.salvageValue).toFixed(scale),
       lifeMonths: a.lifeMonths,
+      depreciationMethod: a.depreciationMethod,
+      decliningRate: a.decliningRate === null ? null : decimal(a.decliningRate).toFixed(4),
+      // Double-declining derives its annual rate from the life (display only, never stored).
+      doubleDecliningRate:
+        a.depreciationMethod === 'double_declining_balance'
+          ? decimal(2400).div(a.lifeMonths).toFixed(4)
+          : null,
       accumulatedDepreciation: accumulated.toFixed(scale),
       bookValue: decimal(a.cost).minus(accumulated).toFixed(scale),
       status: a.status,
@@ -643,6 +742,45 @@ export class FixedAssetService {
     );
   }
 
+  /**
+   * The schedule an asset would get, before it is registered (R-11): nothing is saved. The
+   * warnings are informational and never block registration: the declining methods can come out
+   * identical to straight line, and an asset whose cost equals its salvage has nothing to
+   * depreciate.
+   */
+  previewSchedule(principal: Principal, input: SchedulePreviewInput) {
+    return withOrganization(
+      this.deps,
+      principal,
+      { permission: FixedAssetPermissions.Manage, readOnlySnapshot: true },
+      async (tx, ctx) => {
+        const issues: ValidationIssue[] = [];
+        const scale = await this.scale(tx, ctx.organizationId);
+        const { inServiceDate, cost, salvage } = validateScheduleTerms(input, scale, issues);
+        const method = validateMethod(input, issues);
+        const category = await getCategory(tx, ctx.organizationId, input.categoryId);
+        if (!category || category.status !== 'ACTIVE') {
+          issues.push({ path: 'categoryId', message: 'Choose an active category.' });
+        }
+        if (issues.length) throw new ValidationError(issues);
+        const asset: DepreciableAsset = {
+          cost: cost.toFixed(4),
+          salvageValue: salvage.toFixed(4),
+          lifeMonths: input.lifeMonths ?? category!.defaultLifeMonths,
+          inServiceDate,
+          depreciationMethod: method.depreciationMethod,
+          decliningRate: method.decliningRate,
+        };
+        return {
+          depreciationMethod: method.depreciationMethod,
+          lifeMonths: asset.lifeMonths,
+          warnings: scheduleWarnings(asset, scale),
+          schedule: scheduleOf(asset, scale),
+        };
+      },
+    );
+  }
+
   getAsset(principal: Principal, id: string) {
     return withOrganization(
       this.deps,
@@ -659,6 +797,8 @@ export class FixedAssetService {
             salvageValue: asset.salvageValue,
             lifeMonths: asset.lifeMonths,
             inServiceDate: asset.inServiceDate,
+            depreciationMethod: asset.depreciationMethod,
+            decliningRate: asset.decliningRate,
           },
           scale,
         ).map((row) => ({ ...row, booked: decimal(row.accumulated).lte(accumulated) }));
@@ -721,27 +861,8 @@ export class FixedAssetService {
   ) {
     const issues: ValidationIssue[] = [];
     const scale = await this.scale(tx, ctx.organizationId);
-    if (!isValidIsoDate(input.acquisitionDate)) {
-      issues.push({ path: 'acquisitionDate', message: 'Enter a valid date (YYYY-MM-DD).' });
-    }
-    const inServiceDate = input.inServiceDate ?? input.acquisitionDate;
-    if (!isValidIsoDate(inServiceDate)) {
-      issues.push({ path: 'inServiceDate', message: 'Enter a valid date (YYYY-MM-DD).' });
-    } else if (input.acquisitionDate > inServiceDate) {
-      issues.push({
-        path: 'inServiceDate',
-        message: 'The asset cannot go into service before it is acquired.',
-      });
-    }
-    const cost = decimal(input.cost);
-    const salvage = decimal(input.salvageValue ?? '0');
-    if (cost.decimalPlaces() > scale || salvage.decimalPlaces() > scale) {
-      issues.push({ path: 'cost', message: `Amounts allow at most ${scale} decimals.` });
-    }
-    if (!cost.gt(0)) issues.push({ path: 'cost', message: 'The cost must be greater than zero.' });
-    if (salvage.gt(cost)) {
-      issues.push({ path: 'salvageValue', message: 'The salvage value cannot exceed the cost.' });
-    }
+    const { inServiceDate, cost, salvage } = validateScheduleTerms(input, scale, issues);
+    const method = validateMethod(input, issues);
     const category = await getCategory(tx, ctx.organizationId, input.categoryId);
     if (!category || category.status !== 'ACTIVE') {
       issues.push({ path: 'categoryId', message: 'Choose an active category.' });
@@ -816,6 +937,8 @@ export class FixedAssetService {
       cost: cost.toFixed(4),
       salvageValue: salvage.toFixed(4),
       lifeMonths: input.lifeMonths ?? category!.defaultLifeMonths,
+      depreciationMethod: method.depreciationMethod,
+      decliningRate: method.decliningRate,
       location: input.location?.trim() ?? '',
       custodian: input.custodian?.trim() ?? '',
       serialNumber: input.serialNumber?.trim() ?? '',
@@ -846,6 +969,8 @@ export class FixedAssetService {
       cost: asset.cost,
       categoryId: asset.categoryId,
       lifeMonths: asset.lifeMonths,
+      depreciationMethod: asset.depreciationMethod,
+      decliningRate: asset.decliningRate,
       journalId,
       alreadyInLedger: asset.inLedger,
       sourceBillId: asset.sourceBillId,
@@ -1139,6 +1264,8 @@ export class FixedAssetService {
           salvageValue: asset.salvageValue,
           lifeMonths: asset.lifeMonths,
           inServiceDate: asset.inServiceDate,
+          depreciationMethod: asset.depreciationMethod,
+          decliningRate: asset.decliningRate,
           accumulatedDepreciation: asset.accumulatedDepreciation,
         },
         monthEnd,

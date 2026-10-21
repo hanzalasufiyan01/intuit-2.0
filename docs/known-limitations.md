@@ -77,7 +77,8 @@ Honest list, kept next to `requirements-matrix.md`. Updated 2026-10-17.
 The authoritative, prioritized list is `docs/remaining-scope.md` (updated 2026-10-20). In short:
 
 - Partly built: branch-scoped access (invoices, bills, their lines and files only; R-25), legal-entity groups (side-by-side profit and loss, no consolidation; R-19), the clinic (administrative, billing, consent and retention only; clinical records and scheduling extras are R-20 and R-21), localization (catalog and fallback only; R-01, R-44).
-- Not built, owner decision needed: payslip e-mail (R-23), project tasks, budgets and WIP (R-26), expense by employee (R-29, the specification does not define it), per-warehouse cost and lot-level or FIFO costing (R-22), compound taxes (R-10), depreciation methods beyond straight line (R-11).
+- Not built, owner decision needed: payslip e-mail (R-23), project tasks, budgets and WIP (R-26), expense by employee (R-29, the specification does not define it), per-warehouse cost and lot-level or FIFO costing (R-22), compound taxes (R-10).
+- Fixed assets (R-11, ADR 0008 FA-12): straight line, declining balance and double-declining balance only; no sum-of-the-years'-digits or units-of-production method, no category default method, and no change in estimate (life, salvage or method) once an asset is capitalized.
 - Not built, blocked on outside input: MIRA tax-return data and withholding tax (R-40), statutory payroll (R-41), a real payment provider (R-42), customer and vendor portal sign-in (R-43), Dhivehi translation by a qualified translator (R-44).
 
 ## Test infrastructure

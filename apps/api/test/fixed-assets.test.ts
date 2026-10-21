@@ -582,6 +582,385 @@ describe('disposal', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Straight-line characterization (M2 step 0, locked before R-11)
+// ---------------------------------------------------------------------------
+
+/**
+ * The current straight-line behavior through the real API and ledger, with amounts that do not
+ * divide evenly. Expected values were computed from the schedule functions and independently from
+ * ADR 0008 (FA-04 to FA-06); they must not change when other methods are added.
+ * Asset: cost 1000.00, salvage 100.03, 7 months in service from 2026-03-20; monthly charges
+ * 128.57, 128.56, 128.57, 128.57, 128.57, 128.56, 128.57 (accumulated 899.97).
+ */
+describe('straight-line characterization (locked before R-11)', () => {
+  const uneven = {
+    cost: '1000.00',
+    salvageValue: '100.03',
+    lifeMonths: 7,
+    acquisitionDate: '2026-03-20',
+  };
+
+  it('books uneven runs with catch-up to the exact depreciable amount and reconciles', async () => {
+    const o = await assetOrg();
+    const asset = await register(o, uneven);
+    expect((await runDepreciation(o, '2026-04-30')).body.data.total).toBe('257.13');
+    // Catch-up of months 3 to 6 in one run.
+    expect((await runDepreciation(o, '2026-08-31')).body.data.total).toBe('514.27');
+    // The last month of the life.
+    expect((await runDepreciation(o, '2026-09-30')).body.data.total).toBe('128.57');
+    expect((await o.owner.get(`/fixed-assets/assets/${asset.id}`)).body.data).toMatchObject({
+      accumulatedDepreciation: '899.97',
+      bookValue: '100.03',
+    });
+    expect(await glBalance(o.organizationId, o.accounts['1520']!)).toBe('-899.97');
+    expect(await glBalance(o.organizationId, o.accounts['5500']!)).toBe('899.97');
+    const after = await o.owner.get('/fixed-assets/depreciation/preview?monthEnd=2026-09-30');
+    expect(after.body.data.lines).toEqual([]);
+    const reconciliation = (
+      await o.owner.get('/fixed-assets/reports/reconciliation?asOf=2026-09-30')
+    ).body.data;
+    expect(reconciliation.accounts.map((a: { difference: string }) => a.difference)).toEqual([
+      '0.00',
+      '0.00',
+    ]);
+  });
+
+  it('starts in the in-service month, not the acquisition month, and ends a one-month life at salvage', async () => {
+    const o = await assetOrg();
+    const asset = await register(o, {
+      cost: '999.99',
+      salvageValue: '0.99',
+      lifeMonths: 1,
+      acquisitionDate: '2026-04-25',
+      inServiceDate: '2026-05-17',
+    });
+    const before = await o.owner.get('/fixed-assets/depreciation/preview?monthEnd=2026-04-30');
+    expect(before.body.data.lines).toEqual([]);
+    expect((await runDepreciation(o, '2026-05-31')).body.data.total).toBe('999.00');
+    expect((await o.owner.get(`/fixed-assets/assets/${asset.id}`)).body.data).toMatchObject({
+      accumulatedDepreciation: '999.00',
+      bookValue: '0.99',
+    });
+    const later = await o.owner.get('/fixed-assets/depreciation/preview?monthEnd=2026-06-30');
+    expect(later.body.data.lines).toEqual([]);
+  });
+
+  it('disposes mid-life: catches up to the month before, removes the asset and books the gain', async () => {
+    const o = await assetOrg();
+    const asset = await register(o, uneven);
+    expect((await runDepreciation(o, '2026-04-30')).body.data.total).toBe('257.13');
+    const { version } = (await o.owner.get(`/fixed-assets/assets/${asset.id}`)).body.data;
+    const res = await o.owner.post(`/fixed-assets/assets/${asset.id}/dispose`, {
+      version,
+      disposalDate: '2026-07-10',
+      proceeds: '600.00',
+      proceedsAccountId: o.accounts['1120'],
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    // To the end of June: 514.27 accumulated, 257.14 of it caught up; book value 485.73.
+    expect(res.body.data).toMatchObject({
+      catchupDepreciation: '257.1400',
+      accumulatedDepreciation: '514.2700',
+      gainLoss: '114.2700',
+    });
+    expect(await glBalance(o.organizationId, o.accounts['1510']!)).toBe('0.00');
+    expect(await glBalance(o.organizationId, o.accounts['1520']!)).toBe('0.00');
+    expect(await glBalance(o.organizationId, o.accounts['5500']!)).toBe('514.27');
+    expect(await glBalance(o.organizationId, o.accounts['5400']!)).toBe('-114.27');
+  });
+
+  it('re-runs a voided month to exactly the same amount', async () => {
+    const o = await assetOrg();
+    const asset = await register(o, uneven);
+    expect((await runDepreciation(o, '2026-04-30')).body.data.total).toBe('257.13');
+    const second = (await runDepreciation(o, '2026-06-30')).body.data;
+    expect(second.total).toBe('257.14');
+    await reauth(o.owner);
+    const voided = await o.owner.post(`/fixed-assets/depreciation/runs/${second.id}/void`, {
+      version: second.version,
+      reason: 'Re-run',
+    });
+    expect(voided.status, JSON.stringify(voided.body)).toBe(200);
+    expect(
+      (await o.owner.get(`/fixed-assets/assets/${asset.id}`)).body.data.accumulatedDepreciation,
+    ).toBe('257.13');
+    const again = await runDepreciation(o, '2026-06-30');
+    expect(again.status, JSON.stringify(again.body)).toBe(201);
+    expect(again.body.data.total).toBe('257.14');
+    expect(
+      (await o.owner.get(`/fixed-assets/assets/${asset.id}`)).body.data.accumulatedDepreciation,
+    ).toBe('514.27');
+    expect(await glBalance(o.organizationId, o.accounts['1520']!)).toBe('-514.27');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Declining-balance methods (R-11; ADR 0008 FA-12)
+// ---------------------------------------------------------------------------
+
+describe('declining-balance methods (R-11)', () => {
+  // Expected values from an independent month-by-month model in exact fractions. Year 1 is
+  // 45.5% of 1,000.00 = 455.00 (more than straight line, 359.99), 37.9166... a month.
+  const declining = {
+    cost: '1000.00',
+    salvageValue: '100.03',
+    lifeMonths: 30,
+    acquisitionDate: '2026-03-20',
+    depreciationMethod: 'declining_balance',
+    decliningRate: '45.5',
+  };
+
+  it('registers the method and rate, books runs with catch-up and reconciles', async () => {
+    const o = await assetOrg();
+    const asset = await register(o, declining);
+    const detail = (await o.owner.get(`/fixed-assets/assets/${asset.id}`)).body.data;
+    expect(detail).toMatchObject({
+      depreciationMethod: 'declining_balance',
+      decliningRate: '45.5000',
+      doubleDecliningRate: null,
+    });
+    expect(detail.schedule).toHaveLength(30);
+    expect(detail.schedule.slice(0, 2).map((r: { amount: string }) => r.amount)).toEqual([
+      '37.92',
+      '37.91',
+    ]);
+    expect(detail.schedule.at(-1)).toMatchObject({ accumulated: '899.97', bookValue: '100.03' });
+    const { rows } = await owner.query(
+      `SELECT metadata FROM audit_events
+        WHERE organization_id = $1 AND resource_id = $2 AND action = 'fixed_asset.registered'`,
+      [o.organizationId, asset.id],
+    );
+    expect(rows[0].metadata).toMatchObject({
+      depreciationMethod: 'declining_balance',
+      decliningRate: '45.5000',
+    });
+    const preview = await o.owner.get('/fixed-assets/depreciation/preview?monthEnd=2026-04-30');
+    expect(preview.body.data.total).toBe('75.83');
+    expect((await runDepreciation(o, '2026-04-30')).body.data.total).toBe('75.83');
+    // Catch-up of months 3 to 6 in one run, then month 7.
+    expect((await runDepreciation(o, '2026-08-31')).body.data.total).toBe('151.67');
+    expect((await runDepreciation(o, '2026-09-30')).body.data.total).toBe('37.92');
+    expect((await o.owner.get(`/fixed-assets/assets/${asset.id}`)).body.data).toMatchObject({
+      accumulatedDepreciation: '265.42',
+      bookValue: '734.58',
+    });
+    expect(await glBalance(o.organizationId, o.accounts['1520']!)).toBe('-265.42');
+    expect(await glBalance(o.organizationId, o.accounts['5500']!)).toBe('265.42');
+    const reconciliation = (
+      await o.owner.get('/fixed-assets/reports/reconciliation?asOf=2026-09-30')
+    ).body.data;
+    expect(reconciliation.accounts.map((a: { difference: string }) => a.difference)).toEqual([
+      '0.00',
+      '0.00',
+    ]);
+  });
+
+  it('disposes mid-life with catch-up, and re-runs a voided month to the same amount', async () => {
+    const o = await assetOrg();
+    const asset = await register(o, declining);
+    expect((await runDepreciation(o, '2026-04-30')).body.data.total).toBe('75.83');
+    const second = (await runDepreciation(o, '2026-06-30')).body.data;
+    expect(second.total).toBe('75.84');
+    await reauth(o.owner);
+    const voided = await o.owner.post(`/fixed-assets/depreciation/runs/${second.id}/void`, {
+      version: second.version,
+      reason: 'Re-run',
+    });
+    expect(voided.status, JSON.stringify(voided.body)).toBe(200);
+    // Disposal catches up to the end of June: 151.67 accumulated, 75.84 of it caught up.
+    const { version } = (await o.owner.get(`/fixed-assets/assets/${asset.id}`)).body.data;
+    const res = await o.owner.post(`/fixed-assets/assets/${asset.id}/dispose`, {
+      version,
+      disposalDate: '2026-07-10',
+      proceeds: '900.00',
+      proceedsAccountId: o.accounts['1120'],
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.data).toMatchObject({
+      catchupDepreciation: '75.8400',
+      accumulatedDepreciation: '151.6700',
+      gainLoss: '51.6700',
+    });
+    expect(await glBalance(o.organizationId, o.accounts['1520']!)).toBe('0.00');
+    expect(await glBalance(o.organizationId, o.accounts['5500']!)).toBe('151.67');
+    expect(await glBalance(o.organizationId, o.accounts['5400']!)).toBe('-51.67');
+  });
+
+  it('double-declining stores no rate, shows the derived one, and survives a transfer', async () => {
+    const o = await assetOrg();
+    // Life 48: 50% a year, 4,800.00 in year 1, 400.00 a month.
+    const asset = await register(o, {
+      cost: '9600.00',
+      lifeMonths: 48,
+      depreciationMethod: 'double_declining_balance',
+    });
+    expect((await o.owner.get(`/fixed-assets/assets/${asset.id}`)).body.data).toMatchObject({
+      depreciationMethod: 'double_declining_balance',
+      decliningRate: null,
+      doubleDecliningRate: '50.0000',
+    });
+    const { rows } = await owner.query(`SELECT declining_rate FROM fixed_assets WHERE id = $1`, [
+      asset.id,
+    ]);
+    expect(rows[0].declining_rate).toBeNull();
+    expect((await runDepreciation(o, '2026-03-31')).body.data.total).toBe('1200.00');
+    const other = await o.owner.post('/fixed-assets/categories', {
+      name: 'Boats',
+      costAccountId: o.accounts['1140'],
+      accumulatedAccountId: o.accounts['1150'],
+      expenseAccountId: o.accounts['5400'],
+      defaultLifeMonths: 120,
+    });
+    const moved = await o.owner.post(`/fixed-assets/assets/${asset.id}/transfer`, {
+      version: 2,
+      transferDate: '2026-04-05',
+      toCategoryId: other.body.data.id,
+    });
+    expect(moved.status, JSON.stringify(moved.body)).toBe(200);
+    expect(await glBalance(o.organizationId, o.accounts['1150']!)).toBe('-1200.00');
+    // The schedule is the asset's, not the category's: the transfer does not change it.
+    expect((await runDepreciation(o, '2026-04-30')).body.data.total).toBe('400.00');
+    expect((await o.owner.get(`/fixed-assets/assets/${asset.id}`)).body.data).toMatchObject({
+      depreciationMethod: 'double_declining_balance',
+      lifeMonths: 48,
+      accumulatedDepreciation: '1600.00',
+    });
+  });
+
+  it('validates the method and the rate', async () => {
+    const o = await assetOrg();
+    const post = (overrides: Record<string, unknown>) =>
+      o.owner.post('/fixed-assets/assets', assetBody(o, overrides));
+    const issue = async (overrides: Record<string, unknown>) =>
+      (await post(overrides)).body.error.details.issues[0].path as string;
+    expect(await issue({ depreciationMethod: 'declining_balance' })).toBe('decliningRate');
+    expect(await issue({ depreciationMethod: 'declining_balance', decliningRate: '0' })).toBe(
+      'decliningRate',
+    );
+    expect(
+      await issue({ depreciationMethod: 'declining_balance', decliningRate: '100.0001' }),
+    ).toBe('decliningRate');
+    expect(
+      await issue({ depreciationMethod: 'declining_balance', decliningRate: '12.34567' }),
+    ).toBe('decliningRate');
+    expect(await issue({ decliningRate: '20' })).toBe('decliningRate');
+    expect(
+      await issue({ depreciationMethod: 'double_declining_balance', decliningRate: '20' }),
+    ).toBe('decliningRate');
+    expect(await issue({ depreciationMethod: 'sum_of_years' })).toBe('depreciationMethod');
+    // The bounds themselves are accepted.
+    const top = await register(o, {
+      depreciationMethod: 'declining_balance',
+      decliningRate: '100',
+    });
+    const low = await register(o, {
+      depreciationMethod: 'declining_balance',
+      decliningRate: '0.0001',
+    });
+    expect(top.id).not.toBe(low.id);
+    expect((await o.owner.get('/fixed-assets/assets')).body.data.items).toHaveLength(2);
+  });
+
+  it('previews the schedule and its warnings without saving anything', async () => {
+    const o = await assetOrg();
+    const preview = (overrides: Record<string, unknown>) =>
+      o.owner.post('/fixed-assets/assets/schedule-preview', {
+        categoryId: o.categoryId,
+        acquisitionDate: '2026-01-15',
+        cost: '5000.00',
+        salvageValue: '200.00',
+        lifeMonths: 30,
+        ...overrides,
+      });
+    const db = await preview({ depreciationMethod: 'declining_balance', decliningRate: '45.5' });
+    expect(db.status, JSON.stringify(db.body)).toBe(200);
+    expect(db.body.data).toMatchObject({ depreciationMethod: 'declining_balance', warnings: [] });
+    expect(db.body.data.schedule).toHaveLength(30);
+    expect(db.body.data.schedule.at(-1)).toMatchObject({ accumulated: '4800.00' });
+    // 30% over 30 months: straight line already gives more in year 1, so it is straight line.
+    const same = await preview({ depreciationMethod: 'declining_balance', decliningRate: '30' });
+    expect(same.body.data.warnings).toEqual(['STRAIGHT_LINE_EQUIVALENT']);
+    const nothing = await preview({
+      depreciationMethod: 'double_declining_balance',
+      salvageValue: '5000.00',
+    });
+    expect(nothing.body.data.warnings).toEqual(['NOTHING_TO_DEPRECIATE']);
+    const plain = await preview({ salvageValue: '5000.00' });
+    expect(plain.body.data).toMatchObject({ depreciationMethod: 'straight_line', warnings: [] });
+    // The category's default life applies when none is given.
+    expect((await preview({ lifeMonths: undefined })).body.data.lifeMonths).toBe(60);
+    expect(
+      (await preview({ depreciationMethod: 'declining_balance' })).body.error.details.issues[0]
+        .path,
+    ).toBe('decliningRate');
+    // The same date and amount checks as registration.
+    const issuePath = async (overrides: Record<string, unknown>) =>
+      (await preview(overrides)).body.error.details.issues[0].path as string;
+    expect(await issuePath({ acquisitionDate: '2026-02-30' })).toBe('acquisitionDate');
+    expect(await issuePath({ inServiceDate: '2026-01-01' })).toBe('inServiceDate');
+    expect(await issuePath({ cost: '100.123' })).toBe('cost');
+    expect(await issuePath({ salvageValue: '6000.00' })).toBe('salvageValue');
+    const register_ = (overrides: Record<string, unknown>) =>
+      o.owner.post('/fixed-assets/assets', assetBody(o, overrides));
+    expect(
+      (await register_({ inServiceDate: '2026-01-01' })).body.error.details.issues[0].path,
+    ).toBe('inServiceDate');
+    expect(
+      (await register_({ acquisitionDate: '2026-02-30' })).body.error.details.issues[0].path,
+    ).toBe('acquisitionDate');
+    // A warning never blocks registration.
+    await register(o, {
+      cost: '5000.00',
+      salvageValue: '200.00',
+      lifeMonths: 30,
+      depreciationMethod: 'declining_balance',
+      decliningRate: '30',
+    });
+    expect((await o.owner.get('/fixed-assets/assets')).body.data.items).toHaveLength(1);
+    const member = await joinWithRole(ctx, o.owner, 'Member');
+    expect(
+      (
+        await member.client.post('/fixed-assets/assets/schedule-preview', {
+          categoryId: o.categoryId,
+          acquisitionDate: '2026-01-15',
+          cost: '5000.00',
+        })
+      ).status,
+    ).toBe(403);
+  });
+
+  it('keeps existing assets straight line and fixes the method once capitalized', async () => {
+    const o = await assetOrg();
+    const plain = await register(o);
+    const detail = (await o.owner.get(`/fixed-assets/assets/${plain.id}`)).body.data;
+    expect(detail).toMatchObject({ depreciationMethod: 'straight_line', decliningRate: null });
+    expect(detail.schedule[0]).toMatchObject({ amount: '1000.00' });
+    const db = await register(o, declining);
+    await expect(
+      owner.query(
+        `UPDATE fixed_assets SET depreciation_method = 'double_declining_balance', declining_rate = NULL WHERE id = $1`,
+        [db.id],
+      ),
+    ).rejects.toThrow(/fixed once capitalized/);
+    await expect(
+      owner.query(`UPDATE fixed_assets SET declining_rate = 20 WHERE id = $1`, [db.id]),
+    ).rejects.toThrow(/fixed once capitalized/);
+    await expect(
+      owner.query(
+        `UPDATE fixed_assets SET depreciation_method = 'declining_balance', declining_rate = 20 WHERE id = $1`,
+        [plain.id],
+      ),
+    ).rejects.toThrow(/fixed once capitalized/);
+    // The method is not among the descriptive fields an edit may change.
+    const edit = await o.owner.patch(`/fixed-assets/assets/${plain.id}`, {
+      version: plain.version,
+      depreciationMethod: 'declining_balance',
+    });
+    expect(edit.status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Transfers
 // ---------------------------------------------------------------------------
 
