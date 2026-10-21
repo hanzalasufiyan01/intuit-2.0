@@ -71,8 +71,23 @@ jobs:
       - run: pnpm test
       - run: pnpm build
       - name: Browser end-to-end smoke tests (Playwright)
+        id: e2e
         run: |
           pnpm exec playwright install --with-deps chromium
           pnpm e2e
+      # Failure diagnostics only: each failing test's screenshot and error context (the page's ARIA
+      # snapshot at the moment of failure). Traces are NOT uploaded: they hold cookies, CSRF tokens
+      # and request bodies. The error context shows field values on screen, so it can contain the
+      # public e2e test password or a throwaway test user's secret if a test fails on such a screen.
+      - name: Upload Playwright failure diagnostics
+        if: failure() && steps.e2e.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/**/test-failed-*.png
+            test-results/**/error-context.md
+          retention-days: 7
+          if-no-files-found: ignore
       - name: Dependency audit (production dependencies)
         run: pnpm audit --prod --audit-level high
