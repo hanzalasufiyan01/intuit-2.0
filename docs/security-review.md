@@ -30,7 +30,7 @@ Scope: an internal review of the code added since commit `c0b61cb` and a set of 
 
 1. Real-TLS behavior of the webhook transport and the SMTP client is untested on this machine (antivirus interception); two webhook and two SMTP tests skip.
 2. No dynamic scan, fuzzing or penetration test has been done.
-3. The CI workflow (including `pnpm audit --prod`) has never run.
+3. The CI workflow runs on GitHub (green in run 39574210127, 2026-10-21, including `pnpm audit --prod`); it has no container image scan.
 4. Rate-limit and lock-out behavior under real load is untested. A read-only load script exists and passed once on a development machine (see `docs/operations.md`); write paths and the authentication limits were not load tested.
 5. Backup: a `pg_dump` of the development database was taken and its table of contents verified with `pg_restore --list` (2026-10-18). Restore and key rotation drills have NOT been exercised (a restore needs a superuser to create a database; see `docs/open-decisions.md`).
 6. The development-only `source-map-js` advisory above.
@@ -57,3 +57,14 @@ Findings and fixes in this period:
 New surface reviewed: branch scopes (RLS policies on invoices, bills and their lines; scope set after access is resolved; owners and self cannot be limited), organization groups (user-guarded tables, owner-only add, 404 for strangers, no cross-organization sums), clinic consent register (append-only trigger, audit without wording or names) and retention review (audited list, nothing removed), payment gateway (simulated provider only, `live` refused), customer statement links (signed, scoped to one customer).
 
 Not done: penetration test, external audit, load test of write paths, rate-limit behaviour under load, real-TLS tests (4 skipped here), container image scan (no container runtime here).
+
+## Addendum: deployment smoke (2026-10-21)
+
+Still an internal review on disposable CI runners, NOT a penetration test, an external audit or a production deployment.
+
+1. **Client-chosen rate-limit address behind nginx (FIXED).** `deploy/nginx.conf` appended to the client's `X-Forwarded-For` header and the API (with `TRUST_PROXY=true`) takes the first address of it, so a caller could pick the key of the per-address limits (public invoice and statement views, payment webhooks, Public API failed sign-ins) and the address recorded on sessions. nginx now overwrites the header with `$remote_addr`. Verified in deploy-smoke [run 39574210093](https://github.com/hanzalasufiyan01/intuit-2.0/actions/runs/39574210093): 61 requests with forged addresses gave 429 x0 through a deliberately vulnerable variant of the configuration and 429 x31 (first at request 31) through the real one. Behind a load balancer the `real_ip` setup in `docs/operations.md` section 2 is needed; it is not tested.
+2. **Production configuration refusals (verified):** the API image refuses to start without `WEB_ORIGIN`, with a short `SESSION_SECRET`, and with the mock e-mail provider under `APP_ENV=production`.
+3. **Mail in tests cannot leave the runner (verified):** the SMTP path delivered the password-reset e-mail to a Mailpit catcher on an internal-only network with no outbound route.
+4. **Backup and restore (verified on a small, fresh database):** restore into an empty database, row counts, migration checksums, ledger, inventory and RLS checks, 214 policies; an API on the restored copy served it.
+
+Not done: container image scan, penetration test, external audit, TLS termination and HSTS on a real host, real SMTP and S3, load test of write paths.

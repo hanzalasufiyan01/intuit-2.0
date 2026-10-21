@@ -26,6 +26,9 @@ export default defineConfig({
       url: 'http://127.0.0.1:3000/api/v1/health',
       reuseExistingServer: true,
       timeout: 120_000,
+      // In CI, show the API's request log (method, path, status, response time; cookies, tokens
+      // and passwords are redacted by the logger) so a failing journey can be traced.
+      stdout: process.env.CI ? 'pipe' : 'ignore',
     },
     {
       command: 'pnpm dev:web',

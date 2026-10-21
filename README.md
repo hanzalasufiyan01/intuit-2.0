@@ -2,7 +2,7 @@
 
 Cloud accounting and business-management platform. The initial market is the Maldives; the core is country- and industry-independent.
 
-> **Status (2026-10-20):** much of the original product scope is implemented and tested locally (full `pnpm verify` green, run 18). The work after `c0b61cb` is being committed locally in six planned commits (see [the handover](docs/HANDOVER.md)); `git log` and `git status` show how far that has got. Nothing after `8d162be` is pushed, nothing is deployed and no production readiness is claimed. Read [the handover](docs/HANDOVER.md) first, then [the requirements matrix](docs/requirements-matrix.md), [master-specification coverage](docs/master-spec-coverage.md) and [open decisions](docs/open-decisions.md). Older phase notes below are kept for history.
+> **Status (2026-10-21):** much of the original product scope is implemented and tested (full `pnpm verify` green locally, run 18; CI green on GitHub). `main` is at `58983e8` on `origin`; the deployment smoke work (milestone M1, up to `26391f3`) is on branch `m1-deploy-smoke` in pull request #1, open and not merged. The container stack has been verified only on disposable CI runners: nothing is deployed and no production readiness is claimed. Read [the handover](docs/HANDOVER.md) first, then [the requirements matrix](docs/requirements-matrix.md), [master-specification coverage](docs/master-spec-coverage.md) and [open decisions](docs/open-decisions.md). Older phase notes below are kept for history.
 
 ## Architecture
 
