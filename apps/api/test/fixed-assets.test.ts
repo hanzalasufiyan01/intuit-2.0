@@ -582,6 +582,119 @@ describe('disposal', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Straight-line characterization (M2 step 0, locked before R-11)
+// ---------------------------------------------------------------------------
+
+/**
+ * The current straight-line behavior through the real API and ledger, with amounts that do not
+ * divide evenly. Expected values were computed from the schedule functions and independently from
+ * ADR 0008 (FA-04 to FA-06); they must not change when other methods are added.
+ * Asset: cost 1000.00, salvage 100.03, 7 months in service from 2026-03-20; monthly charges
+ * 128.57, 128.56, 128.57, 128.57, 128.57, 128.56, 128.57 (accumulated 899.97).
+ */
+describe('straight-line characterization (locked before R-11)', () => {
+  const uneven = {
+    cost: '1000.00',
+    salvageValue: '100.03',
+    lifeMonths: 7,
+    acquisitionDate: '2026-03-20',
+  };
+
+  it('books uneven runs with catch-up to the exact depreciable amount and reconciles', async () => {
+    const o = await assetOrg();
+    const asset = await register(o, uneven);
+    expect((await runDepreciation(o, '2026-04-30')).body.data.total).toBe('257.13');
+    // Catch-up of months 3 to 6 in one run.
+    expect((await runDepreciation(o, '2026-08-31')).body.data.total).toBe('514.27');
+    // The last month of the life.
+    expect((await runDepreciation(o, '2026-09-30')).body.data.total).toBe('128.57');
+    expect((await o.owner.get(`/fixed-assets/assets/${asset.id}`)).body.data).toMatchObject({
+      accumulatedDepreciation: '899.97',
+      bookValue: '100.03',
+    });
+    expect(await glBalance(o.organizationId, o.accounts['1520']!)).toBe('-899.97');
+    expect(await glBalance(o.organizationId, o.accounts['5500']!)).toBe('899.97');
+    const after = await o.owner.get('/fixed-assets/depreciation/preview?monthEnd=2026-09-30');
+    expect(after.body.data.lines).toEqual([]);
+    const reconciliation = (
+      await o.owner.get('/fixed-assets/reports/reconciliation?asOf=2026-09-30')
+    ).body.data;
+    expect(reconciliation.accounts.map((a: { difference: string }) => a.difference)).toEqual([
+      '0.00',
+      '0.00',
+    ]);
+  });
+
+  it('starts in the in-service month, not the acquisition month, and ends a one-month life at salvage', async () => {
+    const o = await assetOrg();
+    const asset = await register(o, {
+      cost: '999.99',
+      salvageValue: '0.99',
+      lifeMonths: 1,
+      acquisitionDate: '2026-04-25',
+      inServiceDate: '2026-05-17',
+    });
+    const before = await o.owner.get('/fixed-assets/depreciation/preview?monthEnd=2026-04-30');
+    expect(before.body.data.lines).toEqual([]);
+    expect((await runDepreciation(o, '2026-05-31')).body.data.total).toBe('999.00');
+    expect((await o.owner.get(`/fixed-assets/assets/${asset.id}`)).body.data).toMatchObject({
+      accumulatedDepreciation: '999.00',
+      bookValue: '0.99',
+    });
+    const later = await o.owner.get('/fixed-assets/depreciation/preview?monthEnd=2026-06-30');
+    expect(later.body.data.lines).toEqual([]);
+  });
+
+  it('disposes mid-life: catches up to the month before, removes the asset and books the gain', async () => {
+    const o = await assetOrg();
+    const asset = await register(o, uneven);
+    expect((await runDepreciation(o, '2026-04-30')).body.data.total).toBe('257.13');
+    const { version } = (await o.owner.get(`/fixed-assets/assets/${asset.id}`)).body.data;
+    const res = await o.owner.post(`/fixed-assets/assets/${asset.id}/dispose`, {
+      version,
+      disposalDate: '2026-07-10',
+      proceeds: '600.00',
+      proceedsAccountId: o.accounts['1120'],
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    // To the end of June: 514.27 accumulated, 257.14 of it caught up; book value 485.73.
+    expect(res.body.data).toMatchObject({
+      catchupDepreciation: '257.1400',
+      accumulatedDepreciation: '514.2700',
+      gainLoss: '114.2700',
+    });
+    expect(await glBalance(o.organizationId, o.accounts['1510']!)).toBe('0.00');
+    expect(await glBalance(o.organizationId, o.accounts['1520']!)).toBe('0.00');
+    expect(await glBalance(o.organizationId, o.accounts['5500']!)).toBe('514.27');
+    expect(await glBalance(o.organizationId, o.accounts['5400']!)).toBe('-114.27');
+  });
+
+  it('re-runs a voided month to exactly the same amount', async () => {
+    const o = await assetOrg();
+    const asset = await register(o, uneven);
+    expect((await runDepreciation(o, '2026-04-30')).body.data.total).toBe('257.13');
+    const second = (await runDepreciation(o, '2026-06-30')).body.data;
+    expect(second.total).toBe('257.14');
+    await reauth(o.owner);
+    const voided = await o.owner.post(`/fixed-assets/depreciation/runs/${second.id}/void`, {
+      version: second.version,
+      reason: 'Re-run',
+    });
+    expect(voided.status, JSON.stringify(voided.body)).toBe(200);
+    expect(
+      (await o.owner.get(`/fixed-assets/assets/${asset.id}`)).body.data.accumulatedDepreciation,
+    ).toBe('257.13');
+    const again = await runDepreciation(o, '2026-06-30');
+    expect(again.status, JSON.stringify(again.body)).toBe(201);
+    expect(again.body.data.total).toBe('257.14');
+    expect(
+      (await o.owner.get(`/fixed-assets/assets/${asset.id}`)).body.data.accumulatedDepreciation,
+    ).toBe('514.27');
+    expect(await glBalance(o.organizationId, o.accounts['1520']!)).toBe('-514.27');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Transfers
 // ---------------------------------------------------------------------------
 
