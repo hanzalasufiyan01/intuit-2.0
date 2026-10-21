@@ -7,6 +7,7 @@ import { organizationsWithDuePurges } from '../modules/files/index.js';
 import {
   backoffDelayMs,
   claimJobs,
+  claimOrganizationJobs,
   completeJob,
   enqueueJob,
   finishJobUnsuccessfully,
@@ -149,10 +150,26 @@ export class JobWorker {
     return this.deps.config.jobs;
   }
 
-  async runOnce(): Promise<number> {
-    const claimed = await inTransaction(this.deps.db, {}, (tx) =>
-      claimJobs(tx, this.workerId, this.config.concurrency, this.config.staleLockMs),
-    );
+  /**
+   * Claims and processes one batch. With `organizationId`, only that organization's due jobs are
+   * claimed (in its RLS context), so a test that waits for its own job is not queued behind other
+   * organizations' work; without it, the claim spans every organization, as the server does.
+   */
+  async runOnce(options: { organizationId?: string } = {}): Promise<number> {
+    const { organizationId } = options;
+    const claimed = organizationId
+      ? await inTransaction(this.deps.db, { organizationId }, (tx) =>
+          claimOrganizationJobs(
+            tx,
+            organizationId,
+            this.workerId,
+            this.config.concurrency,
+            this.config.staleLockMs,
+          ),
+        )
+      : await inTransaction(this.deps.db, {}, (tx) =>
+          claimJobs(tx, this.workerId, this.config.concurrency, this.config.staleLockMs),
+        );
     await Promise.all(claimed.map((c) => this.process(c.organizationId, c.id)));
     return claimed.length;
   }

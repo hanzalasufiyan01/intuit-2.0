@@ -189,6 +189,32 @@ describe('worker', () => {
     expect(mine).toHaveLength(20);
   });
 
+  it('claims only the given organization when filtered, and leaves other organizations queued', async () => {
+    const other = await setUpAccountingOrg(ctx, { fiscalYear: false });
+    // The other organization's job is older, so an unfiltered claim would take it first.
+    const { job: theirs } = await enqueue(other.organizationId, { payload: { owner: 'other' } });
+    const { job: ours } = await enqueue(org.organizationId, { payload: { owner: 'org' } });
+    const seen: { id: string; organizationId: string }[] = [];
+    const worker = workerWith({
+      [testType]: async (j: JobContext) => {
+        seen.push({ id: j.job.id, organizationId: j.organizationId });
+        return null;
+      },
+    });
+    for (let i = 0; i < 20 && ['queued', 'running'].includes((await jobRow(ours.id)).status); i++) {
+      await worker.runOnce({ organizationId: org.organizationId });
+    }
+    expect(await jobRow(ours.id)).toMatchObject({ status: 'succeeded', attempts: 1 });
+    expect(await jobRow(theirs.id)).toMatchObject({
+      status: 'queued',
+      attempts: 0,
+      locked_by: null,
+      locked_at: null,
+    });
+    expect(seen.map((s) => s.id)).not.toContain(theirs.id);
+    expect(seen.filter((s) => s.organizationId !== org.organizationId)).toEqual([]);
+  });
+
   it('retries with backoff, then dead-letters after 5 attempts with a job.failed audit', async () => {
     const { job } = await enqueue(org.organizationId);
     const worker = workerWith({

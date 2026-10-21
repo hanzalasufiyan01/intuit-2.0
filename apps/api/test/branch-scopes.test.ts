@@ -345,8 +345,10 @@ describe('branch scope: bills, friendly errors and leak checks', () => {
       expect(created.status, JSON.stringify(created.body)).toBe(202);
       const id = created.body.data.export.id as string;
       let view = (await c.get(`/exports/${id}`)).body.data;
+      // Only this organization's jobs: the queue is shared with every test file running in
+      // parallel, and their document PDFs would otherwise be processed first (CI, 2026-10-20).
       for (let i = 0; i < 200 && ['queued', 'running'].includes(view.status); i++) {
-        await ctx.worker.runOnce();
+        await ctx.worker.runOnce({ organizationId: o.organizationId });
         view = (await c.get(`/exports/${id}`)).body.data;
       }
       expect(view.status, JSON.stringify(view)).toBe('ready');

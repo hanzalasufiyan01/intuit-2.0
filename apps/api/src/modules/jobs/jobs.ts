@@ -114,6 +114,40 @@ export async function claimJobs(
   return result.rows.map((r) => ({ id: r.id, organizationId: r.organization_id, type: r.type }));
 }
 
+/**
+ * Claims due jobs of ONE organization, with the same selection, order, limit and stale-lock rule
+ * as `app_claim_jobs`, in a single statement. Runs in that organization's RLS context (the caller
+ * passes a tenant transaction), and the explicit organization predicate keeps the claim to it
+ * even so. Lets a worker, or a test, own its organization's jobs instead of the shared queue.
+ */
+export async function claimOrganizationJobs(
+  tx: Transaction,
+  organizationId: string,
+  workerId: string,
+  limit: number,
+  staleAfterMs: number,
+): Promise<ClaimedJob[]> {
+  const result = await tx.execute<{ id: string; organization_id: string; type: string }>(
+    sql`WITH due AS (
+          SELECT j.id FROM jobs j
+           WHERE j.organization_id = ${organizationId}
+             AND ((j.status = 'queued' AND j.run_after <= now())
+               OR (j.status = 'running'
+                   AND j.locked_at <= now() - make_interval(secs => ${staleAfterMs / 1000})))
+           ORDER BY j.run_after, j.created_at
+           LIMIT least(greatest(${limit}::integer, 0), 100)
+           FOR UPDATE SKIP LOCKED
+        )
+        UPDATE jobs j
+           SET status = 'running', attempts = j.attempts + 1, locked_at = now(),
+               locked_by = left(${workerId}, 200), updated_at = now()
+          FROM due
+         WHERE j.id = due.id
+        RETURNING j.id, j.organization_id, j.type`,
+  );
+  return result.rows.map((r) => ({ id: r.id, organizationId: r.organization_id, type: r.type }));
+}
+
 /** Only the worker holding the current lock may change a running job. */
 function held(organizationId: string, jobId: string, workerId: string, attempts: number) {
   return and(
