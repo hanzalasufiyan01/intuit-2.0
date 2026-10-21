@@ -11,8 +11,16 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      # First start on an empty volume: postgres-init/10-intuit-bootstrap.sh creates the roles and
+      # the database with these values. They must match DATABASE_URL and DATABASE_MIGRATION_URL.
+      INTUIT_DB_NAME: ${INTUIT_DB_NAME:?set INTUIT_DB_NAME}
+      INTUIT_OWNER_PASSWORD: ${INTUIT_OWNER_PASSWORD:?set INTUIT_OWNER_PASSWORD}
+      INTUIT_APP_PASSWORD: ${INTUIT_APP_PASSWORD:?set INTUIT_APP_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+      - ../apps/api/src/database/bootstrap.sql:/intuit-bootstrap/bootstrap.sql:ro
+    # Never published: only the api and migrate containers reach it on the compose network.
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres']
       interval: 10s

@@ -1,0 +1,46 @@
+# CI ONLY: merged over docker-compose.prod.yml by .github/workflows/deploy-smoke.yml on a disposable
+# runner. Never use it for a real deployment.
+#
+#   - postgres: published on the runner's loopback only, so deploy/backup.sh and the restore
+#     scripts run unchanged from the runner.
+#   - mailpit: a mail catcher on an internal-only network (no route out, no relay configured), so
+#     the API's SMTP path is exercised and nothing can be delivered.
+#   - web-vulnerable (profile spoof-check): the same web image with a deliberately vulnerable
+#     nginx configuration, to prove the forwarded-address check can fail.
+#   - api-restored (profile restore): the same API image against the restored database copy.
+services:
+  postgres:
+    ports: ['127.0.0.1:55432:5432']
+
+  api:
+    networks: [default, smtp-sandbox]
+
+  mailpit:
+    image: axllent/mailpit:v1.31.6@sha256:23fe39e81bde596a918000b3135c0f85dc8bb4c9ea6be274b051143f3e300387
+    restart: 'no'
+    environment:
+      MP_MAX_MESSAGES: '100'
+    networks: [smtp-sandbox]
+
+  web-vulnerable:
+    profiles: ['spoof-check']
+    build: { context: .., target: web }
+    depends_on: [api]
+    volumes:
+      - ${SMOKE_VULNERABLE_NGINX_CONF:-./nginx.conf}:/etc/nginx/conf.d/default.conf:ro
+    ports: ['127.0.0.1:8081:80']
+
+  api-restored:
+    profiles: ['restore']
+    build: { context: .., target: api }
+    env_file: ../.env.production
+    environment:
+      APP_ENV: production
+      DATABASE_URL: ${RESTORED_DATABASE_URL:-}
+      DATABASE_MIGRATION_URL: ${RESTORED_DATABASE_MIGRATION_URL:-}
+    networks: [default, smtp-sandbox]
+    ports: ['127.0.0.1:3001:3000']
+
+networks:
+  smtp-sandbox:
+    internal: true

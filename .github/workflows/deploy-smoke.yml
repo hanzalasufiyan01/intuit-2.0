@@ -1,0 +1,342 @@
+# Deployment smoke test (milestone M1): builds both production images and proves the production
+# compose stack on a DISPOSABLE runner: fresh bootstrap and migrations, health and smoke checks,
+# configuration failures, forwarded-address spoofing, and backup/restore. Throwaway secrets and test
+# data only; nothing here touches a real environment. See docs/operations.md.
+name: deploy-smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  stack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      # Every container, network, volume and image of this job belongs to this compose project;
+      # teardown removes that project only.
+      COMPOSE_PROJECT_NAME: intuit2-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+      COMPOSE_FILE: deploy/docker-compose.prod.yml:deploy/docker-compose.smoke.yml
+      SMOKE_DIR: ${{ runner.temp }}/intuit2-smoke
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      # Only for deploy/restore-validate.mjs, which resolves the `pg` package from apps/api.
+      - run: pnpm install --frozen-lockfile
+
+      - name: Helpers and throwaway secrets
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$SMOKE_DIR"
+          cat > "$SMOKE_DIR/lib.sh" <<'LIB'
+          # Sourced by later steps. Reads values from .env.production; never prints them.
+          umask 077
+          envval() { grep -m1 "^$1=" .env.production | cut -d= -f2-; }
+          dc() { docker compose --env-file .env.production "$@"; }
+          psql_owner() { PGPASSWORD="$(envval INTUIT_OWNER_PASSWORD)" psql -h 127.0.0.1 -p 55432 -U intuit_owner -v ON_ERROR_STOP=1 -At "$@"; }
+          LIB
+          hex() { openssl rand -hex 24; }
+          pg_super=$(hex); owner=$(hex); app=$(hex); metrics=$(hex)
+          session=$(openssl rand -hex 32)
+          mfa=$(openssl rand -base64 32); webhook=$(openssl rand -base64 32)
+          for s in "$pg_super" "$owner" "$app" "$metrics" "$session" "$mfa" "$webhook"; do
+            echo "::add-mask::$s"
+          done
+          {
+            echo "POSTGRES_PASSWORD=$pg_super"
+            echo "INTUIT_DB_NAME=intuit2"
+            echo "INTUIT_OWNER_PASSWORD=$owner"
+            echo "INTUIT_APP_PASSWORD=$app"
+            echo "APP_ENV=production"
+            echo "WEB_ORIGIN=http://localhost:8080"
+            echo "TRUST_PROXY=true"
+            echo "DATABASE_URL=postgres://intuit_app:$app@postgres:5432/intuit2"
+            echo "DATABASE_MIGRATION_URL=postgres://intuit_owner:$owner@postgres:5432/intuit2"
+            echo "SESSION_SECRET=$session"
+            echo "MFA_ENCRYPTION_KEYS=smoke1:$mfa"
+            echo "MFA_ENCRYPTION_ACTIVE_KEY_ID=smoke1"
+            echo "WEBHOOK_ENCRYPTION_KEYS=smokewh1:$webhook"
+            echo "WEBHOOK_ENCRYPTION_ACTIVE_KEY_ID=smokewh1"
+            echo "METRICS_TOKEN=$metrics"
+            echo "EMAIL_PROVIDER=smtp"
+            echo "SMTP_HOST=mailpit"
+            echo "SMTP_PORT=1025"
+            echo "SMTP_SECURITY=none"
+            echo "EMAIL_FROM=no-reply@smoke.example.test"
+          } > .env.production
+          # The two URLs must carry exactly the bootstrap credentials (checked without printing them).
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const env = Object.fromEntries(
+            fs.readFileSync('.env.production', 'utf8').split('\n').filter(Boolean)
+              .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
+          );
+          for (const k of ['POSTGRES_PASSWORD', 'INTUIT_OWNER_PASSWORD', 'INTUIT_APP_PASSWORD']) {
+            if (!/^[0-9a-f]{48}$/.test(env[k])) throw new Error(`${k} is not 48 hex characters`);
+          }
+          const check = (name, user, passwordKey) => {
+            const u = new URL(env[name]);
+            if (u.username !== user) throw new Error(`${name}: wrong role`);
+            if (decodeURIComponent(u.password) !== env[passwordKey]) throw new Error(`${name}: password differs from ${passwordKey}`);
+            if (u.password !== encodeURIComponent(env[passwordKey])) throw new Error(`${name}: password is not URL-encoded correctly`);
+            if (decodeURIComponent(u.pathname.slice(1)) !== env.INTUIT_DB_NAME) throw new Error(`${name}: database differs`);
+            if (u.hostname !== 'postgres') throw new Error(`${name}: host is not the compose service`);
+          };
+          check('DATABASE_URL', 'intuit_app', 'INTUIT_APP_PASSWORD');
+          check('DATABASE_MIGRATION_URL', 'intuit_owner', 'INTUIT_OWNER_PASSWORD');
+          console.log('credentials consistent and URL-encoded (values not shown)');
+          NODE
+
+      - name: Validate the compose configuration
+        run: |
+          set -euo pipefail
+          . "$SMOKE_DIR/lib.sh"
+          dc --profile tools --profile restore --profile spoof-check config --quiet
+          # Production file alone: PostgreSQL is never published. (Only the selected fields are printed.)
+          docker compose --env-file .env.production -f deploy/docker-compose.prod.yml config --format json \
+            | jq -e '(.services.postgres.ports // []) | length == 0' > /dev/null
+          echo "production compose: postgres publishes no port"
+          merged=$(dc --profile tools --profile restore --profile spoof-check config --format json)
+          echo "$merged" | jq -e '[.services.postgres.ports[] | .host_ip] | all(. == "127.0.0.1")' > /dev/null
+          echo "smoke override: postgres published on 127.0.0.1 only"
+          echo "$merged" | jq -e '.networks["smtp-sandbox"].internal == true
+            and ((.services.mailpit.ports // []) | length == 0)
+            and ((.services.mailpit.networks | keys) == ["smtp-sandbox"])' > /dev/null
+          echo "smoke override: mailpit is unpublished and only on the internal smtp-sandbox network"
+
+      - name: Build both images
+        run: |
+          set -euo pipefail
+          . "$SMOKE_DIR/lib.sh"
+          dc --profile tools --profile restore --profile spoof-check build
+          docker image ls --filter "reference=${COMPOSE_PROJECT_NAME}-*" --format '{{.Repository}} {{.Size}}'
+
+      - name: Fresh start, bootstrap, migrations
+        run: |
+          set -euo pipefail
+          . "$SMOKE_DIR/lib.sh"
+          dc up -d --wait --wait-timeout 120 postgres
+          dc --profile tools run --rm migrate
+          files=$(ls apps/api/src/database/migrations/*.sql | wc -l)
+          applied=$(psql_owner -d intuit2 -c "select count(*) from schema_migrations")
+          echo "migrations applied: $applied of $files files"
+          [ "$applied" = "$files" ]
+          roles=$(psql_owner -d intuit2 -c "select string_agg(format('%s:%s%s%s', rolname, rolsuper::int, rolbypassrls::int, rolcreaterole::int), ',' order by rolname) from pg_roles where rolname in ('intuit_owner','intuit_app')")
+          echo "roles (superuser, bypassrls, createrole as 1/0): $roles"
+          [ "$roles" = "intuit_app:000,intuit_owner:000" ]
+
+      - name: Start the stack and wait for the health checks
+        run: |
+          set -euo pipefail
+          . "$SMOKE_DIR/lib.sh"
+          dc up -d --wait --wait-timeout 180 api web mailpit
+          dc ps --format '{{.Service}} {{.Status}}'
+
+      - name: Smoke test and sample data
+        run: |
+          set -euo pipefail
+          . "$SMOKE_DIR/lib.sh"
+          BASE_URL=http://localhost:8080 sh deploy/smoke.sh
+          pw=$(openssl rand -hex 16); echo "::add-mask::$pw"; printf '%s' "$pw" > "$SMOKE_DIR/user-password"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'content-type: application/json' \
+            -d "{\"email\":\"owner-before@smoke.example.test\",\"password\":\"$pw\",\"displayName\":\"Smoke Owner\",\"organizationName\":\"Smoke Traders\"}" \
+            http://localhost:8080/api/v1/auth/register)
+          echo "registration through nginx: $code"; [ "$code" = "201" ]
+
+      - name: SMTP path ends in the sandbox, which has no route out
+        run: |
+          set -euo pipefail
+          . "$SMOKE_DIR/lib.sh"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'content-type: application/json' \
+            -d '{"email":"owner-before@smoke.example.test"}' http://localhost:8080/api/v1/auth/password-reset/request)
+          echo "password reset request: $code"
+          # Mailpit's own API, read from the api container (the only other member of its network).
+          found=0
+          for i in $(seq 1 30); do
+            total=$(dc exec -T api node -e "fetch('http://mailpit:8025/api/v1/messages').then(r=>r.json()).then(j=>console.log(j.total??0)).catch(()=>console.log(0))" || echo 0)
+            if [ "${total:-0}" -ge 1 ]; then found=1; break; fi
+            sleep 2
+          done
+          [ "$found" = 1 ] || { echo "no message reached the mail catcher"; exit 1; }
+          echo "the reset e-mail reached the mail catcher"
+          # The sandbox network has no route out; the default network does (control).
+          probe='fetch("https://example.com",{signal:AbortSignal.timeout(8000)}).then(()=>process.exit(0)).catch(()=>process.exit(1))'
+          docker run --rm --name "${COMPOSE_PROJECT_NAME}-egress-control" \
+            --network "${COMPOSE_PROJECT_NAME}_default" \
+            --entrypoint node "${COMPOSE_PROJECT_NAME}-api" -e "$probe" \
+            || { echo "control failed: no internet from the default network, so the sandbox check proves nothing"; exit 1; }
+          if docker run --rm --name "${COMPOSE_PROJECT_NAME}-egress-sandbox" \
+            --network "${COMPOSE_PROJECT_NAME}_smtp-sandbox" \
+            --entrypoint node "${COMPOSE_PROJECT_NAME}-api" -e "$probe"; then
+            echo "the smtp-sandbox network reached the internet: isolation broken"; exit 1
+          fi
+          echo "the smtp-sandbox network (the mail catcher's only network) has no outbound route"
+
+      - name: Expected configuration failures
+        run: |
+          set -euo pipefail
+          . "$SMOKE_DIR/lib.sh"
+          image="${COMPOSE_PROJECT_NAME}-api"
+          base="$SMOKE_DIR/config-base.env"
+          grep -v '^POSTGRES_PASSWORD=\|^INTUIT_' .env.production > "$base"
+          expect_failure() {
+            name=$1 expected=$2 variant=$3
+            set +e
+            docker run --rm --name "${COMPOSE_PROJECT_NAME}-cfg-$name" --network none \
+              --env-file "$variant" "$image" > "$SMOKE_DIR/cfg-$name.log" 2>&1
+            rc=$?
+            set -e
+            if [ "$rc" -eq 0 ]; then echo "FAIL $name: the API started"; exit 1; fi
+            grep -qF -- "$expected" "$SMOKE_DIR/cfg-$name.log" || { echo "FAIL $name: expected message not found"; exit 1; }
+            echo "ok   $name: refused (exit $rc) with: $expected"
+            rm -f "$SMOKE_DIR/cfg-$name.log" "$variant"
+          }
+          grep -v '^WEB_ORIGIN=' "$base" > "$SMOKE_DIR/v1.env"
+          expect_failure missing-web-origin 'WEB_ORIGIN' "$SMOKE_DIR/v1.env"
+          grep -v '^SESSION_SECRET=' "$base" > "$SMOKE_DIR/v2.env"; echo "SESSION_SECRET=short" >> "$SMOKE_DIR/v2.env"
+          expect_failure short-session-secret 'SESSION_SECRET must be at least 32 characters' "$SMOKE_DIR/v2.env"
+          grep -v '^EMAIL_PROVIDER=\|^SMTP_' "$base" > "$SMOKE_DIR/v3.env"; echo "EMAIL_PROVIDER=mock" >> "$SMOKE_DIR/v3.env"
+          expect_failure mock-email-in-production 'The mock email provider must not be used in production.' "$SMOKE_DIR/v3.env"
+          rm -f "$base"
+
+      - name: Forwarded-address spoofing cannot dodge the per-address rate limit
+        run: |
+          set -euo pipefail
+          . "$SMOKE_DIR/lib.sh"
+          # The vulnerable variant differs from the real configuration in exactly one line.
+          sed 's|proxy_set_header X-Forwarded-For $remote_addr;|proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;|' \
+            deploy/nginx.conf > "$SMOKE_DIR/nginx-vulnerable.conf"
+          changed=$(diff deploy/nginx.conf "$SMOKE_DIR/nginx-vulnerable.conf" | grep -c '^>' || true)
+          [ "$changed" = 1 ] || { echo "the vulnerable variant must differ in exactly one line"; exit 1; }
+          SMOKE_VULNERABLE_NGINX_CONF="$SMOKE_DIR/nginx-vulnerable.conf" dc --profile spoof-check up -d --wait --wait-timeout 60 web-vulnerable
+          # 61 requests, each with a different forged X-Forwarded-For, to a public route that charges a
+          # per-address limit of 30 a minute before looking at the token. Fixed one-minute windows: 61
+          # requests within 50 s span at most two windows, so one window holds at least 31 of them
+          # whenever the limit is keyed on the real address. Returns 0 when a 429 was seen.
+          limited() {
+            base=$1 net=$2 start=$(date +%s) seen=0 first=0 other=0
+            for i in $(seq 1 61); do
+              code=$(curl -s -o /dev/null -w '%{http_code}' -H "X-Forwarded-For: $net.$i" \
+                "$base/api/v1/public/invoices/smoke-no-such-token-0000000000")
+              case "$code" in
+                429) seen=$((seen + 1)); [ "$first" = 0 ] && first=$i ;;
+                404) ;;
+                *) other=$((other + 1)) ;;
+              esac
+            done
+            elapsed=$(( $(date +%s) - start ))
+            echo "  $base: 429 x$seen (first at request $first), other statuses x$other, ${elapsed}s"
+            [ "$other" = 0 ] || { echo "unexpected statuses"; exit 1; }
+            [ "$elapsed" -lt 50 ] || { echo "too slow to be deterministic"; exit 1; }
+            if [ "$seen" -gt 0 ]; then
+              [ "$first" -ge 31 ] || { echo "limited before the 31st request"; exit 1; }
+              return 0
+            fi
+            return 1
+          }
+          echo "vulnerable configuration (appends the client's header):"
+          if limited http://127.0.0.1:8081 198.51.100; then
+            echo "FAIL: the check passed against the vulnerable configuration, so it proves nothing"; exit 1
+          fi
+          echo "  -> forged addresses dodge the limit, as expected for the vulnerable variant"
+          echo "real configuration (deploy/nginx.conf):"
+          limited http://localhost:8080 203.0.113 || { echo "FAIL: forged addresses dodge the limit"; exit 1; }
+          echo "  -> the limit applies to the real client address"
+          dc --profile spoof-check stop web-vulnerable
+
+      - name: Backup, restore into an empty database, validate
+        run: |
+          set -euo pipefail
+          . "$SMOKE_DIR/lib.sh"
+          owner=$(envval INTUIT_OWNER_PASSWORD)
+          # A still source: nothing writes while the backup is taken.
+          dc stop api web
+          mkdir -p "$SMOKE_DIR/files" "$SMOKE_DIR/backups"
+          dc cp api:/data/storage/. "$SMOKE_DIR/files/"
+          DATABASE_MIGRATION_URL="postgresql://intuit_owner:$owner@127.0.0.1:55432/intuit2" \
+            FILES_DIR="$SMOKE_DIR/files" BACKUP_DIR="$SMOKE_DIR/backups" sh deploy/backup.sh
+          dump=$(ls "$SMOKE_DIR"/backups/intuit2-*.dump)
+          # Restore target: created with the same bootstrap as the original, and checked to be empty.
+          dc exec -T -e INTUIT_DB_NAME=intuit2_restore postgres sh /docker-entrypoint-initdb.d/10-intuit-bootstrap.sh > /dev/null
+          tables=$(psql_owner -d intuit2_restore -c "select count(*) from information_schema.tables where table_schema = 'public'")
+          echo "restore target before restore: $tables tables"; [ "$tables" = 0 ]
+          TARGET_URL="postgresql://intuit_owner:$owner@127.0.0.1:55432/intuit2_restore" sh deploy/restore.sh "$dump"
+          SOURCE_URL="postgresql://intuit_owner:$owner@127.0.0.1:55432/intuit2" \
+            TARGET_URL="postgresql://intuit_owner:$owner@127.0.0.1:55432/intuit2_restore" \
+            STRICT_COUNTS=yes node deploy/restore-validate.mjs
+          files=$(ls apps/api/src/database/migrations/*.sql | wc -l)
+          before=$(psql_owner -d intuit2_restore -c "select count(*) from schema_migrations")
+          dc --profile tools run --rm \
+            -e DATABASE_MIGRATION_URL="postgres://intuit_owner:$owner@postgres:5432/intuit2_restore" \
+            migrate node dist/src/database/cli/migrate.js
+          after=$(psql_owner -d intuit2_restore -c "select count(*) from schema_migrations")
+          echo "restored migrations: $before before migrate, $after after, $files files"
+          [ "$before" = "$files" ] && [ "$after" = "$files" ]
+          users=$(psql_owner -d intuit2_restore -c "select count(*) from users where email = 'owner-before@smoke.example.test'")
+          echo "restored copy holds the sample owner: $users"; [ "$users" = 1 ]
+
+      - name: The restored API serves the restored database
+        run: |
+          set -euo pipefail
+          . "$SMOKE_DIR/lib.sh"
+          owner=$(envval INTUIT_OWNER_PASSWORD); app=$(envval INTUIT_APP_PASSWORD)
+          pw=$(cat "$SMOKE_DIR/user-password")
+          dc up -d --wait --wait-timeout 180 api web
+          # Written to the ORIGINAL database only, after the backup.
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H 'content-type: application/json' \
+            -d "{\"email\":\"owner-after@smoke.example.test\",\"password\":\"$pw\",\"displayName\":\"Later Owner\",\"organizationName\":\"Later Traders\"}" \
+            http://localhost:8080/api/v1/auth/register)
+          echo "registration after the backup (original database): $code"; [ "$code" = "201" ]
+          RESTORED_DATABASE_URL="postgres://intuit_app:$app@postgres:5432/intuit2_restore" \
+            RESTORED_DATABASE_MIGRATION_URL="postgres://intuit_owner:$owner@postgres:5432/intuit2_restore" \
+            dc --profile restore up -d --wait --wait-timeout 180 api-restored
+          login() {
+            curl -s -o /dev/null -w '%{http_code}' -H 'content-type: application/json' \
+              -d "{\"email\":\"$2\",\"password\":\"$pw\"}" "$1/api/v1/auth/login"
+          }
+          a=$(login http://127.0.0.1:3001 owner-before@smoke.example.test)
+          b=$(login http://127.0.0.1:3001 owner-after@smoke.example.test)
+          c=$(login http://localhost:8080 owner-after@smoke.example.test)
+          echo "restored API: owner-before $a, owner-after $b; original API: owner-after $c"
+          [ "$a" = 200 ] && [ "$b" = 401 ] && [ "$c" = 200 ]
+          health=$(curl -fsS http://127.0.0.1:3001/api/v1/health)
+          echo "$health" | grep -q '"database":"ok"'
+          echo "the restored API is healthy and answers from the restored copy"
+
+      - name: Teardown (this job's compose project only)
+        if: always()
+        run: |
+          set -u
+          rc=0
+          # Compose needs the env file to parse the project; recreate an empty one if a failed early
+          # step never wrote it. Values are irrelevant for removal.
+          [ -f .env.production ] || : > .env.production
+          for v in POSTGRES_PASSWORD INTUIT_DB_NAME INTUIT_OWNER_PASSWORD INTUIT_APP_PASSWORD; do
+            grep -q "^$v=" .env.production || export "$v=unused"
+          done
+          docker compose --env-file .env.production -p "$COMPOSE_PROJECT_NAME" \
+            --profile tools --profile restore --profile spoof-check \
+            down --volumes --remove-orphans --rmi local || rc=$?
+          for n in cfg-missing-web-origin cfg-short-session-secret cfg-mock-email-in-production egress-control egress-sandbox; do
+            docker rm -f "${COMPOSE_PROJECT_NAME}-$n" > /dev/null 2>&1 || true
+          done
+          rm -f .env.production
+          rm -rf -- "$SMOKE_DIR"
+          remaining=$(docker ps -aq --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME" | wc -l)
+          echo "containers left in project $COMPOSE_PROJECT_NAME: $remaining"
+          [ "$remaining" = 0 ] || rc=1
+          exit "$rc"
