@@ -500,6 +500,49 @@ describe('customer refund void and receipt void', () => {
     ]);
   });
 
+  it('refuses the void after a wrong password and allows it after the right one (R-05)', async () => {
+    const o = await salesOrg();
+    const credit = await issuedCredit(o, '80');
+    const refund = await refunded(
+      o.owner,
+      refundBody(credit.id, { sourceType: 'credit_note', amount: '80' }),
+    );
+    ctx.clock.advance(16 * MINUTE);
+    await o.owner.get('/auth/session');
+    expect((await voidRefund(o.owner, refund)).body.error.code).toBe('REAUTHENTICATION_REQUIRED');
+
+    // A wrong password is refused, recorded as a failed re-authentication, and unlocks nothing.
+    const wrong = await o.owner.reauthenticate('not the right password');
+    expect(wrong.status).toBe(403);
+    expect(wrong.body.error.code).toBe('INVALID_CREDENTIALS');
+    const userId = (await o.owner.get('/auth/session')).body.data.user.id as string;
+    const { rows } = await owner.query(
+      `SELECT count(*)::int AS n FROM security_events
+        WHERE user_id = $1 AND event_type = 'auth.login_failed'
+          AND metadata->>'reason' = 'reauthentication_failed'`,
+      [userId],
+    );
+    expect(rows[0].n).toBe(1);
+    expect((await voidRefund(o.owner, refund)).body.error.code).toBe('REAUTHENTICATION_REQUIRED');
+    expect((await o.owner.get(`/sales/refunds/${refund.id}`)).body.data.status).toBe('RECORDED');
+    expect((await o.owner.get(`/sales/credit-notes/${credit.id}`)).body.data.amountUnapplied).toBe(
+      '0.00',
+    );
+
+    // The right password confirms the session, and the void goes through.
+    expect((await o.owner.reauthenticate()).status).toBe(200);
+    const voided = await voidRefund(o.owner, refund, 'Refund entered twice');
+    expect(voided.status, JSON.stringify(voided.body)).toBe(200);
+    expect(voided.body.data.status).toBe('VOID');
+    expect((await o.owner.get(`/sales/credit-notes/${credit.id}`)).body.data.amountUnapplied).toBe(
+      '80.00',
+    );
+    expect((await auditActions(o, refund.id)).map((a) => a.action)).toEqual([
+      'customer_refund.recorded',
+      'customer_refund.voided',
+    ]);
+  });
+
   it('mirrors a realized-FX refund journal on void and restores the exact base', async () => {
     const o = await salesOrg('USD');
     await rate(o, '2026-03-01', '15.42');
