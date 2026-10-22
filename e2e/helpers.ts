@@ -129,6 +129,40 @@ export async function issueInvoice(
   return page.url();
 }
 
+/** Drafts and issues a one-line credit note not linked to an invoice; returns its URL. */
+export async function issueCreditNote(
+  page: Page,
+  o: { customer: string; date: string; amount: string },
+) {
+  await page.goto('/sales/credit-notes/new');
+  await page.getByLabel('Customer').selectOption({ label: o.customer });
+  await page.getByLabel('Credit date').fill(o.date);
+  await page.getByLabel('Credited invoice').selectOption({ label: 'Not linked to an invoice' });
+  await page.getByLabel('Line 1 description').fill('Goodwill credit');
+  await page.getByLabel('Line 1 quantity').fill('1');
+  await page.getByLabel('Line 1 unit price').fill(o.amount);
+  await page.getByRole('button', { name: 'Save draft' }).click();
+  await expect(page).toHaveURL(/\/sales\/credit-notes\/[0-9a-f-]{36}$/);
+  await page.getByRole('button', { name: 'Issue', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm and issue' }).click();
+  await expect(page.getByText('Issued', { exact: true }).first()).toBeVisible({ timeout: 20_000 });
+  return page.url();
+}
+
+/** Records a customer refund of an issued credit note's unapplied amount; returns its URL. */
+export async function refundCreditNote(
+  page: Page,
+  o: { creditUrl: string; date: string; amount: string },
+) {
+  await page.goto(o.creditUrl);
+  await page.getByRole('link', { name: 'Refund credit' }).click();
+  await page.getByLabel('Refund date').fill(o.date);
+  await page.getByLabel('Amount (MVR)').fill(o.amount);
+  await page.getByRole('button', { name: 'Record refund' }).click();
+  await expect(page).toHaveURL(/\/sales\/refunds\/[0-9a-f-]{36}$/);
+  return page.url();
+}
+
 /** Drafts and posts a one-line bill; returns its URL. */
 export async function postBill(
   page: Page,
