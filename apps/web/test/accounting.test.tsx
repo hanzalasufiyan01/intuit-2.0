@@ -6,6 +6,7 @@ import { App, createQueryClient } from '../src/app/App';
 import { routes } from '../src/app/routes';
 import { editorTotals } from '../src/features/accounting/JournalEditor';
 import { makeSession } from './fake-api';
+import { expectConfirmFlow } from './confirm-flow';
 
 type Handler = (body: unknown) => { status: number; body?: unknown };
 
@@ -472,6 +473,30 @@ describe('account classification and system accounts (Phase 3A)', () => {
       subtype: 'LONG_TERM_LIABILITY',
       isMonetary: true,
       currencyCode: 'USD',
+    });
+  });
+
+  it('asks in a dialog before deleting an account; cancelling sends nothing', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi({
+      'GET /auth/session': ok(
+        makeSession({ permissions: [...ALL_ACCOUNTING, 'accounting.accounts.delete'] }),
+      ),
+      'GET /accounting/setup': ok(setupState),
+      'GET /accounting/accounts': ok(classified),
+      'DELETE /accounting/accounts/a-re': () => ({ status: 204 }),
+    });
+    renderAt('/accounting/accounts');
+    await screen.findByText('Cash · monetary');
+    const row = screen.getByText('Retained Earnings').closest('tr')!;
+    await expectConfirmFlow({
+      user,
+      trigger: () => within(row).getByRole('button', { name: 'Delete' }),
+      title: 'Delete this account?',
+      message: 'Delete account 3200? Draft journal lines using it will lose their account.',
+      confirmName: 'Delete',
+      requestSent: () =>
+        calls.some((c) => c.method === 'DELETE' && c.path === '/accounting/accounts/a-re'),
     });
   });
 

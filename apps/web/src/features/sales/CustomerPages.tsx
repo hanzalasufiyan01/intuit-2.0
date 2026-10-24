@@ -9,7 +9,11 @@ import { COMMON_CURRENCIES, formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
+import { EmptyState } from '../../shared/ui/EmptyState';
+import { LoadingState } from '../../shared/ui/LoadingState';
+import { DataTable } from '../../shared/ui/Table';
 import { Spinner } from '../../shared/ui/Spinner';
+import { SelectField } from '../../shared/ui/SelectField';
 import { TextField } from '../../shared/ui/TextField';
 import { ExportButton } from '../data-exchange/ExportButton';
 import { orNull, SalesNav, StatusBadge, useOrgKey } from './shared';
@@ -66,30 +70,28 @@ export function CustomersPage() {
             placeholder={t('sales.customers.searchHint')}
             onChange={(e) => setFilters({ ...filters, search: e.target.value })}
           />
-          <div className="field">
-            <label htmlFor="customer-status">{t('sales.field.status')}</label>
-            <select
-              id="customer-status"
-              value={filters.status}
-              onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-            >
-              <option value="active">{t('sales.status.active')}</option>
-              <option value="archived">{t('sales.status.archived')}</option>
-              <option value="all">{t('common.all')}</option>
-            </select>
-          </div>
+          <SelectField
+            id="customer-status"
+            label={t('sales.field.status')}
+            value={filters.status}
+            onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+          >
+            <option value="active">{t('sales.status.active')}</option>
+            <option value="archived">{t('sales.status.archived')}</option>
+            <option value="all">{t('common.all')}</option>
+          </SelectField>
           <Button type="submit">{t('common.search')}</Button>
         </form>
       </Card>
       <Card>
         {list.isPending ? (
-          <Spinner label={t('common.loading')} />
+          <LoadingState />
         ) : list.isError ? (
           <ErrorAlert error={list.error} />
         ) : items.length === 0 ? (
-          <p className="muted">{t('sales.customers.none')}</p>
+          <EmptyState message={t('sales.customers.none')} />
         ) : (
-          <table className="table">
+          <DataTable label={t('sales.customers.title')}>
             <thead>
               <tr>
                 <th>{t('sales.field.name')}</th>
@@ -114,7 +116,7 @@ export function CustomersPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         )}
         {list.hasNextPage ? (
           <Button

@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { NavLink } from 'react-router';
 import { useAuth } from '../../auth/auth-context';
-import { useT, type MessageKey } from '../../i18n/i18n';
+import { useT, type MessageKey, type Translate } from '../../i18n/i18n';
+import { Badge, type BadgeTone } from '../../shared/ui/Badge';
 import { Can, Permission, useAnyPermission } from '../../permissions/permissions';
 import { api } from '../../services/api-client';
 import {
@@ -104,20 +105,37 @@ export function useItemOptions(enabled = true) {
   });
 }
 
-const STATUS_KEYS: Record<string, MessageKey> = {
-  DRAFT: 'sales.status.draft',
-  PENDING_APPROVAL: 'sales.status.pendingApproval',
-  ISSUED: 'sales.status.issued',
-  VOID: 'sales.status.void',
-  RECORDED: 'sales.status.recorded',
-  ACTIVE: 'sales.status.active',
-  ARCHIVED: 'sales.status.archived',
-};
+/** The statuses this badge knows: each states its label and its tone, so the colour is explicit. */
+const STATUS_BADGES = {
+  DRAFT: { key: 'sales.status.draft', tone: 'neutral' },
+  PENDING_APPROVAL: { key: 'sales.status.pendingApproval', tone: 'warning' },
+  ISSUED: { key: 'sales.status.issued', tone: 'success' },
+  VOID: { key: 'sales.status.void', tone: 'danger' },
+  RECORDED: { key: 'sales.status.recorded', tone: 'success' },
+  POSTED: { key: 'sales.status.posted', tone: 'success' },
+  ACTIVE: { key: 'sales.status.active', tone: 'success' },
+  ARCHIVED: { key: 'sales.status.archived', tone: 'neutral' },
+} satisfies Record<string, { key: MessageKey; tone: BadgeTone }>;
+
+/** Every status the shared badge colours explicitly. */
+export type KnownStatus = keyof typeof STATUS_BADGES;
+
+/** The translated label of a status for running text; one the shared badge does not know is shown as it came. */
+export function statusLabel(t: Translate, status: string): string {
+  return Object.hasOwn(STATUS_BADGES, status)
+    ? t(STATUS_BADGES[status as keyof typeof STATUS_BADGES].key)
+    : status;
+}
 
 export function StatusBadge({ status }: { status: string }) {
   const t = useT();
-  const key = STATUS_KEYS[status];
-  return <span className={`badge badge--${status.toLowerCase()}`}>{key ? t(key) : status}</span>;
+  const known = Object.hasOwn(STATUS_BADGES, status)
+    ? STATUS_BADGES[status as keyof typeof STATUS_BADGES]
+    : null;
+  // Every status the callers can pass is in the map. Anything else (a status added on the server
+  // before the UI knows it) is shown as it came, in the neutral tone, never mis-coloured.
+  if (!known) return <Badge tone="neutral">{status}</Badge>;
+  return <Badge tone={known.tone}>{t(known.key)}</Badge>;
 }
 
 /** Turns blank text into null for the API (optional fields). */

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router';
+import { useT } from '../i18n/i18n';
 import { Spinner } from '../shared/ui/Spinner';
 import { useAuth } from './auth-context';
 
@@ -14,9 +15,10 @@ export function safeRedirectTarget(state: unknown): string {
  * verification code to /login/verify, remembering where they were going.
  */
 export function RequireAuth({ children }: { children: ReactNode }) {
+  const t = useT();
   const { status } = useAuth();
   const location = useLocation();
-  if (status === 'loading') return <Spinner label="Loading your session" />;
+  if (status === 'loading') return <Spinner label={t('state.loadingSession')} />;
   if (status === 'anonymous') {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
@@ -28,9 +30,10 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 
 /** Public-only route (login, register): signed-in users continue to where they were going. */
 export function RedirectIfAuthenticated({ children }: { children: ReactNode }) {
+  const t = useT();
   const { status } = useAuth();
   const location = useLocation();
-  if (status === 'loading') return <Spinner label="Loading your session" />;
+  if (status === 'loading') return <Spinner label={t('state.loadingSession')} />;
   if (status === 'authenticated')
     return <Navigate to={safeRedirectTarget(location.state)} replace />;
   return <>{children}</>;
@@ -38,9 +41,10 @@ export function RedirectIfAuthenticated({ children }: { children: ReactNode }) {
 
 /** The verification step of sign-in: only for a sign-in that is waiting for its code. */
 export function RequirePendingMfa({ children }: { children: ReactNode }) {
+  const t = useT();
   const { status } = useAuth();
   const location = useLocation();
-  if (status === 'loading') return <Spinner label="Loading your session" />;
+  if (status === 'loading') return <Spinner label={t('state.loadingSession')} />;
   if (status === 'authenticated')
     return <Navigate to={safeRedirectTarget(location.state)} replace />;
   if (status === 'anonymous') return <Navigate to="/login" replace state={location.state} />;

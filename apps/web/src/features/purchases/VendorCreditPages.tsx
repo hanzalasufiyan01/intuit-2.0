@@ -10,6 +10,7 @@ import { COMMON_CURRENCIES, formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
+import { ConfirmDialog } from '../../shared/ui/ConfirmDialog';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
 import { useAccounts, useAccountingSetup, useDimensions } from '../accounting/shared';
@@ -50,12 +51,7 @@ function useCredit(id: string) {
 }
 
 function CreditStatusBadge({ status }: { status: VendorCreditStatus }) {
-  const t = useT();
-  return status === 'POSTED' ? (
-    <span className="badge badge--posted">{t('purchases.status.posted')}</span>
-  ) : (
-    <StatusBadge status={status} />
-  );
+  return <StatusBadge status={status} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -1010,6 +1006,7 @@ export function VendorCreditDetailPage() {
       }),
     ),
   );
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const remove = useApiMutation(() =>
     api.delete(`/purchases/vendor-credits/${id}?version=${doc.data!.version}`),
   );
@@ -1156,22 +1153,32 @@ export function VendorCreditDetailPage() {
             </Button>
           ) : null}
           {c.status === 'DRAFT' && can.edit ? (
-            <Button
-              variant="ghost"
-              busy={remove.isPending}
-              onClick={() => {
-                if (window.confirm(t('purchases.credits.confirmDelete'))) {
+            <>
+              <Button
+                variant="ghost"
+                busy={remove.isPending}
+                onClick={() => setConfirmingDelete(true)}
+              >
+                {t('common.delete')}
+              </Button>
+              <ConfirmDialog
+                open={confirmingDelete}
+                title={t('confirm.deleteDraft.title')}
+                message={t('purchases.credits.confirmDelete')}
+                confirmLabel={t('common.delete')}
+                destructive
+                onCancel={() => setConfirmingDelete(false)}
+                onConfirm={() => {
+                  setConfirmingDelete(false);
                   remove.mutate(undefined, {
                     onSuccess: () => {
                       refresh();
                       void navigate('/purchases/vendor-credits');
                     },
                   });
-                }
-              }}
-            >
-              {t('common.delete')}
-            </Button>
+                }}
+              />
+            </>
           ) : null}
         </div>
       </Card>

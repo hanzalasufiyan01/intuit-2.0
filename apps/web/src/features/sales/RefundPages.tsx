@@ -7,8 +7,11 @@ import { Permission, usePermission } from '../../permissions/permissions';
 import { api, ApiError } from '../../services/api-client';
 import { formatAmount } from '../../shared/money';
 import { ErrorAlert } from '../../shared/ui/Alert';
+import { Badge, toneOf, type BadgeTone } from '../../shared/ui/Badge';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
+import { EmptyState } from '../../shared/ui/EmptyState';
+import { LoadingState } from '../../shared/ui/LoadingState';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
 import { useAccounts, useAccountingSetup } from '../accounting/shared';
@@ -62,13 +65,21 @@ interface RefundDetail extends RefundSummary {
 const sourcePath = (type: SourceType, id: string) =>
   type === 'receipt' ? `/sales/receipts/${id}` : `/sales/credit-notes/${id}`;
 
-function StatusBadge({ status }: { status: RefundStatus }) {
+const REFUND_STATUS_TONE: Record<RefundStatus, BadgeTone> = {
+  RECORDED: 'success',
+  VOID: 'danger',
+};
+
+/** A customer refund's status: recorded is success, void is danger, any other status is neutral. */
+export function StatusBadge({ status }: { status: string }) {
   const t = useT();
-  return status === 'RECORDED' ? (
-    <span className="badge badge--posted">{t('sales.refundPages.recorded')}</span>
-  ) : (
-    <span className="badge badge--void">{t('sales.refundPages.void')}</span>
-  );
+  const label =
+    status === 'RECORDED'
+      ? t('sales.refundPages.recorded')
+      : status === 'VOID'
+        ? t('sales.refundPages.void')
+        : status;
+  return <Badge tone={toneOf(REFUND_STATUS_TONE, status)}>{label}</Badge>;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,7 +144,7 @@ export function CustomerRefundsPage() {
           <Button type="submit">{t('common.search')}</Button>
         </form>
         {list.isPending ? (
-          <Spinner label={t('common.loading')} />
+          <LoadingState />
         ) : list.isError ? (
           <ErrorAlert error={list.error} />
         ) : (
@@ -152,7 +163,7 @@ function RefundTable({
   showCustomer: boolean;
 }) {
   const t = useT();
-  if (rows.length === 0) return <p className="muted">{t('sales.refundPages.noRefunds')}</p>;
+  if (rows.length === 0) return <EmptyState message={t('sales.refundPages.noRefunds')} />;
   return (
     <table className="table">
       <thead>
@@ -495,7 +506,7 @@ export function CustomerRefundDetailPage() {
       }),
     ),
   );
-  if (refund.isPending) return <Spinner label={t('common.loading')} />;
+  if (refund.isPending) return <LoadingState />;
   if (refund.isError) return <ErrorAlert error={refund.error} />;
   const r = refund.data;
   const base = r.baseCurrency;

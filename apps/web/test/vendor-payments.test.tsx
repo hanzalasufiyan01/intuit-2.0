@@ -6,6 +6,7 @@ import { App, createQueryClient } from '../src/app/App';
 import { routes } from '../src/app/routes';
 import { ApprovalPanel } from '../src/features/sales/DocumentParts';
 import { makeSession } from './fake-api';
+import { expectConfirmFlow } from './confirm-flow';
 
 /** Phase 4B-2: vendor payments, prepayments and credit application UI (server decides amounts). */
 
@@ -320,5 +321,30 @@ describe('approval wording (context-aware ready message)', () => {
     renderAt('/purchases/payments/p1');
     expect(await screen.findByText('Approved. The payment can be recorded.')).toBeTruthy();
     expect(screen.queryByText(/can be issued/)).toBeNull();
+  });
+});
+
+describe('delete a draft payment (confirmation dialog)', () => {
+  it('asks in a dialog first; cancelling by button, Escape or outside sends nothing', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi({
+      ...common(ALL),
+      'GET /purchases/payments/p1': ok(payment()),
+      'GET /purchases/payments/open-bills': ok(openBills),
+      'DELETE /purchases/payments/p1': () => ({ status: 204 }),
+    });
+    renderAt('/purchases/payments/p1');
+    await screen.findByRole('button', { name: 'Delete' });
+    await expectConfirmFlow({
+      user,
+      trigger: () => screen.getByRole('button', { name: 'Delete' }),
+      title: 'Delete this draft?',
+      message: 'Delete this draft payment?',
+      confirmName: 'Delete',
+      requestSent: () =>
+        calls.some(
+          (c) => c.method === 'DELETE' && c.url.pathname.endsWith('/purchases/payments/p1'),
+        ),
+    });
   });
 });

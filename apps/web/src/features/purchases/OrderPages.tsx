@@ -8,9 +8,13 @@ import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
+import { EmptyState } from '../../shared/ui/EmptyState';
+import { LoadingState } from '../../shared/ui/LoadingState';
+import { MappedStatusBadge, type StatusEntry } from '../../shared/ui/StatusBadge';
+import { DataTable, NumCell, NumHeader } from '../../shared/ui/Table';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
-import { useT, type MessageKey } from '../../i18n/i18n';
+import { useT } from '../../i18n/i18n';
 
 /**
  * Purchase orders, goods receiving and three-way matching. An order creates no journal. The
@@ -77,27 +81,19 @@ interface MatchSettings {
   version: number;
 }
 
-const STATUS_LABEL: Record<OrderStatus, MessageKey> = {
-  DRAFT: 'purchases.orderPages.status.DRAFT',
-  PENDING_APPROVAL: 'purchases.orderPages.status.PENDING_APPROVAL',
-  APPROVED: 'purchases.orderPages.status.APPROVED',
-  PARTIALLY_RECEIVED: 'purchases.orderPages.status.PARTIALLY_RECEIVED',
-  RECEIVED: 'purchases.orderPages.status.RECEIVED',
-  CLOSED: 'purchases.orderPages.status.CLOSED',
-  CANCELLED: 'purchases.orderPages.status.CANCELLED',
-};
+const ORDER_STATUS = {
+  DRAFT: { key: 'purchases.orderPages.status.DRAFT', tone: 'neutral' },
+  PENDING_APPROVAL: { key: 'purchases.orderPages.status.PENDING_APPROVAL', tone: 'warning' },
+  APPROVED: { key: 'purchases.orderPages.status.APPROVED', tone: 'success' },
+  PARTIALLY_RECEIVED: { key: 'purchases.orderPages.status.PARTIALLY_RECEIVED', tone: 'success' },
+  RECEIVED: { key: 'purchases.orderPages.status.RECEIVED', tone: 'success' },
+  CLOSED: { key: 'purchases.orderPages.status.CLOSED', tone: 'danger' },
+  CANCELLED: { key: 'purchases.orderPages.status.CANCELLED', tone: 'danger' },
+} satisfies Record<OrderStatus, StatusEntry>;
 
-function StatusBadge({ status }: { status: OrderStatus }) {
-  const tone =
-    status === 'CLOSED' || status === 'CANCELLED'
-      ? 'reversed'
-      : status === 'DRAFT'
-        ? 'draft'
-        : status === 'PENDING_APPROVAL'
-          ? 'pending_approval'
-          : 'posted';
-  const t = useT();
-  return <span className={`badge badge--${tone}`}>{t(STATUS_LABEL[status])}</span>;
+/** A purchase order's status; one the page does not know is neutral and shown as it came. */
+export function StatusBadge({ status }: { status: string }) {
+  return <MappedStatusBadge map={ORDER_STATUS} status={status} />;
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -146,9 +142,9 @@ export function OrdersPage() {
             <label htmlFor="po-status">{t('purchases.orderPages.status')}</label>
             <select id="po-status" value={status} onChange={(e) => setStatus(e.target.value)}>
               <option value="">{t('common.all')}</option>
-              {(Object.keys(STATUS_LABEL) as OrderStatus[]).map((s) => (
+              {(Object.keys(ORDER_STATUS) as OrderStatus[]).map((s) => (
                 <option key={s} value={s}>
-                  {t(STATUS_LABEL[s])}
+                  {t(ORDER_STATUS[s].key)}
                 </option>
               ))}
             </select>
@@ -160,20 +156,20 @@ export function OrdersPage() {
           />
         </div>
         {list.isPending ? (
-          <Spinner />
+          <LoadingState />
         ) : list.isError ? (
           <ErrorAlert error={list.error} />
         ) : list.data.items.length === 0 ? (
-          <p className="muted">{t('purchases.orderPages.noPurchaseOrders')}</p>
+          <EmptyState message={t('purchases.orderPages.noPurchaseOrders')} />
         ) : (
-          <table className="table">
+          <DataTable label={t('purchases.orderPages.purchaseOrders')}>
             <thead>
               <tr>
                 <th>{t('purchases.orderPages.number')}</th>
                 <th>{t('purchases.orderPages.vendor')}</th>
                 <th>{t('purchases.orderPages.date')}</th>
                 <th>{t('purchases.orderPages.expected')}</th>
-                <th className="num">{t('purchases.orderPages.total')}</th>
+                <NumHeader>{t('purchases.orderPages.total')}</NumHeader>
                 <th>{t('purchases.orderPages.status')}</th>
               </tr>
             </thead>
@@ -188,16 +184,16 @@ export function OrdersPage() {
                   <td>{o.vendorName}</td>
                   <td>{o.orderDate}</td>
                   <td>{o.expectedDate ?? '—'}</td>
-                  <td className="num">
+                  <NumCell>
                     {formatAmount(o.total, o.currencyCode)} {o.currencyCode}
-                  </td>
+                  </NumCell>
                   <td>
                     <StatusBadge status={o.status} />
                   </td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         )}
       </Card>
     </>

@@ -8,6 +8,7 @@ import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { FileUpload } from '../../shared/ui/FileUpload';
 import { Spinner } from '../../shared/ui/Spinner';
+import { Tabs } from '../../shared/ui/Tabs';
 import { TextField } from '../../shared/ui/TextField';
 import { useJob, uploadErrorMessage, uploadFile } from '../files/files';
 import {
@@ -510,8 +511,10 @@ function ReviewStep({
             <ErrorReportButton batchId={batch.id} />
           ) : null}
         </div>
-        <div className="tabs" role="tablist" aria-label={t('data-exchange.importWizardPage.rows')}>
-          {(
+        <Tabs
+          label={t('data-exchange.importWizardPage.rows')}
+          activation="manual"
+          tabs={(
             [
               ['all', t('data-exchange.importWizardPage.tabAll')],
               [
@@ -527,92 +530,85 @@ function ReviewStep({
                 t('data-exchange.importWizardPage.tabExcluded', { count: batch.counts.excluded }),
               ],
             ] as const
-          ).map(([key, label]) => (
-            <Button
-              key={key}
-              role="tab"
-              aria-selected={filter === key}
-              variant={filter === key ? 'primary' : 'ghost'}
-              onClick={() => setFilter(key)}
-            >
-              {label}
-            </Button>
-          ))}
-        </div>
-        {rows.isPending ? (
-          <Spinner label={t('data-exchange.importWizardPage.loadingRows')} />
-        ) : rows.isError ? (
-          <ErrorAlert error={rows.error} />
-        ) : rows.data.rows.length === 0 ? (
-          <p className="muted">{t('data-exchange.importWizardPage.noRowsHere')}</p>
-        ) : (
-          <div className="table-scroll">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>{t('data-exchange.importWizardPage.row')}</th>
-                  <th>{t('data-exchange.importWizardPage.include')}</th>
-                  <th>{t('data-exchange.importWizardPage.problems')}</th>
-                  {columnsShown.map((c) => (
-                    <th key={c}>{c}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.data.rows.map((r) => (
-                  <tr
-                    key={r.rowNumber}
-                    className={r.excluded ? 'row--excluded' : `row--${r.status}`}
-                  >
-                    <td>{r.rowNumber}</td>
-                    <td>
-                      <input
-                        type="checkbox"
-                        aria-label={t('data-exchange.importWizardPage.includeRow', {
-                          rowNumber: r.rowNumber,
-                        })}
-                        checked={!r.excluded}
-                        disabled={exclusions.isPending}
-                        onChange={(e) =>
-                          exclusions.mutate(
-                            e.target.checked
-                              ? { include: [r.rowNumber], exclude: [] }
-                              : { exclude: [r.rowNumber], include: [] },
-                            { onSuccess: refresh },
-                          )
-                        }
-                      />
-                    </td>
-                    <td>
-                      {r.messages.map((m, i) => (
-                        <div
-                          key={i}
-                          className={m.severity === 'error' ? 'text-error' : 'text-warning'}
-                        >
-                          {m.field ? `${fieldLabel(domain, m.field)}: ` : ''}
-                          {m.message}
-                        </div>
-                      ))}
-                    </td>
-                    {columnsShown.map((c, i) => (
-                      <td key={c}>{r.cells?.[i] ?? ''}</td>
+          ).map(([value, label]) => ({ value, label }))}
+          value={filter}
+          onChange={setFilter}
+        >
+          {rows.isPending ? (
+            <Spinner label={t('data-exchange.importWizardPage.loadingRows')} />
+          ) : rows.isError ? (
+            <ErrorAlert error={rows.error} />
+          ) : rows.data.rows.length === 0 ? (
+            <p className="muted">{t('data-exchange.importWizardPage.noRowsHere')}</p>
+          ) : (
+            <div className="table-scroll">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>{t('data-exchange.importWizardPage.row')}</th>
+                    <th>{t('data-exchange.importWizardPage.include')}</th>
+                    <th>{t('data-exchange.importWizardPage.problems')}</th>
+                    {columnsShown.map((c) => (
+                      <th key={c}>{c}</th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {rows.data?.nextAfter ? (
-          <p className="muted">
-            {t('data-exchange.importWizardPage.showingTheFirstRowsEvery', {
-              PREVIEWROWS: PREVIEW_ROWS,
-            })}
-          </p>
-        ) : null}
-        {domain?.groupsRows ? (
-          <p className="muted">{t('data-exchange.importWizardPage.excludingOrIncludingARow')}</p>
-        ) : null}
+                </thead>
+                <tbody>
+                  {rows.data.rows.map((r) => (
+                    <tr
+                      key={r.rowNumber}
+                      className={r.excluded ? 'row--excluded' : `row--${r.status}`}
+                    >
+                      <td>{r.rowNumber}</td>
+                      <td>
+                        <input
+                          type="checkbox"
+                          aria-label={t('data-exchange.importWizardPage.includeRow', {
+                            rowNumber: r.rowNumber,
+                          })}
+                          checked={!r.excluded}
+                          disabled={exclusions.isPending}
+                          onChange={(e) =>
+                            exclusions.mutate(
+                              e.target.checked
+                                ? { include: [r.rowNumber], exclude: [] }
+                                : { exclude: [r.rowNumber], include: [] },
+                              { onSuccess: refresh },
+                            )
+                          }
+                        />
+                      </td>
+                      <td>
+                        {r.messages.map((m, i) => (
+                          <div
+                            key={i}
+                            className={m.severity === 'error' ? 'text-error' : 'text-warning'}
+                          >
+                            {m.field ? `${fieldLabel(domain, m.field)}: ` : ''}
+                            {m.message}
+                          </div>
+                        ))}
+                      </td>
+                      {columnsShown.map((c, i) => (
+                        <td key={c}>{r.cells?.[i] ?? ''}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {rows.data?.nextAfter ? (
+            <p className="muted">
+              {t('data-exchange.importWizardPage.showingTheFirstRowsEvery', {
+                PREVIEWROWS: PREVIEW_ROWS,
+              })}
+            </p>
+          ) : null}
+          {domain?.groupsRows ? (
+            <p className="muted">{t('data-exchange.importWizardPage.excludingOrIncludingARow')}</p>
+          ) : null}
+        </Tabs>
         <ErrorAlert error={exclusions.error} />
       </Card>
       <Card title={t('data-exchange.importWizardPage.4Import')}>

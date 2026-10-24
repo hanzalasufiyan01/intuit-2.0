@@ -7,6 +7,7 @@ import { api } from '../../services/api-client';
 import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
+import { MappedStatusBadge, statusText, type StatusEntry } from '../../shared/ui/StatusBadge';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
@@ -114,7 +115,7 @@ interface Quote {
   customerId: string;
   quoteDate: string;
   validUntil: string;
-  status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' | 'CONVERTED';
+  status: QuoteStatus;
   reference: string | null;
   memo: string;
   netTotal: string;
@@ -209,7 +210,9 @@ export function QuotesPage() {
                     <td>{q.quoteDate}</td>
                     <td>{q.validUntil}</td>
                     <td className="num">{formatAmount(q.netTotal, 'MVR')}</td>
-                    <td>{q.status.toLowerCase()}</td>
+                    <td>
+                      <QuoteStatusBadge status={q.status} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -303,7 +306,7 @@ export function QuoteDetailPage() {
         description={
           q
             ? t('quotes.quotePages.validUntil2', {
-                value: q.status.toLowerCase(),
+                value: statusText(t, QUOTE_STATUS, q.status),
                 validUntil: q.validUntil,
               })
             : undefined
@@ -501,7 +504,9 @@ export function RecurringInvoicesPage() {
                     <td>{s.frequency}</td>
                     <td>{s.status === 'ENDED' ? '—' : s.nextRunDate}</td>
                     <td className="num">{s.runCount}</td>
-                    <td>{s.status.toLowerCase()}</td>
+                    <td>
+                      <RecurringStatusBadge status={s.status} />
+                    </td>
                     <td>
                       {canManage && s.status !== 'ENDED' ? (
                         <>
@@ -640,4 +645,31 @@ export function RecurringInvoicesPage() {
       ) : null}
     </>
   );
+}
+
+type QuoteStatus = 'DRAFT' | 'SENT' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' | 'CONVERTED';
+
+/** Quote statuses: sent is in progress (info), accepted and converted are good outcomes, declined is danger. */
+const QUOTE_STATUS = {
+  DRAFT: { key: 'quotes.quotePages.status.DRAFT', tone: 'neutral' },
+  SENT: { key: 'quotes.quotePages.status.SENT', tone: 'info' },
+  ACCEPTED: { key: 'quotes.quotePages.status.ACCEPTED', tone: 'success' },
+  DECLINED: { key: 'quotes.quotePages.status.DECLINED', tone: 'danger' },
+  EXPIRED: { key: 'quotes.quotePages.status.EXPIRED', tone: 'neutral' },
+  CONVERTED: { key: 'quotes.quotePages.status.CONVERTED', tone: 'success' },
+} satisfies Record<QuoteStatus, StatusEntry>;
+
+export function QuoteStatusBadge({ status }: { status: string }) {
+  return <MappedStatusBadge map={QUOTE_STATUS} status={status} />;
+}
+
+/** Recurring-schedule statuses: active is success, paused needs a look (warning), ended is neutral. */
+const RECURRING_STATUS = {
+  ACTIVE: { key: 'quotes.quotePages.recurringStatus.ACTIVE', tone: 'success' },
+  PAUSED: { key: 'quotes.quotePages.recurringStatus.PAUSED', tone: 'warning' },
+  ENDED: { key: 'quotes.quotePages.recurringStatus.ENDED', tone: 'neutral' },
+} satisfies Record<'ACTIVE' | 'PAUSED' | 'ENDED', StatusEntry>;
+
+export function RecurringStatusBadge({ status }: { status: string }) {
+  return <MappedStatusBadge map={RECURRING_STATUS} status={status} />;
 }

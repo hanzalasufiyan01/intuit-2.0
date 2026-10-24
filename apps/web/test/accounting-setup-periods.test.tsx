@@ -240,7 +240,7 @@ describe('accounting periods page', () => {
       '',
     ]);
     const january = screen.getByText('January 2026').closest('tr')!;
-    expect(within(january).getByText('closed')).toBeTruthy();
+    expect(within(january).getByText('Closed')).toBeTruthy();
     expect(within(january).getByText('2026-01-01 – 2026-01-31')).toBeTruthy();
     const february = screen.getByText('February 2026').closest('tr')!;
     expect(within(february).getByText('Reopened: Late supplier invoice')).toBeTruthy();

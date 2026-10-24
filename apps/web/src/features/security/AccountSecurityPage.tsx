@@ -6,6 +6,7 @@ import { useT } from '../../i18n/i18n';
 import { api } from '../../services/api-client';
 import type { MfaStatus, TrustedDevice } from '../../services/types';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
+import { Badge } from '../../shared/ui/Badge';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
@@ -56,7 +57,7 @@ function TwoStepCard({ status }: { status: MfaStatus }) {
   return (
     <Card title={t('account.twoStep.title')}>
       <p>
-        <span className="badge badge--success">{t('account.twoStep.on')}</span>{' '}
+        <Badge tone="success">{t('account.twoStep.on')}</Badge>{' '}
         {t('account.twoStep.summary', {
           activated: when(factor.activatedAt),
           lastUsed: when(factor.lastUsedAt),

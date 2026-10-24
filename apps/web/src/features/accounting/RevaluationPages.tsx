@@ -8,12 +8,13 @@ import { api, ApiError } from '../../services/api-client';
 import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
+import { MappedStatusBadge, type StatusEntry } from '../../shared/ui/StatusBadge';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
 import type { ApprovalRequestSummary } from './types';
-import { AccountingPage, useOrgKey } from './shared';
-import { useT, type MessageKey } from '../../i18n/i18n';
+import { AccountingPage, POSTING_STATUS_TONES, StatusBadge, useOrgKey } from './shared';
+import { useT } from '../../i18n/i18n';
 
 /**
  * Foreign-currency revaluation (Phase 4B-10; ADR 0004 P4-52, Decision 9): preview the calculation
@@ -101,16 +102,22 @@ interface Preview {
   totals: { gain: string; loss: string; net: string };
 }
 
-const STATUS_LABEL: Record<RunStatus, MessageKey> = {
-  DRAFT: 'accounting.revaluationPages.status.DRAFT',
-  PENDING_APPROVAL: 'accounting.revaluationPages.status.PENDING_APPROVAL',
-  POSTED: 'accounting.revaluationPages.status.POSTED',
-  REVERSED: 'accounting.revaluationPages.status.REVERSED',
-};
+const RUN_STATUS = {
+  DRAFT: { key: 'accounting.revaluationPages.status.DRAFT', tone: POSTING_STATUS_TONES.DRAFT },
+  PENDING_APPROVAL: {
+    key: 'accounting.revaluationPages.status.PENDING_APPROVAL',
+    tone: POSTING_STATUS_TONES.PENDING_APPROVAL,
+  },
+  POSTED: { key: 'accounting.revaluationPages.status.POSTED', tone: POSTING_STATUS_TONES.POSTED },
+  REVERSED: {
+    key: 'accounting.revaluationPages.status.REVERSED',
+    tone: POSTING_STATUS_TONES.REVERSED,
+  },
+} satisfies Record<RunStatus, StatusEntry>;
 
-function StatusLabel({ status }: { status: RunStatus }) {
-  const t = useT();
-  return <span className={`badge badge--${status.toLowerCase()}`}>{t(STATUS_LABEL[status])}</span>;
+/** A revaluation run's status; one the page does not know is neutral and shown as it came. */
+export function StatusLabel({ status }: { status: string }) {
+  return <MappedStatusBadge map={RUN_STATUS} status={status} />;
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -560,7 +567,9 @@ export function RevaluationDetailPage() {
                   <td>{j.role.toLowerCase().replace('_', ' ')}</td>
                   <td>{j.currency}</td>
                   <td>{j.entryDate}</td>
-                  <td>{j.status.toLowerCase()}</td>
+                  <td>
+                    <StatusBadge status={j.status} />
+                  </td>
                 </tr>
               ))}
             </tbody>

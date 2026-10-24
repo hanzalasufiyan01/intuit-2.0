@@ -6,6 +6,7 @@ import { Permission, usePermission } from '../../permissions/permissions';
 import { api } from '../../services/api-client';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
+import { MappedStatusBadge, statusText, type StatusEntry } from '../../shared/ui/StatusBadge';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
@@ -113,7 +114,9 @@ export function CountsPage() {
                     </td>
                     <td>{c.countDate}</td>
                     <td>{c.lines.length}</td>
-                    <td>{c.status.toLowerCase()}</td>
+                    <td>
+                      <CountStatusBadge status={c.status} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -136,8 +139,11 @@ export function CountDetailPage() {
     queryFn: () => api.get<Count>(`/inventory/counts/${id}`),
   });
   const [entered, setEntered] = useState<Record<string, string>>({});
+  // Shown inline when posting is attempted while counted quantities are still unsaved.
+  const [saveFirst, setSaveFirst] = useState(false);
   const refresh = () => {
     setEntered({});
+    setSaveFirst(false);
     void queryClient.invalidateQueries({ queryKey: ['inventory-count', org, id] });
     void queryClient.invalidateQueries({ queryKey: ['inventory-counts', org] });
     void queryClient.invalidateQueries({ queryKey: ['inventory-items', org] });
@@ -162,7 +168,7 @@ export function CountDetailPage() {
     <>
       <PageHeader
         title={c ? t('counts.titleNumber', { number: c.number }) : t('counts.titleBare')}
-        description={c ? `${c.countDate} · ${c.status.toLowerCase()}` : undefined}
+        description={c ? `${c.countDate} · ${statusText(t, COUNT_STATUS, c.status)}` : undefined}
       />
       {count.isPending ? <Spinner /> : null}
       <ErrorAlert error={count.error} />
@@ -188,7 +194,10 @@ export function CountDetailPage() {
                         aria-label={t('counts.countedFor', { name: l.name ?? l.itemId })}
                         inputMode="decimal"
                         value={entered[l.itemId] ?? l.countedQuantity ?? ''}
-                        onChange={(e) => setEntered({ ...entered, [l.itemId]: e.target.value })}
+                        onChange={(e) => {
+                          setSaveFirst(false);
+                          setEntered({ ...entered, [l.itemId]: e.target.value });
+                        }}
                       />
                     ) : (
                       (l.countedQuantity ?? '—')
@@ -214,7 +223,10 @@ export function CountDetailPage() {
                 variant="secondary"
                 busy={save.isPending}
                 disabled={Object.keys(entered).length === 0}
-                onClick={() => save.mutate(undefined, { onSuccess: refresh })}
+                onClick={() => {
+                  setSaveFirst(false);
+                  save.mutate(undefined, { onSuccess: refresh });
+                }}
               >
                 {t('counts.save')}
               </Button>
@@ -223,9 +235,10 @@ export function CountDetailPage() {
                   busy={post.isPending}
                   onClick={() => {
                     if (Object.keys(entered).length > 0) {
-                      window.alert(t('counts.saveFirst'));
+                      setSaveFirst(true);
                       return;
                     }
+                    setSaveFirst(false);
                     post.mutate(undefined, { onSuccess: refresh });
                   }}
                 >
@@ -243,9 +256,21 @@ export function CountDetailPage() {
               </Button>
             </div>
           ) : null}
+          {saveFirst ? <Alert>{t('counts.saveFirst')}</Alert> : null}
           <ErrorAlert error={save.error ?? post.error ?? cancel.error} />
         </Card>
       ) : null}
     </>
   );
+}
+
+/** Stock-count statuses: draft is neutral, posted is success, cancelled is danger. */
+const COUNT_STATUS = {
+  DRAFT: { key: 'counts.statusValue.DRAFT', tone: 'neutral' },
+  POSTED: { key: 'counts.statusValue.POSTED', tone: 'success' },
+  CANCELLED: { key: 'counts.statusValue.CANCELLED', tone: 'danger' },
+} satisfies Record<'DRAFT' | 'POSTED' | 'CANCELLED', StatusEntry>;
+
+export function CountStatusBadge({ status }: { status: string }) {
+  return <MappedStatusBadge map={COUNT_STATUS} status={status} />;
 }

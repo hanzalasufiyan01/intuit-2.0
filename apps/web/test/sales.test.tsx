@@ -7,6 +7,7 @@ import { routes } from '../src/app/routes';
 import { en } from '../src/i18n/messages.en';
 import { translate } from '../src/i18n/i18n';
 import { makeSession } from './fake-api';
+import { expectConfirmFlow } from './confirm-flow';
 
 /** Phase 3B step 20: the Sales UI (permission-aware screens, lifecycle actions, reports, i18n). */
 
@@ -526,6 +527,62 @@ describe('tax code treatment (specification section 15)', () => {
     await waitFor(() => {
       const post = calls.find((c) => c.method === 'POST' && c.url.pathname.endsWith('/tax/codes'));
       expect(post?.body).toMatchObject({ code: 'ZERO', treatment: 'zero_rated', rate: '0' });
+    });
+  });
+});
+
+describe('delete a draft invoice (confirmation dialog)', () => {
+  it('asks in a dialog first; cancelling by button, Escape or outside sends nothing', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi({
+      ...common([...SALES_ALL, 'invoices.delete_draft']),
+      'GET /sales/invoices/inv-1': ok(draftInvoice),
+      'DELETE /sales/invoices/inv-1': () => ({ status: 204 }),
+    });
+    renderAt('/sales/invoices/inv-1');
+    await screen.findByRole('button', { name: 'Delete' });
+    await expectConfirmFlow({
+      user,
+      trigger: () => screen.getByRole('button', { name: 'Delete' }),
+      title: 'Delete this draft?',
+      message: 'Delete this draft invoice?',
+      confirmName: 'Delete',
+      requestSent: () =>
+        calls.some(
+          (c) => c.method === 'DELETE' && c.url.pathname.endsWith('/sales/invoices/inv-1'),
+        ),
+    });
+  });
+});
+
+describe('delete a draft credit note (confirmation dialog)', () => {
+  it('asks in a dialog first; cancelling by button, Escape or outside sends nothing', async () => {
+    const user = userEvent.setup();
+    const creditNote = {
+      ...draftInvoice,
+      id: 'cn-1',
+      invoiceId: null,
+      creditDate: '2026-09-30',
+      amountUnapplied: null,
+      allocations: [],
+    };
+    const calls = stubApi({
+      ...common(SALES_ALL),
+      'GET /sales/credit-notes/cn-1': ok(creditNote),
+      'DELETE /sales/credit-notes/cn-1': () => ({ status: 204 }),
+    });
+    renderAt('/sales/credit-notes/cn-1');
+    await screen.findByRole('button', { name: 'Delete' });
+    await expectConfirmFlow({
+      user,
+      trigger: () => screen.getByRole('button', { name: 'Delete' }),
+      title: 'Delete this draft?',
+      message: 'Delete this draft credit note?',
+      confirmName: 'Delete',
+      requestSent: () =>
+        calls.some(
+          (c) => c.method === 'DELETE' && c.url.pathname.endsWith('/sales/credit-notes/cn-1'),
+        ),
     });
   });
 });

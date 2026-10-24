@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
@@ -85,6 +85,24 @@ describe('public statement', () => {
     await waitFor(() =>
       expect(calls.some((c) => c.method === 'POST' && c.path.endsWith('/i1/pay'))).toBe(true),
     );
+  });
+
+  it('keeps both tables inside labelled scroll regions, so a phone page never widens', async () => {
+    stubApi({
+      'GET /auth/session': unauthenticated,
+      'GET /public/statements/tok': ok(statement()),
+    });
+    renderAt('/p/statement/tok');
+    const open = await screen.findByRole('region', { name: 'Statement for Sun Island Resort' });
+    expect(open.classList.contains('table-scroll')).toBe(true);
+    expect(within(open).getByRole('table')).toBeTruthy();
+    expect(within(open).getByText('INV-00001')).toBeTruthy();
+    const recent = screen.getByRole('region', { name: 'Recent payments received' });
+    expect(within(recent).getByText('CHQ-77')).toBeTruthy();
+    // There is no app shell or card on this page, so no table may sit outside a scroll region.
+    const tables = [...document.querySelectorAll('table')];
+    expect(tables).toHaveLength(2);
+    for (const table of tables) expect(table.closest('.table-scroll')).not.toBeNull();
   });
 
   it('shows processing instead of a pay button while a payment is under review', async () => {

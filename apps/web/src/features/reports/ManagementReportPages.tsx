@@ -5,7 +5,9 @@ import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
+import { FilterBar } from '../../shared/ui/FilterBar';
 import { Spinner } from '../../shared/ui/Spinner';
+import { Tabs } from '../../shared/ui/Tabs';
 import { TextField } from '../../shared/ui/TextField';
 import { AccountingPage, useOrgKey } from '../accounting/shared';
 import { SalesNav } from '../sales/shared';
@@ -37,9 +39,9 @@ function PeriodForm({
   const t = useT();
   return (
     <Card>
-      <form
-        className="filters"
-        onSubmit={(event: FormEvent) => {
+      <FilterBar
+        label={t('common.filters')}
+        onSubmit={(event: FormEvent<HTMLFormElement>) => {
           event.preventDefault();
           period.apply();
         }}
@@ -58,7 +60,7 @@ function PeriodForm({
         />
         {children}
         <Button type="submit">{t('reports.managementReportPages.runReport')}</Button>
-      </form>
+      </FilterBar>
     </Card>
   );
 }
@@ -252,173 +254,163 @@ export function InventoryReportsPage() {
         title={t('reports.managementReportPages.inventoryReports')}
         description={t('reports.managementReportPages.lowStockSlowMovingStock')}
       />
-      <div
-        className="filters"
-        role="tablist"
-        aria-label={t('reports.managementReportPages.inventoryReport')}
+      <Tabs
+        label={t('reports.managementReportPages.inventoryReport')}
+        tabs={[
+          { value: 'low', label: t('reports.managementReportPages.viewLow') },
+          { value: 'slow', label: t('reports.managementReportPages.viewSlow') },
+          { value: 'profit', label: t('reports.managementReportPages.viewProfit') },
+        ]}
+        value={view}
+        onChange={setView}
       >
-        {(
-          [
-            ['low', t('reports.managementReportPages.viewLow')],
-            ['slow', t('reports.managementReportPages.viewSlow')],
-            ['profit', t('reports.managementReportPages.viewProfit')],
-          ] as const
-        ).map(([key, label]) => (
-          <Button
-            key={key}
-            variant={view === key ? 'primary' : 'ghost'}
-            role="tab"
-            aria-selected={view === key}
-            onClick={() => setView(key)}
-          >
-            {label}
-          </Button>
-        ))}
-      </div>
-      {view === 'low' ? (
-        <Card title={t('reports.managementReportPages.itemsAtOrBelowTheir')}>
-          {low.isPending ? <Spinner /> : null}
-          <ErrorAlert error={low.error} />
-          {low.data ? (
-            low.data.items.length === 0 ? (
-              <p className="muted">{t('reports.managementReportPages.noTrackedItemIsAt')}</p>
-            ) : (
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>{t('reports.managementReportPages.item')}</th>
-                    <th className="num">{t('reports.managementReportPages.onHand')}</th>
-                    <th className="num">{t('reports.managementReportPages.reorderPoint')}</th>
-                    <th className="num">{t('reports.managementReportPages.shortfall')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {low.data.items.map((i) => (
-                    <tr key={i.itemId}>
-                      <td>{i.name}</td>
-                      <td className="num">{i.quantity}</td>
-                      <td className="num">{i.reorderPoint}</td>
-                      <td className="num">{i.shortfall}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )
-          ) : null}
-        </Card>
-      ) : null}
-      {view === 'slow' ? (
-        <>
-          <Card>
-            <form
-              className="filters"
-              onSubmit={(e) => {
-                e.preventDefault();
-                setAppliedAsOf(asOf);
-              }}
-            >
-              <TextField
-                label={t('reports.managementReportPages.asOf')}
-                type="date"
-                value={asOf}
-                onChange={(e) => setAsOf(e.target.value)}
-              />
-              <Button type="submit">{t('reports.managementReportPages.runReport')}</Button>
-            </form>
-          </Card>
-          {slow.isPending ? <Spinner /> : null}
-          <ErrorAlert error={slow.error} />
-          {slow.data ? (
-            <Card title={t('reports.managementReportPages.stockByDaysSinceLast')}>
-              <p className="muted">{slow.data.note}</p>
-              {slow.data.items.length === 0 ? (
-                <p className="muted">{t('reports.managementReportPages.noStockOnHand')}</p>
+        {view === 'low' ? (
+          <Card title={t('reports.managementReportPages.itemsAtOrBelowTheir')}>
+            {low.isPending ? <Spinner /> : null}
+            <ErrorAlert error={low.error} />
+            {low.data ? (
+              low.data.items.length === 0 ? (
+                <p className="muted">{t('reports.managementReportPages.noTrackedItemIsAt')}</p>
               ) : (
                 <table className="table">
                   <thead>
                     <tr>
                       <th>{t('reports.managementReportPages.item')}</th>
                       <th className="num">{t('reports.managementReportPages.onHand')}</th>
-                      <th className="num">{t('reports.managementReportPages.value')}</th>
-                      <th>{t('reports.managementReportPages.lastSale')}</th>
-                      <th className="num">{t('reports.managementReportPages.days')}</th>
-                      <th>{t('reports.managementReportPages.age')}</th>
+                      <th className="num">{t('reports.managementReportPages.reorderPoint')}</th>
+                      <th className="num">{t('reports.managementReportPages.shortfall')}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {slow.data.items.map((i) => (
+                    {low.data.items.map((i) => (
                       <tr key={i.itemId}>
                         <td>{i.name}</td>
                         <td className="num">{i.quantity}</td>
-                        <td className="num">{money(i.value, slow.data.baseCurrency)}</td>
-                        <td>{i.lastSale ?? '—'}</td>
-                        <td className="num">{i.daysSinceLastSale ?? '—'}</td>
-                        <td>{BUCKET_LABEL[i.bucket] ? t(BUCKET_LABEL[i.bucket]!) : i.bucket}</td>
+                        <td className="num">{i.reorderPoint}</td>
+                        <td className="num">{i.shortfall}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              )}
+              )
+            ) : null}
+          </Card>
+        ) : null}
+        {view === 'slow' ? (
+          <>
+            <Card>
+              <FilterBar
+                label={t('common.filters')}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  setAppliedAsOf(asOf);
+                }}
+              >
+                <TextField
+                  label={t('reports.managementReportPages.asOf')}
+                  type="date"
+                  value={asOf}
+                  onChange={(e) => setAsOf(e.target.value)}
+                />
+                <Button type="submit">{t('reports.managementReportPages.runReport')}</Button>
+              </FilterBar>
             </Card>
-          ) : null}
-        </>
-      ) : null}
-      {view === 'profit' ? (
-        <>
-          <PeriodForm period={period} />
-          {profit.isPending ? <Spinner /> : null}
-          <ErrorAlert error={profit.error} />
-          {profit.data ? (
-            <Card title={t('reports.managementReportPages.netSalesCostAndMargin')}>
-              <p className="muted">{profit.data.note}</p>
-              {profit.data.items.length === 0 ? (
-                <p className="muted">{t('reports.managementReportPages.noSalesOfTrackedItems')}</p>
-              ) : (
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>{t('reports.managementReportPages.item')}</th>
-                      <th className="num">{t('reports.managementReportPages.sold')}</th>
-                      <th className="num">{t('reports.managementReportPages.netSales')}</th>
-                      <th className="num">{t('reports.managementReportPages.cost')}</th>
-                      <th className="num">{t('reports.managementReportPages.margin')}</th>
-                      <th className="num">{t('reports.managementReportPages.margin2')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {profit.data.items.map((i) => (
-                      <tr key={i.itemId}>
-                        <td>{i.name}</td>
-                        <td className="num">{i.quantitySold}</td>
-                        <td className="num">{money(i.netSales, profit.data.baseCurrency)}</td>
-                        <td className="num">{money(i.cogs, profit.data.baseCurrency)}</td>
-                        <td className="num">{money(i.grossMargin, profit.data.baseCurrency)}</td>
-                        <td className="num">{i.marginPercent ?? '—'}</td>
+            {slow.isPending ? <Spinner /> : null}
+            <ErrorAlert error={slow.error} />
+            {slow.data ? (
+              <Card title={t('reports.managementReportPages.stockByDaysSinceLast')}>
+                <p className="muted">{slow.data.note}</p>
+                {slow.data.items.length === 0 ? (
+                  <p className="muted">{t('reports.managementReportPages.noStockOnHand')}</p>
+                ) : (
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>{t('reports.managementReportPages.item')}</th>
+                        <th className="num">{t('reports.managementReportPages.onHand')}</th>
+                        <th className="num">{t('reports.managementReportPages.value')}</th>
+                        <th>{t('reports.managementReportPages.lastSale')}</th>
+                        <th className="num">{t('reports.managementReportPages.days')}</th>
+                        <th>{t('reports.managementReportPages.age')}</th>
                       </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <th>{t('reports.managementReportPages.total')}</th>
-                      <th />
-                      <th className="num">
-                        {money(profit.data.totals.netSales, profit.data.baseCurrency)}
-                      </th>
-                      <th className="num">
-                        {money(profit.data.totals.cogs, profit.data.baseCurrency)}
-                      </th>
-                      <th className="num">
-                        {money(profit.data.totals.grossMargin, profit.data.baseCurrency)}
-                      </th>
-                      <th className="num">{profit.data.totals.marginPercent ?? '—'}</th>
-                    </tr>
-                  </tfoot>
-                </table>
-              )}
-            </Card>
-          ) : null}
-        </>
-      ) : null}
+                    </thead>
+                    <tbody>
+                      {slow.data.items.map((i) => (
+                        <tr key={i.itemId}>
+                          <td>{i.name}</td>
+                          <td className="num">{i.quantity}</td>
+                          <td className="num">{money(i.value, slow.data.baseCurrency)}</td>
+                          <td>{i.lastSale ?? '—'}</td>
+                          <td className="num">{i.daysSinceLastSale ?? '—'}</td>
+                          <td>{BUCKET_LABEL[i.bucket] ? t(BUCKET_LABEL[i.bucket]!) : i.bucket}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </Card>
+            ) : null}
+          </>
+        ) : null}
+        {view === 'profit' ? (
+          <>
+            <PeriodForm period={period} />
+            {profit.isPending ? <Spinner /> : null}
+            <ErrorAlert error={profit.error} />
+            {profit.data ? (
+              <Card title={t('reports.managementReportPages.netSalesCostAndMargin')}>
+                <p className="muted">{profit.data.note}</p>
+                {profit.data.items.length === 0 ? (
+                  <p className="muted">
+                    {t('reports.managementReportPages.noSalesOfTrackedItems')}
+                  </p>
+                ) : (
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>{t('reports.managementReportPages.item')}</th>
+                        <th className="num">{t('reports.managementReportPages.sold')}</th>
+                        <th className="num">{t('reports.managementReportPages.netSales')}</th>
+                        <th className="num">{t('reports.managementReportPages.cost')}</th>
+                        <th className="num">{t('reports.managementReportPages.margin')}</th>
+                        <th className="num">{t('reports.managementReportPages.margin2')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {profit.data.items.map((i) => (
+                        <tr key={i.itemId}>
+                          <td>{i.name}</td>
+                          <td className="num">{i.quantitySold}</td>
+                          <td className="num">{money(i.netSales, profit.data.baseCurrency)}</td>
+                          <td className="num">{money(i.cogs, profit.data.baseCurrency)}</td>
+                          <td className="num">{money(i.grossMargin, profit.data.baseCurrency)}</td>
+                          <td className="num">{i.marginPercent ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <th>{t('reports.managementReportPages.total')}</th>
+                        <th />
+                        <th className="num">
+                          {money(profit.data.totals.netSales, profit.data.baseCurrency)}
+                        </th>
+                        <th className="num">
+                          {money(profit.data.totals.cogs, profit.data.baseCurrency)}
+                        </th>
+                        <th className="num">
+                          {money(profit.data.totals.grossMargin, profit.data.baseCurrency)}
+                        </th>
+                        <th className="num">{profit.data.totals.marginPercent ?? '—'}</th>
+                      </tr>
+                    </tfoot>
+                  </table>
+                )}
+              </Card>
+            ) : null}
+          </>
+        ) : null}
+      </Tabs>
     </>
   );
 }

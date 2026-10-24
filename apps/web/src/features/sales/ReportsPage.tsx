@@ -7,7 +7,7 @@ import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
-import { Spinner } from '../../shared/ui/Spinner';
+import { LoadingState } from '../../shared/ui/LoadingState';
 import { TextField } from '../../shared/ui/TextField';
 import { ExportButton } from '../data-exchange/ExportButton';
 import { SalesNav, useCustomerOptions, useOrgKey } from './shared';
@@ -163,9 +163,8 @@ function Result<T>({
   query: ReturnType<typeof useReport<T>>;
   children: (data: T) => ReactNode;
 }) {
-  const t = useT();
   if (query.fetchStatus === 'idle' && query.isPending) return null;
-  if (query.isPending) return <Spinner label={t('common.loading')} />;
+  if (query.isPending) return <LoadingState />;
   if (query.isError) return <ErrorAlert error={query.error} />;
   return <>{children(query.data)}</>;
 }

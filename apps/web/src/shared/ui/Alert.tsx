@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useT } from '../../i18n/i18n';
 import { ApiError } from '../../services/api-client';
 
 export function Alert({
@@ -17,13 +18,16 @@ export function Alert({
 
 /** Displays an API error with its request id for support. */
 export function ErrorAlert({ error }: { error: unknown }) {
+  const t = useT();
   if (!error) return null;
-  const message = error instanceof Error ? error.message : 'Something went wrong.';
+  const message = error instanceof Error ? error.message : t('state.error.generic');
   const requestId = error instanceof ApiError ? error.requestId : null;
   return (
     <Alert>
       {message}
-      {requestId ? <span className="alert__ref"> (reference {requestId})</span> : null}
+      {requestId ? (
+        <span className="alert__ref"> {t('state.error.reference', { id: requestId })}</span>
+      ) : null}
     </Alert>
   );
 }

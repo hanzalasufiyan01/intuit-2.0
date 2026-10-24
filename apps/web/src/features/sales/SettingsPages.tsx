@@ -6,6 +6,7 @@ import { useT } from '../../i18n/i18n';
 import { Permission, usePermission } from '../../permissions/permissions';
 import { api, ApiError } from '../../services/api-client';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
+import { Badge } from '../../shared/ui/Badge';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
@@ -460,7 +461,7 @@ export function TaxCodesPage() {
                     <td className="num">{Number(r.rate)}%</td>
                     <td>
                       {r.verificationNote ? (
-                        <span className="badge badge--warning">{t('sales.tax.verify')}</span>
+                        <Badge tone="warning">{t('sales.tax.verify')}</Badge>
                       ) : null}
                     </td>
                     {canManage ? (

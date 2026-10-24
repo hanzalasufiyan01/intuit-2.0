@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { App, createQueryClient } from '../src/app/App';
 import { routes } from '../src/app/routes';
 import { makeSession } from './fake-api';
+import { expectConfirmFlow } from './confirm-flow';
 
 /** Phase 4A-5: the Bills workflow UI (permission-aware; every amount comes from the server). */
 
@@ -366,5 +367,30 @@ describe('bill detail', () => {
     expect(screen.queryByRole('button', { name: 'Post' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Edit' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+  });
+});
+
+describe('delete a draft bill (confirmation dialog)', () => {
+  it('asks in a dialog first; cancelling by button, Escape or outside sends nothing', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi({
+      ...common(ALL_BILLS),
+      'GET /purchases/bills/bill-1': ok(bill()),
+      'DELETE /purchases/bills/bill-1': () => ({ status: 204 }),
+    });
+    renderAt('/purchases/bills/bill-1');
+    await screen.findByRole('button', { name: 'Delete' });
+    await expectConfirmFlow({
+      user,
+      trigger: () => screen.getByRole('button', { name: 'Delete' }),
+      title: 'Delete this draft?',
+      message: 'Delete this draft bill?',
+      confirmName: 'Delete',
+      requestSent: () =>
+        calls.some(
+          (c) => c.method === 'DELETE' && c.url.pathname.endsWith('/purchases/bills/bill-1'),
+        ),
+    });
+    expect(calls.find((c) => c.method === 'DELETE')!.url.search).toBe('?version=3');
   });
 });

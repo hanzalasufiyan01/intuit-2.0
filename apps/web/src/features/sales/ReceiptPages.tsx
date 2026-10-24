@@ -11,7 +11,10 @@ import { formatAmount, isDecimalString, sumAmounts } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
+import { EmptyState } from '../../shared/ui/EmptyState';
+import { LoadingState } from '../../shared/ui/LoadingState';
 import { Spinner } from '../../shared/ui/Spinner';
+import { TextareaField } from '../../shared/ui/TextareaField';
 import { TextField } from '../../shared/ui/TextField';
 import { useAccounts } from '../accounting/shared';
 import { ExportButton } from '../data-exchange/ExportButton';
@@ -70,11 +73,11 @@ export function ReceiptsPage() {
       </Card>
       <Card>
         {list.isPending ? (
-          <Spinner label={t('common.loading')} />
+          <LoadingState />
         ) : list.isError ? (
           <ErrorAlert error={list.error} />
         ) : items.length === 0 ? (
-          <p className="muted">{t('sales.receipts.none')}</p>
+          <EmptyState message={t('sales.receipts.none')} />
         ) : (
           <table className="table">
             <thead>
@@ -376,15 +379,13 @@ export function RecordReceiptPage() {
           </p>
           {credit?.isNegative() ? <Alert>{t('sales.receipts.overAllocated')}</Alert> : null}
           {issue('allocations') ? <Alert>{issue('allocations')}</Alert> : null}
-          <div className="field">
-            <label htmlFor="receipt-memo">{t('sales.field.memo')}</label>
-            <textarea
-              id="receipt-memo"
-              rows={2}
-              value={memo}
-              onChange={(e) => setMemo(e.target.value)}
-            />
-          </div>
+          <TextareaField
+            id="receipt-memo"
+            label={t('sales.field.memo')}
+            rows={2}
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+          />
         </Card>
         <p className="actions">
           <Button type="submit" busy={record.isPending} disabled={credit?.isNegative() === true}>
@@ -417,7 +418,7 @@ export function ReceiptDetailPage() {
       }),
     ),
   );
-  if (receipt.isPending) return <Spinner label={t('common.loading')} />;
+  if (receipt.isPending) return <LoadingState />;
   if (receipt.isError) return <ErrorAlert error={receipt.error} />;
   const r = receipt.data;
   const c = r.currencyCode;
@@ -594,7 +595,7 @@ export function ApplyCreditPage() {
   const apply = useApiMutation((body: Record<string, unknown>) =>
     api.post('/sales/customer-credit/apply', body, { idempotencyKey }),
   );
-  if (source.isPending) return <Spinner label={t('common.loading')} />;
+  if (source.isPending) return <LoadingState />;
   if (source.isError) return <ErrorAlert error={source.error} />;
   const s = source.data;
   const back =

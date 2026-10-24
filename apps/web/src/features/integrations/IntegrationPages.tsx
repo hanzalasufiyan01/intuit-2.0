@@ -7,6 +7,7 @@ import { api } from '../../services/api-client';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
+import { ConfirmDialog } from '../../shared/ui/ConfirmDialog';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
 import { useT, type Translate } from '../../i18n/i18n';
@@ -607,6 +608,7 @@ export function WebhooksPage() {
       }),
     ),
   );
+  const [deleting, setDeleting] = useState<Endpoint | null>(null);
   const act = useApiMutation(
     (input: {
       endpoint: Endpoint;
@@ -614,15 +616,6 @@ export function WebhooksPage() {
     }) => {
       const { endpoint, action } = input;
       if (action === 'delete') {
-        if (
-          !window.confirm(
-            translate('integrations.integrationPages.deleteTheEndpointItsHistory', {
-              name: endpoint.name,
-            }),
-          )
-        ) {
-          return Promise.resolve(null);
-        }
         return sensitive(() =>
           api.delete<unknown>(`/webhooks/endpoints/${endpoint.id}?version=${endpoint.version}`),
         );
@@ -688,6 +681,21 @@ export function WebhooksPage() {
     );
   return (
     <>
+      <ConfirmDialog
+        open={deleting !== null}
+        title={translate('confirm.deleteEndpoint.title')}
+        message={translate('integrations.integrationPages.deleteTheEndpointItsHistory', {
+          name: deleting?.name ?? '',
+        })}
+        confirmLabel={translate('common.delete')}
+        destructive
+        onCancel={() => setDeleting(null)}
+        onConfirm={() => {
+          const endpoint = deleting;
+          setDeleting(null);
+          if (endpoint) run(endpoint, 'delete');
+        }}
+      />
       <PageHeader
         title={translate('integrations.integrationPages.webhooks')}
         description={translate('integrations.integrationPages.sendSignedEventNotificationsTo')}
@@ -757,7 +765,7 @@ export function WebhooksPage() {
                           <Button variant="ghost" onClick={() => run(e, 'rotate-secret')}>
                             {translate('integrations.integrationPages.rotateSecret')}
                           </Button>
-                          <Button variant="ghost" onClick={() => run(e, 'delete')}>
+                          <Button variant="ghost" onClick={() => setDeleting(e)}>
                             {translate('common.delete')}
                           </Button>
                         </>

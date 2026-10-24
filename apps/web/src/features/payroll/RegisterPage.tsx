@@ -5,6 +5,7 @@ import { api } from '../../services/api-client';
 import { formatAmount } from '../../shared/money';
 import { ErrorAlert } from '../../shared/ui/Alert';
 import { Card, PageHeader } from '../../shared/ui/Card';
+import { FilterBar } from '../../shared/ui/FilterBar';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
 import { useT } from '../../i18n/i18n';
@@ -54,7 +55,7 @@ export function PayrollRegisterPage() {
         description={t('payrollRegister.description')}
       />
       <Card>
-        <div className="filters">
+        <FilterBar label={t('common.filters')}>
           <TextField
             label={t('payrollRegister.from')}
             type="date"
@@ -67,7 +68,7 @@ export function PayrollRegisterPage() {
             value={range.to}
             onChange={(e) => setRange({ ...range, to: e.target.value })}
           />
-        </div>
+        </FilterBar>
       </Card>
       {report.isPending && valid ? <Spinner /> : null}
       <ErrorAlert error={report.error} />

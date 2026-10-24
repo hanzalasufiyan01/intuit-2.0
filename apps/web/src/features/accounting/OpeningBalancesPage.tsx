@@ -11,10 +11,19 @@ import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
+import { MappedStatusBadge, type StatusEntry } from '../../shared/ui/StatusBadge';
+import { Tabs } from '../../shared/ui/Tabs';
 import { TextField } from '../../shared/ui/TextField';
 import { ExportButton } from '../data-exchange/ExportButton';
 import { AttachmentsCard } from '../files/AttachmentsCard';
-import { AccountingPage, useAccounts, useDimensions, useOrgKey } from './shared';
+import {
+  AccountingPage,
+  accountingStatusLabel,
+  POSTING_STATUS_TONES,
+  useAccounts,
+  useDimensions,
+  useOrgKey,
+} from './shared';
 import type {
   Account,
   DesignationEntry,
@@ -24,7 +33,7 @@ import type {
   OpeningList,
   OpeningPreview,
 } from './types';
-import { useT, type MessageKey } from '../../i18n/i18n';
+import { useT } from '../../i18n/i18n';
 
 /**
  * Opening balances / conversion balances (S8-22): conversion date, the balances grid per
@@ -32,16 +41,25 @@ import { useT, type MessageKey } from '../../i18n/i18n';
  * The server authorizes and validates everything; this page only guides.
  */
 
-const STATUS_LABEL: Record<OpeningBatchStatus, MessageKey> = {
-  DRAFT: 'accounting.openingBalancesPage.status.DRAFT',
-  PENDING_APPROVAL: 'accounting.openingBalancesPage.status.PENDING_APPROVAL',
-  POSTED: 'accounting.openingBalancesPage.status.POSTED',
-  REVERSED: 'accounting.openingBalancesPage.status.REVERSED',
-};
+const BATCH_STATUS = {
+  DRAFT: { key: 'accounting.openingBalancesPage.status.DRAFT', tone: POSTING_STATUS_TONES.DRAFT },
+  PENDING_APPROVAL: {
+    key: 'accounting.openingBalancesPage.status.PENDING_APPROVAL',
+    tone: POSTING_STATUS_TONES.PENDING_APPROVAL,
+  },
+  POSTED: {
+    key: 'accounting.openingBalancesPage.status.POSTED',
+    tone: POSTING_STATUS_TONES.POSTED,
+  },
+  REVERSED: {
+    key: 'accounting.openingBalancesPage.status.REVERSED',
+    tone: POSTING_STATUS_TONES.REVERSED,
+  },
+} satisfies Record<OpeningBatchStatus, StatusEntry>;
 
-function StatusLabel({ status }: { status: OpeningBatchStatus }) {
-  const t = useT();
-  return <span className={`badge badge--${status.toLowerCase()}`}>{t(STATUS_LABEL[status])}</span>;
+/** An opening-balance batch's status; one the page does not know is neutral and shown as it came. */
+export function StatusLabel({ status }: { status: string }) {
+  return <MappedStatusBadge map={BATCH_STATUS} status={status} />;
 }
 
 function useOpeningList() {
@@ -292,152 +310,142 @@ function BalancesEditor({
           {translate('accounting.openingBalancesPage.toEnterTheirBalances')}
         </p>
       ) : null}
-      <div
-        className="tabs"
-        role="tablist"
-        aria-label={translate('accounting.openingBalancesPage.currencies')}
+      <Tabs
+        label={translate('accounting.openingBalancesPage.currencies')}
+        tabs={currencies.map((c) => ({ value: c, label: c }))}
+        value={tab}
+        onChange={setTab}
       >
-        {currencies.map((c) => (
-          <Button
-            key={c}
-            role="tab"
-            aria-selected={tab === c}
-            variant={tab === c ? 'primary' : 'ghost'}
-            onClick={() => setTab(c)}
-          >
-            {c}
-          </Button>
-        ))}
-      </div>
-      <div className="form form--inline">
-        <TextField
-          label={translate('accounting.openingBalancesPage.findAnAccount')}
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={includePnl}
-            onChange={(e) => setIncludePnl(e.target.checked)}
+        <div className="form form--inline">
+          <TextField
+            label={translate('accounting.openingBalancesPage.findAnAccount')}
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
           />
-          {translate('accounting.openingBalancesPage.showIncomeAndExpenseAccounts')}
-        </label>
-      </div>
-      <div className="table-scroll">
-        <table
-          className="table"
-          aria-label={translate('accounting.openingBalancesPage.openingBalances2', { tab })}
-        >
-          <thead>
-            <tr>
-              <th>{translate('accounting.openingBalancesPage.account')}</th>
-              <th>{translate('accounting.openingBalancesPage.debit', { tab })}</th>
-              <th>{translate('accounting.openingBalancesPage.credit', { tab })}</th>
-              {foreign ? (
-                <th>
-                  {translate('accounting.openingBalancesPage.baseAmount', {
-                    baseCurrency: batch.baseCurrency,
-                  })}
-                </th>
-              ) : null}
-              {activeTypes.map((t) => (
-                <th key={t.id}>
-                  {t.name}
-                  {t.isRequired ? ' *' : ''}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((e) => {
-              const account = byId.get(e.accountId)!;
-              const problems = errorsByFilledIndex.get(filledIndex.get(e.key) ?? -1) ?? [];
-              return (
-                <tr key={e.key}>
-                  <td>
-                    {account.code} {account.name}
-                    {problems.map((p) => (
-                      <div key={p} className="text-error">
-                        {p}
-                      </div>
-                    ))}
-                  </td>
-                  <td>
-                    <input
-                      aria-label={translate('accounting.openingBalancesPage.debit2', {
-                        code: account.code,
-                      })}
-                      inputMode="decimal"
-                      value={e.debit}
-                      onChange={(ev) => update(e.key, { debit: ev.target.value, credit: '' })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      aria-label={translate('accounting.openingBalancesPage.credit2', {
-                        code: account.code,
-                      })}
-                      inputMode="decimal"
-                      value={e.credit}
-                      onChange={(ev) => update(e.key, { credit: ev.target.value, debit: '' })}
-                    />
-                  </td>
-                  {foreign ? (
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={includePnl}
+              onChange={(e) => setIncludePnl(e.target.checked)}
+            />
+            {translate('accounting.openingBalancesPage.showIncomeAndExpenseAccounts')}
+          </label>
+        </div>
+        <div className="table-scroll">
+          <table
+            className="table"
+            aria-label={translate('accounting.openingBalancesPage.openingBalances2', { tab })}
+          >
+            <thead>
+              <tr>
+                <th>{translate('accounting.openingBalancesPage.account')}</th>
+                <th>{translate('accounting.openingBalancesPage.debit', { tab })}</th>
+                <th>{translate('accounting.openingBalancesPage.credit', { tab })}</th>
+                {foreign ? (
+                  <th>
+                    {translate('accounting.openingBalancesPage.baseAmount', {
+                      baseCurrency: batch.baseCurrency,
+                    })}
+                  </th>
+                ) : null}
+                {activeTypes.map((t) => (
+                  <th key={t.id}>
+                    {t.name}
+                    {t.isRequired ? ' *' : ''}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((e) => {
+                const account = byId.get(e.accountId)!;
+                const problems = errorsByFilledIndex.get(filledIndex.get(e.key) ?? -1) ?? [];
+                return (
+                  <tr key={e.key}>
+                    <td>
+                      {account.code} {account.name}
+                      {problems.map((p) => (
+                        <div key={p} className="text-error">
+                          {p}
+                        </div>
+                      ))}
+                    </td>
                     <td>
                       <input
-                        aria-label={translate('accounting.openingBalancesPage.baseAmount2', {
+                        aria-label={translate('accounting.openingBalancesPage.debit2', {
                           code: account.code,
                         })}
                         inputMode="decimal"
-                        placeholder={translate('accounting.openingBalancesPage.rateTable')}
-                        value={e.baseAmount}
-                        onChange={(ev) => update(e.key, { baseAmount: ev.target.value })}
+                        value={e.debit}
+                        onChange={(ev) => update(e.key, { debit: ev.target.value, credit: '' })}
                       />
                     </td>
-                  ) : null}
-                  {activeTypes.map((t) => (
-                    <td key={t.id}>
-                      <select
-                        aria-label={`${t.name} ${account.code}`}
-                        value={e.dims[t.id] ?? ''}
-                        onChange={(ev) =>
-                          update(e.key, { dims: { ...e.dims, [t.id]: ev.target.value } })
-                        }
-                      >
-                        <option value="">—</option>
-                        {t.values
-                          .filter((v) => v.status === 'ACTIVE' || v.id === e.dims[t.id])
-                          .map((v) => (
-                            <option key={v.id} value={v.id}>
-                              {v.code} {v.name}
-                            </option>
-                          ))}
-                      </select>
+                    <td>
+                      <input
+                        aria-label={translate('accounting.openingBalancesPage.credit2', {
+                          code: account.code,
+                        })}
+                        inputMode="decimal"
+                        value={e.credit}
+                        onChange={(ev) => update(e.key, { credit: ev.target.value, debit: '' })}
+                      />
                     </td>
-                  ))}
-                </tr>
-              );
-            })}
-          </tbody>
-          <tfoot>
-            <tr>
-              <th>{translate('accounting.openingBalancesPage.total', { tab })}</th>
-              <th>{formatAmount(debit.toFixed(), tab)}</th>
-              <th>{formatAmount(credit.toFixed(), tab)}</th>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-      <p aria-live="polite">
-        {translate('accounting.openingBalancesPage.openingBalanceEquity', {
-          tab,
-          value: net.isZero()
-            ? translate('accounting.openingBalancesPage.noneTheBalancesNetTo')
-            : `${formatAmount(net.abs().toFixed(), tab)} ${net.gt(0) ? 'credit' : 'debit'}`,
-        })}
-      </p>
+                    {foreign ? (
+                      <td>
+                        <input
+                          aria-label={translate('accounting.openingBalancesPage.baseAmount2', {
+                            code: account.code,
+                          })}
+                          inputMode="decimal"
+                          placeholder={translate('accounting.openingBalancesPage.rateTable')}
+                          value={e.baseAmount}
+                          onChange={(ev) => update(e.key, { baseAmount: ev.target.value })}
+                        />
+                      </td>
+                    ) : null}
+                    {activeTypes.map((t) => (
+                      <td key={t.id}>
+                        <select
+                          aria-label={`${t.name} ${account.code}`}
+                          value={e.dims[t.id] ?? ''}
+                          onChange={(ev) =>
+                            update(e.key, { dims: { ...e.dims, [t.id]: ev.target.value } })
+                          }
+                        >
+                          <option value="">—</option>
+                          {t.values
+                            .filter((v) => v.status === 'ACTIVE' || v.id === e.dims[t.id])
+                            .map((v) => (
+                              <option key={v.id} value={v.id}>
+                                {v.code} {v.name}
+                              </option>
+                            ))}
+                        </select>
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th>{translate('accounting.openingBalancesPage.total', { tab })}</th>
+                <th>{formatAmount(debit.toFixed(), tab)}</th>
+                <th>{formatAmount(credit.toFixed(), tab)}</th>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <p aria-live="polite">
+          {translate('accounting.openingBalancesPage.openingBalanceEquity', {
+            tab,
+            value: net.isZero()
+              ? translate('accounting.openingBalancesPage.noneTheBalancesNetTo')
+              : `${formatAmount(net.abs().toFixed(), tab)} ${net.gt(0) ? 'credit' : 'debit'}`,
+          })}
+        </p>
+      </Tabs>
       <ErrorAlert error={save.error} />
       {save.isSuccess ? (
         <Alert tone="success">
@@ -703,7 +711,7 @@ function WorkflowCard({ batch }: { batch: OpeningBatchDetail }) {
                     : t('accounting.openingBalancesPage.journal3')}{' '}
                   ({j.currency})
                 </Link>{' '}
-                — {j.status.toLowerCase()}
+                — {accountingStatusLabel(t, j.status)}
               </li>
             ))}
           </ul>

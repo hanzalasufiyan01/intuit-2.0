@@ -362,6 +362,9 @@ describe('payroll register', () => {
     });
     renderAt('/payroll/register');
     expect(await screen.findByText('Aisha Mohamed')).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Filters' }).querySelectorAll('input')).toHaveLength(
+      2,
+    );
     expect(screen.getByText('PENS Employee pension')).toBeTruthy();
     expect(screen.getByText('Total')).toBeTruthy();
   });

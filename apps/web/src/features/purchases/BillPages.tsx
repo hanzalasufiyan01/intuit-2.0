@@ -12,7 +12,12 @@ import { COMMON_CURRENCIES, formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
+import { EmptyState } from '../../shared/ui/EmptyState';
+import { LoadingState } from '../../shared/ui/LoadingState';
+import { ConfirmDialog } from '../../shared/ui/ConfirmDialog';
+import { DataTable, NumCell, NumHeader } from '../../shared/ui/Table';
 import { Spinner } from '../../shared/ui/Spinner';
+import { SelectField } from '../../shared/ui/SelectField';
 import { TextField } from '../../shared/ui/TextField';
 import { useAccounts, useAccountingSetup, useDimensions } from '../accounting/shared';
 import type { ApprovalRequestSummary } from '../accounting/types';
@@ -100,26 +105,28 @@ export function BillsPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <div className="field">
-            <label htmlFor="bill-status">{t('purchases.field.status')}</label>
-            <select id="bill-status" value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="">{t('common.all')}</option>
-              <option value="DRAFT">{t('sales.status.draft')}</option>
-              <option value="PENDING_APPROVAL">{t('sales.status.pendingApproval')}</option>
-              <option value="POSTED">{t('purchases.status.posted')}</option>
-              <option value="VOID">{t('sales.status.void')}</option>
-            </select>
-          </div>
+          <SelectField
+            id="bill-status"
+            label={t('purchases.field.status')}
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+          >
+            <option value="">{t('common.all')}</option>
+            <option value="DRAFT">{t('sales.status.draft')}</option>
+            <option value="PENDING_APPROVAL">{t('sales.status.pendingApproval')}</option>
+            <option value="POSTED">{t('purchases.status.posted')}</option>
+            <option value="VOID">{t('sales.status.void')}</option>
+          </SelectField>
           <Button type="submit">{t('common.search')}</Button>
         </form>
         {list.isPending ? (
-          <Spinner label={t('common.loading')} />
+          <LoadingState />
         ) : list.isError ? (
           <ErrorAlert error={list.error} />
         ) : list.data.items.length === 0 ? (
-          <p className="muted">{t('purchases.bills.none')}</p>
+          <EmptyState message={t('purchases.bills.none')} />
         ) : (
-          <table className="table">
+          <DataTable label={t('purchases.bills.title')}>
             <thead>
               <tr>
                 <th>{t('purchases.bills.number')}</th>
@@ -127,7 +134,7 @@ export function BillsPage() {
                 <th>{t('purchases.field.vendorReference')}</th>
                 <th>{t('purchases.field.billDate')}</th>
                 <th>{t('purchases.field.dueDate')}</th>
-                <th className="num">{t('purchases.field.total')}</th>
+                <NumHeader>{t('purchases.field.total')}</NumHeader>
                 <th>{t('purchases.field.status')}</th>
               </tr>
             </thead>
@@ -143,16 +150,16 @@ export function BillsPage() {
                   <td>{b.vendorReference}</td>
                   <td>{b.billDate}</td>
                   <td>{b.dueDate}</td>
-                  <td className="num">
+                  <NumCell>
                     {formatAmount(b.total, b.currencyCode)} {b.currencyCode}
-                  </td>
+                  </NumCell>
                   <td>
                     <BillStatusBadge status={b.status} />
                   </td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         )}
       </Card>
     </>
@@ -160,12 +167,7 @@ export function BillsPage() {
 }
 
 function BillStatusBadge({ status }: { status: BillStatus }) {
-  const t = useT();
-  return status === 'POSTED' ? (
-    <span className="badge badge--posted">{t('purchases.status.posted')}</span>
-  ) : (
-    <StatusBadge status={status} />
-  );
+  return <StatusBadge status={status} />;
 }
 
 /** Bills awaiting approval that the user may decide (the shared approval routes). */
@@ -854,6 +856,7 @@ export function BillDetailPage() {
       }),
     ),
   );
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const remove = useApiMutation(() =>
     api.delete(`/purchases/bills/${id}?version=${bill.data!.version}`),
   );
@@ -1010,22 +1013,32 @@ export function BillDetailPage() {
             </Button>
           ) : null}
           {b.status === 'DRAFT' && can.remove ? (
-            <Button
-              variant="ghost"
-              busy={remove.isPending}
-              onClick={() => {
-                if (window.confirm(t('purchases.bills.confirmDelete'))) {
+            <>
+              <Button
+                variant="ghost"
+                busy={remove.isPending}
+                onClick={() => setConfirmingDelete(true)}
+              >
+                {t('common.delete')}
+              </Button>
+              <ConfirmDialog
+                open={confirmingDelete}
+                title={t('confirm.deleteDraft.title')}
+                message={t('purchases.bills.confirmDelete')}
+                confirmLabel={t('common.delete')}
+                destructive
+                onCancel={() => setConfirmingDelete(false)}
+                onConfirm={() => {
+                  setConfirmingDelete(false);
                   remove.mutate(undefined, {
                     onSuccess: () => {
                       refresh();
                       void navigate('/purchases/bills');
                     },
                   });
-                }
-              }}
-            >
-              {t('common.delete')}
-            </Button>
+                }}
+              />
+            </>
           ) : null}
         </div>
       </Card>

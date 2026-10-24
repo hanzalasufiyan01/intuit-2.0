@@ -34,12 +34,7 @@ import type {
 type SourceType = 'payment' | 'vendor_credit';
 
 function RefundStatusBadge({ status }: { status: RefundStatus }) {
-  const t = useT();
-  return status === 'RECORDED' ? (
-    <span className="badge badge--posted">{t('purchases.status.recorded')}</span>
-  ) : (
-    <StatusBadge status={status} />
-  );
+  return <StatusBadge status={status} />;
 }
 
 const sourcePath = (type: SourceType, id: string) =>

@@ -5,6 +5,7 @@ import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
+import { FilterBar } from '../../shared/ui/FilterBar';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
 import { AccountingPage, useOrgKey } from '../accounting/shared';
@@ -86,7 +87,7 @@ function RangeForm({ range }: { range: ReturnType<typeof useRange> }) {
   const t = useT();
   return (
     <Card>
-      <form className="filters" onSubmit={range.apply}>
+      <FilterBar label={t('common.filters')} onSubmit={range.apply}>
         <TextField
           label={t('reports.statementPages.from')}
           type="date"
@@ -100,7 +101,7 @@ function RangeForm({ range }: { range: ReturnType<typeof useRange> }) {
           onChange={(e) => range.setTo(e.target.value)}
         />
         <Button type="submit">{t('reports.statementPages.runReport')}</Button>
-      </form>
+      </FilterBar>
     </Card>
   );
 }

@@ -6,6 +6,7 @@ import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
+import { FilterBar } from '../../shared/ui/FilterBar';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
 import { AccountingPage, useOrgKey } from '../accounting/shared';
@@ -53,9 +54,9 @@ export function ExpenseTrendPage() {
       <PageHeader title={t('trend.title')} description={t('trend.description')} />
       <AccountingPage>
         <Card>
-          <form
-            className="filters"
-            onSubmit={(event: FormEvent) => {
+          <FilterBar
+            label={t('common.filters')}
+            onSubmit={(event: FormEvent<HTMLFormElement>) => {
               event.preventDefault();
               setApplied({ from, to });
             }}
@@ -76,7 +77,7 @@ export function ExpenseTrendPage() {
             />
             <Button type="submit">{t('trend.run')}</Button>
             <ExportButton domain="expense_trend" params={{ from: applied.from, to: applied.to }} />
-          </form>
+          </FilterBar>
         </Card>
         {query.isPending ? <Spinner label={t('common.loading')} /> : null}
         <ErrorAlert error={query.error} />

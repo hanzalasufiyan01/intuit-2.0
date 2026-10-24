@@ -7,6 +7,8 @@ import { api, ApiError } from '../../services/api-client';
 import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
+import { Badge, toneOf, type BadgeTone } from '../../shared/ui/Badge';
+import { MappedStatusBadge, type StatusEntry } from '../../shared/ui/StatusBadge';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
@@ -19,7 +21,7 @@ import type {
   ImportResult,
   MatchSuggestion,
 } from './types';
-import { useT, type MessageKey } from '../../i18n/i18n';
+import { useT } from '../../i18n/i18n';
 
 /**
  * Bank accounts and their statement transactions: import (CSV with a column mapping, or OFX),
@@ -28,16 +30,15 @@ import { useT, type MessageKey } from '../../i18n/i18n';
  * posted journal.
  */
 
-const STATUS_LABEL: Record<BankTransactionStatus, MessageKey> = {
-  UNMATCHED: 'banking.bankAccountPages.status.UNMATCHED',
-  MATCHED: 'banking.bankAccountPages.status.MATCHED',
-  EXCLUDED: 'banking.bankAccountPages.status.EXCLUDED',
-};
+const TRANSACTION_STATUS = {
+  UNMATCHED: { key: 'banking.bankAccountPages.status.UNMATCHED', tone: 'warning' },
+  MATCHED: { key: 'banking.bankAccountPages.status.MATCHED', tone: 'success' },
+  EXCLUDED: { key: 'banking.bankAccountPages.status.EXCLUDED', tone: 'neutral' },
+} satisfies Record<BankTransactionStatus, StatusEntry>;
 
-function StatusBadge({ status }: { status: BankTransactionStatus }) {
-  const tone = status === 'MATCHED' ? 'posted' : status === 'EXCLUDED' ? 'archived' : 'pending';
-  const t = useT();
-  return <span className={`badge badge--${tone}`}>{t(STATUS_LABEL[status])}</span>;
+/** A statement transaction's status; one the page does not know is neutral and shown as it came. */
+export function StatusBadge({ status }: { status: string }) {
+  return <MappedStatusBadge map={TRANSACTION_STATUS} status={status} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -126,7 +127,7 @@ export function BankAccountsPage() {
                   <td className="num">{a.unmatchedCount}</td>
                   <td>{a.lastReconciledDate ?? '—'}</td>
                   <td>
-                    <span className={`badge badge--${a.status.toLowerCase()}`}>{a.status}</span>
+                    <AccountStatusBadge status={a.status} />
                   </td>
                 </tr>
               ))}
@@ -762,4 +763,21 @@ export function BankAccountPage() {
       </Card>
     </>
   );
+}
+
+const ACCOUNT_STATUS_TONE: Record<'ACTIVE' | 'ARCHIVED', BadgeTone> = {
+  ACTIVE: 'success',
+  ARCHIVED: 'neutral',
+};
+
+/** A bank account's status, translated; a status the page does not know is neutral and shown as it came. */
+export function AccountStatusBadge({ status }: { status: string }) {
+  const t = useT();
+  const label =
+    status === 'ACTIVE'
+      ? t('banking.bankAccountPages.accountStatus.ACTIVE')
+      : status === 'ARCHIVED'
+        ? t('banking.bankAccountPages.accountStatus.ARCHIVED')
+        : status;
+  return <Badge tone={toneOf(ACCOUNT_STATUS_TONE, status)}>{label}</Badge>;
 }

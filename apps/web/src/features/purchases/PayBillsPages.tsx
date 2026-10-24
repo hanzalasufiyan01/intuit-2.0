@@ -516,11 +516,7 @@ export function PaymentBatchDetailPage() {
                   {formatAmount(p.amount, p.currencyCode)} {p.currencyCode}
                 </td>
                 <td>
-                  {p.status === 'RECORDED' ? (
-                    <span className="badge badge--posted">{t('purchases.status.recorded')}</span>
-                  ) : (
-                    <StatusBadge status={p.status} />
-                  )}
+                  <StatusBadge status={p.status} />
                 </td>
                 {canJournals ? (
                   <td>

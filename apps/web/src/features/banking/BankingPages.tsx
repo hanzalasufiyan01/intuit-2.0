@@ -7,6 +7,7 @@ import { Permission, usePermission } from '../../permissions/permissions';
 import { api, ApiError } from '../../services/api-client';
 import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
+import { Badge, toneOf, type BadgeTone } from '../../shared/ui/Badge';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
@@ -426,13 +427,7 @@ export function TransfersPage() {
                     {formatAmount(t.toAmount, t.toCurrencyCode)} {t.toCurrencyCode}
                   </td>
                   <td>
-                    <span
-                      className={`badge badge--${t.status === 'POSTED' ? 'posted' : 'reversed'}`}
-                    >
-                      {t.status === 'POSTED'
-                        ? translate('banking.bankingPages.posted')
-                        : translate('banking.bankingPages.void')}
-                    </span>
+                    <TransferStatusBadge status={t.status} />
                   </td>
                   <td>
                     {canVoid && t.status === 'POSTED' ? (
@@ -723,7 +718,7 @@ export function BankRulesPage() {
                   </td>
                   <td>{nameOf(r.categoryAccountId)}</td>
                   <td>
-                    <span className={`badge badge--${r.status.toLowerCase()}`}>{r.status}</span>
+                    <RuleStatusBadge status={r.status} />
                   </td>
                   <td>
                     {canManage ? (
@@ -750,4 +745,38 @@ export function BankRulesPage() {
       </Card>
     </>
   );
+}
+
+const TRANSFER_STATUS_TONE: Record<'POSTED' | 'VOID', BadgeTone> = {
+  POSTED: 'success',
+  VOID: 'danger',
+};
+
+/** A transfer's status: posted is success, void is danger, any other status is neutral and shown as it came. */
+export function TransferStatusBadge({ status }: { status: string }) {
+  const t = useT();
+  const label =
+    status === 'POSTED'
+      ? t('banking.bankingPages.posted')
+      : status === 'VOID'
+        ? t('banking.bankingPages.void')
+        : status;
+  return <Badge tone={toneOf(TRANSFER_STATUS_TONE, status)}>{label}</Badge>;
+}
+
+const RULE_STATUS_TONE: Record<'ACTIVE' | 'ARCHIVED', BadgeTone> = {
+  ACTIVE: 'success',
+  ARCHIVED: 'neutral',
+};
+
+/** A bank rule's status, translated; a status the page does not know is neutral and shown as it came. */
+export function RuleStatusBadge({ status }: { status: string }) {
+  const t = useT();
+  const label =
+    status === 'ACTIVE'
+      ? t('banking.bankingPages.ruleStatus.ACTIVE')
+      : status === 'ARCHIVED'
+        ? t('banking.bankingPages.ruleStatus.ARCHIVED')
+        : status;
+  return <Badge tone={toneOf(RULE_STATUS_TONE, status)}>{label}</Badge>;
 }

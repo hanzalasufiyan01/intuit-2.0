@@ -324,6 +324,47 @@ describe('review and commit', () => {
     });
   });
 
+  it('moves between the row tabs with arrows without loading each one, and loads on Enter', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi({
+      'GET /auth/session': ok(makeSession({ permissions: IMPORTER })),
+      'GET /imports/catalog': ok(catalog),
+      'GET /imports/b1': ok(
+        batch({
+          status: 'validated',
+          version: 5,
+          counts: { total: 3, valid: 1, warning: 1, error: 1, excluded: 0 },
+        }),
+      ),
+      'GET /imports/b1/rows': (url) => ({
+        status: 200,
+        body: {
+          data: {
+            columns: ['code', 'name', 'type'],
+            rows: url.searchParams.get('status') === 'error' ? [rows[2]] : rows,
+            nextAfter: null,
+          },
+        },
+      }),
+    });
+    renderAt('/imports/b1');
+    expect(await screen.findByText('Code: An account with this code already exists.')).toBeTruthy();
+    const errors = screen.getByRole('tab', { name: 'Errors (1)' });
+    expect(errors.getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tabpanel', { name: 'Errors (1)' })).toBeTruthy();
+    const statusRequests = () =>
+      calls
+        .filter((c) => c.url.pathname.endsWith('/rows'))
+        .map((c) => c.url.searchParams.get('status'));
+    errors.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Warnings (1)' }));
+    expect(statusRequests()).not.toContain('warning'); // focus alone does not load the list
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(statusRequests()).toContain('warning'));
+    expect(screen.getByRole('tabpanel', { name: 'Warnings (1)' })).toBeTruthy();
+  });
+
   it('requires acknowledging warnings and a duplicate file before importing', async () => {
     const user = userEvent.setup();
     const calls = stubApi({

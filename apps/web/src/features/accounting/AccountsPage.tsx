@@ -7,6 +7,7 @@ import { api } from '../../services/api-client';
 import { ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
+import { ConfirmDialog } from '../../shared/ui/ConfirmDialog';
 import { ExportButton } from '../data-exchange/ExportButton';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
@@ -259,6 +260,7 @@ function AccountRow({ account, depth }: { account: Account; depth: number }) {
     }),
   );
   const archive = useApiMutation(() => api.post(`/accounting/accounts/${account.id}/archive`));
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const remove = useApiMutation(() =>
     sensitive(() => api.delete(`/accounting/accounts/${account.id}`)),
   );
@@ -344,23 +346,25 @@ function AccountRow({ account, depth }: { account: Account; depth: number }) {
           </Button>
         ) : null}
         {canDelete && !account.usedInPostedJournals && account.isLeaf ? (
-          <Button
-            variant="ghost"
-            busy={remove.isPending}
-            onClick={() => {
-              if (
-                window.confirm(
-                  t('accounting.accountsPage.deleteAccountDraftJournalLines', {
-                    code: account.code,
-                  }),
-                )
-              ) {
-                remove.mutate(undefined, { onSuccess: refresh });
-              }
-            }}
-          >
+          <Button variant="ghost" busy={remove.isPending} onClick={() => setConfirmingDelete(true)}>
             {t('common.delete')}
           </Button>
+        ) : null}
+        {canDelete && !account.usedInPostedJournals && account.isLeaf ? (
+          <ConfirmDialog
+            open={confirmingDelete}
+            title={t('confirm.deleteAccount.title')}
+            message={t('accounting.accountsPage.deleteAccountDraftJournalLines', {
+              code: account.code,
+            })}
+            confirmLabel={t('common.delete')}
+            destructive
+            onCancel={() => setConfirmingDelete(false)}
+            onConfirm={() => {
+              setConfirmingDelete(false);
+              remove.mutate(undefined, { onSuccess: refresh });
+            }}
+          />
         ) : null}
       </td>
     </tr>

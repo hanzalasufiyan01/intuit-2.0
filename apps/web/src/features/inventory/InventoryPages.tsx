@@ -8,6 +8,7 @@ import { Can, Permission, usePermission } from '../../permissions/permissions';
 import { api, ApiError } from '../../services/api-client';
 import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
+import { Badge, toneOf, type BadgeTone } from '../../shared/ui/Badge';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
@@ -226,9 +227,7 @@ export function StockPage() {
                   <td className="num">{formatAmount(i.value, 'MVR')}</td>
                   <td>
                     {i.belowReorderPoint ? (
-                      <span className="badge badge--pending">
-                        {t('inventory.inventoryPages.reorder')}
-                      </span>
+                      <Badge tone="warning">{t('inventory.inventoryPages.reorder')}</Badge>
                     ) : null}
                   </td>
                 </tr>
@@ -596,13 +595,7 @@ export function AdjustmentsPage() {
                   </td>
                   <td className="num">{formatAmount(a.netValue, 'MVR')}</td>
                   <td>
-                    <span
-                      className={`badge badge--${a.status === 'POSTED' ? 'posted' : 'reversed'}`}
-                    >
-                      {a.status === 'POSTED'
-                        ? t('inventory.inventoryPages.posted')
-                        : t('inventory.inventoryPages.void')}
-                    </span>
+                    <PostedVoidBadge status={a.status} />
                   </td>
                   <td>
                     {canVoid && a.status === 'POSTED' ? (
@@ -833,13 +826,7 @@ export function ReturnsPage() {
                   <td>{r.lines.map((l) => `${nameOf(l.itemId)} ${l.quantity}`).join(', ')}</td>
                   <td className="num">{formatAmount(r.totalValue, 'MVR')}</td>
                   <td>
-                    <span
-                      className={`badge badge--${r.status === 'POSTED' ? 'posted' : 'reversed'}`}
-                    >
-                      {r.status === 'POSTED'
-                        ? t('inventory.inventoryPages.posted')
-                        : t('inventory.inventoryPages.void')}
-                    </span>
+                    <PostedVoidBadge status={r.status} />
                   </td>
                   <td>
                     {canVoid && r.status === 'POSTED' ? (
@@ -1034,4 +1021,21 @@ export function InventorySettingsPage() {
       </Card>
     </>
   );
+}
+
+const POSTED_VOID_TONE: Record<'POSTED' | 'VOID', BadgeTone> = {
+  POSTED: 'success',
+  VOID: 'danger',
+};
+
+/** An adjustment's or write-off's status: posted is success, void is danger, any other status is neutral. */
+export function PostedVoidBadge({ status }: { status: string }) {
+  const t = useT();
+  const label =
+    status === 'POSTED'
+      ? t('inventory.inventoryPages.posted')
+      : status === 'VOID'
+        ? t('inventory.inventoryPages.void')
+        : status;
+  return <Badge tone={toneOf(POSTED_VOID_TONE, status)}>{label}</Badge>;
 }

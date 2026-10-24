@@ -10,7 +10,10 @@ import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
-import { Spinner } from '../../shared/ui/Spinner';
+import { EmptyState } from '../../shared/ui/EmptyState';
+import { LoadingState } from '../../shared/ui/LoadingState';
+import { ConfirmDialog } from '../../shared/ui/ConfirmDialog';
+import { DataTable, NumCell, NumHeader } from '../../shared/ui/Table';
 import { TextField } from '../../shared/ui/TextField';
 import { ExportButton } from '../data-exchange/ExportButton';
 import { AttachmentsCard } from '../files/AttachmentsCard';
@@ -100,21 +103,21 @@ export function InvoicesPage() {
       </Card>
       <Card>
         {list.isPending ? (
-          <Spinner label={t('common.loading')} />
+          <LoadingState />
         ) : list.isError ? (
           <ErrorAlert error={list.error} />
         ) : items.length === 0 ? (
-          <p className="muted">{t('sales.invoices.none')}</p>
+          <EmptyState message={t('sales.invoices.none')} />
         ) : (
-          <table className="table">
+          <DataTable label={t('sales.invoices.title')}>
             <thead>
               <tr>
                 <th>{t('sales.field.number')}</th>
                 <th>{t('sales.field.customer')}</th>
                 <th>{t('sales.field.invoiceDate')}</th>
                 <th>{t('sales.field.dueDate')}</th>
-                <th className="num">{t('sales.field.total')}</th>
-                <th className="num">{t('sales.field.amountDue')}</th>
+                <NumHeader>{t('sales.field.total')}</NumHeader>
+                <NumHeader>{t('sales.field.amountDue')}</NumHeader>
                 <th>{t('sales.field.status')}</th>
               </tr>
             </thead>
@@ -132,19 +135,19 @@ export function InvoicesPage() {
                   <td>{i.customerName}</td>
                   <td>{i.invoiceDate}</td>
                   <td>{i.dueDate}</td>
-                  <td className="num">
+                  <NumCell>
                     {formatAmount(i.total, i.currencyCode)} {i.currencyCode}
-                  </td>
-                  <td className="num">
+                  </NumCell>
+                  <NumCell>
                     {i.amountDue === null ? '' : formatAmount(i.amountDue, i.currencyCode)}
-                  </td>
+                  </NumCell>
                   <td>
                     <StatusBadge status={i.status} />
                   </td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         )}
         {list.hasNextPage ? (
           <Button
@@ -209,7 +212,7 @@ export function EditInvoicePage() {
   const save = useApiMutation((body: Record<string, unknown>) =>
     api.put<InvoiceDetail>(`/sales/invoices/${id}`, { ...body, version: invoice.data!.version }),
   );
-  if (invoice.isPending) return <Spinner label={t('common.loading')} />;
+  if (invoice.isPending) return <LoadingState />;
   if (invoice.isError) return <ErrorAlert error={invoice.error} />;
   return (
     <>
@@ -271,11 +274,12 @@ export function InvoiceDetailPage() {
       }),
     ),
   );
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const remove = useApiMutation(() =>
     api.delete(`/sales/invoices/${id}?version=${invoice.data!.version}`),
   );
 
-  if (invoice.isPending) return <Spinner label={t('common.loading')} />;
+  if (invoice.isPending) return <LoadingState />;
   if (invoice.isError) return <ErrorAlert error={invoice.error} />;
   const inv = invoice.data;
   const c = inv.currencyCode;
@@ -381,22 +385,32 @@ export function InvoiceDetailPage() {
             </Button>
           ) : null}
           {inv.status === 'DRAFT' && can.remove ? (
-            <Button
-              variant="ghost"
-              busy={remove.isPending}
-              onClick={() => {
-                if (window.confirm(t('sales.invoices.confirmDelete'))) {
+            <>
+              <Button
+                variant="ghost"
+                busy={remove.isPending}
+                onClick={() => setConfirmingDelete(true)}
+              >
+                {t('common.delete')}
+              </Button>
+              <ConfirmDialog
+                open={confirmingDelete}
+                title={t('confirm.deleteDraft.title')}
+                message={t('sales.invoices.confirmDelete')}
+                confirmLabel={t('common.delete')}
+                destructive
+                onCancel={() => setConfirmingDelete(false)}
+                onConfirm={() => {
+                  setConfirmingDelete(false);
                   remove.mutate(undefined, {
                     onSuccess: () => {
                       refresh();
                       void navigate('/sales/invoices');
                     },
                   });
-                }
-              }}
-            >
-              {t('common.delete')}
-            </Button>
+                }}
+              />
+            </>
           ) : null}
           {inv.status === 'ISSUED' && Number(inv.amountDue) > 0 && can.receipt ? (
             <Link

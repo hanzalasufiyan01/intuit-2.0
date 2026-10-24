@@ -10,7 +10,9 @@ import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
-import { Spinner } from '../../shared/ui/Spinner';
+import { ConfirmDialog } from '../../shared/ui/ConfirmDialog';
+import { EmptyState } from '../../shared/ui/EmptyState';
+import { LoadingState } from '../../shared/ui/LoadingState';
 import { TextField } from '../../shared/ui/TextField';
 import { AttachmentsCard } from '../files/AttachmentsCard';
 import { CustomerRefundHistory } from './RefundPages';
@@ -69,11 +71,11 @@ export function CreditNotesPage() {
       </Card>
       <Card>
         {list.isPending ? (
-          <Spinner label={t('common.loading')} />
+          <LoadingState />
         ) : list.isError ? (
           <ErrorAlert error={list.error} />
         ) : items.length === 0 ? (
-          <p className="muted">{t('sales.creditNotes.none')}</p>
+          <EmptyState message={t('sales.creditNotes.none')} />
         ) : (
           <table className="table">
             <thead>
@@ -175,7 +177,7 @@ export function EditCreditNotePage() {
       version: note.data!.version,
     }),
   );
-  if (note.isPending) return <Spinner label={t('common.loading')} />;
+  if (note.isPending) return <LoadingState />;
   if (note.isError) return <ErrorAlert error={note.error} />;
   return (
     <>
@@ -229,12 +231,13 @@ export function CreditNoteDetailPage() {
       }),
     ),
   );
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const remove = useApiMutation(() =>
     api.delete(`/sales/credit-notes/${id}?version=${note.data!.version}`),
   );
   const [confirming, setConfirming] = useState(false);
 
-  if (note.isPending) return <Spinner label={t('common.loading')} />;
+  if (note.isPending) return <LoadingState />;
   if (note.isError) return <ErrorAlert error={note.error} />;
   const n = note.data;
   const c = n.currencyCode;
@@ -326,22 +329,32 @@ export function CreditNoteDetailPage() {
             )
           ) : null}
           {n.status === 'DRAFT' && can.edit ? (
-            <Button
-              variant="ghost"
-              busy={remove.isPending}
-              onClick={() => {
-                if (window.confirm(t('sales.creditNotes.confirmDelete'))) {
+            <>
+              <Button
+                variant="ghost"
+                busy={remove.isPending}
+                onClick={() => setConfirmingDelete(true)}
+              >
+                {t('common.delete')}
+              </Button>
+              <ConfirmDialog
+                open={confirmingDelete}
+                title={t('confirm.deleteDraft.title')}
+                message={t('sales.creditNotes.confirmDelete')}
+                confirmLabel={t('common.delete')}
+                destructive
+                onCancel={() => setConfirmingDelete(false)}
+                onConfirm={() => {
+                  setConfirmingDelete(false);
                   remove.mutate(undefined, {
                     onSuccess: () => {
                       refresh();
                       void navigate('/sales/credit-notes');
                     },
                   });
-                }
-              }}
-            >
-              {t('common.delete')}
-            </Button>
+                }}
+              />
+            </>
           ) : null}
           {n.status === 'ISSUED' && Number(n.amountUnapplied) > 0 && can.apply ? (
             <Link

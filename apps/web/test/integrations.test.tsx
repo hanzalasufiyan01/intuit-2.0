@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { App, createQueryClient } from '../src/app/App';
 import { routes } from '../src/app/routes';
 import { makeSession } from './fake-api';
+import { expectConfirmFlow } from './confirm-flow';
 
 /**
  * API integrations, tokens and webhook endpoints (ADR 0011). A token or signing secret is shown
@@ -40,6 +41,11 @@ function stubApi(table: Record<string, Handler>) {
 }
 
 const ok = (data: unknown) => () => ({ status: 200, body: { data } });
+
+const fail = (status: number, code: string, message: string) => () => ({
+  status,
+  body: { error: { code, message, requestId: 'r' } },
+});
 
 function renderAt(path: string) {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
@@ -188,6 +194,93 @@ describe('webhooks page', () => {
     expect((field as HTMLInputElement).value).toBe('whsec_NEWSECRET');
     await user.click(screen.getByRole('button', { name: 'I have stored it' }));
     expect(screen.queryByDisplayValue('whsec_NEWSECRET')).toBeNull();
+  });
+
+  it('asks in a dialog before deleting an endpoint; cancelling sends nothing', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi({
+      ...session(['webhooks.view', 'webhooks.manage']),
+      'GET /webhooks/endpoints': ok([endpoint]),
+      'GET /webhooks/event-types': ok([]),
+      'GET /webhooks/deliveries': ok([]),
+      'DELETE /webhooks/endpoints/ep1': () => ({ status: 204 }),
+    });
+    renderAt('/settings/webhooks');
+    await screen.findByRole('button', { name: 'Delete' });
+    await expectConfirmFlow({
+      user,
+      trigger: () => screen.getByRole('button', { name: 'Delete' }),
+      title: 'Delete this endpoint?',
+      message: 'Delete the endpoint "ERP hook"? Its history is kept.',
+      confirmName: 'Delete',
+      requestSent: () =>
+        calls.some(
+          (c) => c.method === 'DELETE' && c.url.pathname.endsWith('/webhooks/endpoints/ep1'),
+        ),
+    });
+    expect(calls.find((c) => c.method === 'DELETE')!.url.search).toContain('version=2');
+  });
+
+  it('cancelling the delete dialog sends nothing and keeps the endpoint listed', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi({
+      ...session(['webhooks.view', 'webhooks.manage']),
+      'GET /webhooks/endpoints': ok([endpoint]),
+      'GET /webhooks/event-types': ok([]),
+      'GET /webhooks/deliveries': ok([]),
+      'DELETE /webhooks/endpoints/ep1': () => ({ status: 204 }),
+    });
+    renderAt('/settings/webhooks');
+    const trigger = await screen.findByRole('button', { name: 'Delete' });
+    await user.click(trigger);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([]);
+    expect(screen.getAllByText('ERP hook').length).toBeGreaterThan(0);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('confirming deletes exactly once; a server error is shown and the endpoint stays', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi({
+      ...session(['webhooks.view', 'webhooks.manage']),
+      'GET /webhooks/endpoints': ok([endpoint]),
+      'GET /webhooks/event-types': ok([]),
+      'GET /webhooks/deliveries': ok([]),
+      'DELETE /webhooks/endpoints/ep1': fail(409, 'VERSION_CONFLICT', 'Changed by someone else.'),
+    });
+    renderAt('/settings/webhooks');
+    await user.click(await screen.findByRole('button', { name: 'Delete' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByText(/Changed by someone else/)).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(1);
+    expect(screen.getAllByText('ERP hook').length).toBeGreaterThan(0);
+  });
+
+  it('cancelling the password prompt rejects the delete and does not retry it', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi({
+      ...session(['webhooks.view', 'webhooks.manage']),
+      'GET /webhooks/endpoints': ok([endpoint]),
+      'GET /webhooks/event-types': ok([]),
+      'GET /webhooks/deliveries': ok([]),
+      'DELETE /webhooks/endpoints/ep1': fail(
+        403,
+        'REAUTHENTICATION_REQUIRED',
+        'Please confirm your password to continue.',
+      ),
+    });
+    renderAt('/settings/webhooks');
+    const trigger = await screen.findByRole('button', { name: 'Delete' });
+    await user.click(trigger);
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+    await screen.findByRole('dialog', { name: 'Confirm your password' });
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(await screen.findByText('Password confirmation cancelled.')).toBeTruthy();
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(1);
+    expect(screen.getAllByText('ERP hook').length).toBeGreaterThan(0);
+    expect(document.activeElement).toBe(trigger);
   });
 
   it('hides management controls from a viewer', async () => {

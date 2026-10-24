@@ -8,6 +8,7 @@ import type { Member } from '../../services/types';
 import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
+import { MappedStatusBadge, statusText, type StatusEntry } from '../../shared/ui/StatusBadge';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
@@ -190,7 +191,9 @@ export function ProjectsPage() {
                     <td>{p.name}</td>
                     <td>{p.billingMethod.replace(/_/g, ' ')}</td>
                     <td className="num">{formatAmount(p.defaultBillRate, 'MVR')}</td>
-                    <td>{p.status.replace('_', ' ').toLowerCase()}</td>
+                    <td>
+                      <ProjectStatusBadge status={p.status} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -328,7 +331,9 @@ export function ProjectDetailPage() {
       <PageHeader
         title={p ? `${p.number} ${p.name}` : t('projects.projectPages.project')}
         description={
-          p ? `${p.billingMethod.replace(/_/g, ' ')} · ${p.status.toLowerCase()}` : undefined
+          p
+            ? `${p.billingMethod.replace(/_/g, ' ')} · ${statusText(t, PROJECT_STATUS, p.status)}`
+            : undefined
         }
       />
       {project.isPending ? <Spinner /> : null}
@@ -601,7 +606,9 @@ export function MyTimePage() {
                         </small>
                       ) : null}
                     </td>
-                    <td>{e.status.toLowerCase()}</td>
+                    <td>
+                      <TimeStatusBadge status={e.status} />
+                    </td>
                     <td>
                       {['DRAFT', 'REJECTED'].includes(e.status) && canLog ? (
                         <>
@@ -817,7 +824,7 @@ function TasksCard({ projectId }: { projectId: string }) {
                 <td className="num">{t.hours}</td>
                 <td className="num">{t.budgetHours ?? '—'}</td>
                 <td>
-                  {t.status.toLowerCase()}
+                  <TaskStatusBadge status={t.status} />
                   {t.overBudget ? translate('projects.projectPages.overBudget') : ''}
                 </td>
                 <td>
@@ -870,4 +877,40 @@ function TasksCard({ projectId }: { projectId: string }) {
       <ErrorAlert error={add.error ?? toggle.error} />
     </Card>
   );
+}
+
+/** Project statuses: active and completed are success, planned is info, on hold needs a look, cancelled is danger. */
+const PROJECT_STATUS = {
+  PLANNED: { key: 'projects.projectPages.projectStatus.PLANNED', tone: 'info' },
+  ACTIVE: { key: 'projects.projectPages.projectStatus.ACTIVE', tone: 'success' },
+  ON_HOLD: { key: 'projects.projectPages.projectStatus.ON_HOLD', tone: 'warning' },
+  COMPLETED: { key: 'projects.projectPages.projectStatus.COMPLETED', tone: 'success' },
+  CANCELLED: { key: 'projects.projectPages.projectStatus.CANCELLED', tone: 'danger' },
+} satisfies Record<'PLANNED' | 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'CANCELLED', StatusEntry>;
+
+export function ProjectStatusBadge({ status }: { status: string }) {
+  return <MappedStatusBadge map={PROJECT_STATUS} status={status} />;
+}
+
+/** Task statuses: open is in progress (info), done is success. */
+const TASK_STATUS = {
+  OPEN: { key: 'projects.projectPages.taskStatus.OPEN', tone: 'info' },
+  DONE: { key: 'projects.projectPages.taskStatus.DONE', tone: 'success' },
+} satisfies Record<'OPEN' | 'DONE', StatusEntry>;
+
+export function TaskStatusBadge({ status }: { status: string }) {
+  return <MappedStatusBadge map={TASK_STATUS} status={status} />;
+}
+
+/** Time-entry statuses: submitted waits for approval (warning), approved and billed are success, rejected is danger. */
+const TIME_STATUS = {
+  DRAFT: { key: 'projects.projectPages.timeStatus.DRAFT', tone: 'neutral' },
+  SUBMITTED: { key: 'projects.projectPages.timeStatus.SUBMITTED', tone: 'warning' },
+  APPROVED: { key: 'projects.projectPages.timeStatus.APPROVED', tone: 'success' },
+  REJECTED: { key: 'projects.projectPages.timeStatus.REJECTED', tone: 'danger' },
+  BILLED: { key: 'projects.projectPages.timeStatus.BILLED', tone: 'success' },
+} satisfies Record<'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'BILLED', StatusEntry>;
+
+export function TimeStatusBadge({ status }: { status: string }) {
+  return <MappedStatusBadge map={TIME_STATUS} status={status} />;
 }

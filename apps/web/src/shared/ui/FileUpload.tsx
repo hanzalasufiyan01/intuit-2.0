@@ -1,4 +1,5 @@
 import { useId, useRef, useState, type DragEvent } from 'react';
+import { useT } from '../../i18n/i18n';
 import { Alert } from './Alert';
 
 /**
@@ -21,6 +22,7 @@ export function FileUpload({
   upload: (file: File, onProgress: (fraction: number) => void) => Promise<void>;
   errorMessage: (error: unknown) => string;
 }) {
+  const t = useT();
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
   const [progress, setProgress] = useState<number | null>(null);
@@ -32,8 +34,9 @@ export function FileUpload({
   const hintProblem = (file: File) => {
     const dot = file.name.lastIndexOf('.');
     const extension = dot > 0 ? file.name.slice(dot).toLowerCase() : '';
-    if (!allowed.includes(extension)) return 'This file type is not accepted here.';
-    if (file.size > maxBytes) return 'The file is larger than 25 MB.';
+    if (!allowed.includes(extension)) return t('upload.typeNotAccepted');
+    if (file.size > maxBytes)
+      return t('upload.tooLarge', { size: String(Math.round(maxBytes / (1024 * 1024))) });
     return null;
   };
 
@@ -82,9 +85,11 @@ export function FileUpload({
           if (file) void start(file);
         }}
       />
-      <p className="muted">{hint} You can also drop a file here.</p>
+      <p className="muted">
+        {hint} {t('upload.dropHint')}
+      </p>
       {busy ? (
-        <progress aria-label="Upload progress" max={1} value={progress}>
+        <progress aria-label={t('upload.progress')} max={1} value={progress}>
           {Math.round(progress * 100)}%
         </progress>
       ) : null}

@@ -215,6 +215,9 @@ describe('opening balances grid', () => {
 
     await user.click(screen.getByRole('tab', { name: 'USD' }));
     const usd = screen.getByRole('table', { name: 'USD opening balances' });
+    const panel = screen.getByRole('tabpanel', { name: 'USD' });
+    expect(panel.contains(usd)).toBe(true);
+    expect(screen.getByRole('tablist', { name: 'Currencies' })).toBeTruthy();
     expect(within(usd).getByText('Base amount (MVR)')).toBeTruthy();
     await user.type(screen.getByLabelText('Debit 1125'), '100');
     await user.type(screen.getByLabelText('Base amount 1125'), '1542');

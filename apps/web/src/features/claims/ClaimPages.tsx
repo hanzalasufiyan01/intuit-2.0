@@ -8,13 +8,15 @@ import { api, ApiError } from '../../services/api-client';
 import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
+import { MappedStatusBadge, type StatusEntry } from '../../shared/ui/StatusBadge';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
 import { useAccounts } from '../accounting/shared';
+import { statusLabel } from '../sales/shared';
 import { AttachmentsCard } from '../files/AttachmentsCard';
 import { ClaimPolicyNotice, isClaimPolicyError } from './ClaimPolicyNotice';
-import { useT, type MessageKey } from '../../i18n/i18n';
+import { useT } from '../../i18n/i18n';
 
 /**
  * Employee expense claims. A claim lists what an employee spent, with receipts; it is approved,
@@ -69,26 +71,18 @@ interface Settings {
   version: number;
 }
 
-const STATUS_LABEL: Record<ClaimStatus, MessageKey> = {
-  DRAFT: 'claims.claimPages.status.DRAFT',
-  PENDING_APPROVAL: 'claims.claimPages.status.PENDING_APPROVAL',
-  APPROVED: 'claims.claimPages.status.APPROVED',
-  POSTED: 'claims.claimPages.status.POSTED',
-  CANCELLED: 'claims.claimPages.status.CANCELLED',
-  VOID: 'claims.claimPages.status.VOID',
-};
+const CLAIM_STATUS = {
+  DRAFT: { key: 'claims.claimPages.status.DRAFT', tone: 'neutral' },
+  PENDING_APPROVAL: { key: 'claims.claimPages.status.PENDING_APPROVAL', tone: 'warning' },
+  APPROVED: { key: 'claims.claimPages.status.APPROVED', tone: 'success' },
+  POSTED: { key: 'claims.claimPages.status.POSTED', tone: 'success' },
+  CANCELLED: { key: 'claims.claimPages.status.CANCELLED', tone: 'danger' },
+  VOID: { key: 'claims.claimPages.status.VOID', tone: 'danger' },
+} satisfies Record<ClaimStatus, StatusEntry>;
 
-function StatusBadge({ status }: { status: ClaimStatus }) {
-  const tone =
-    status === 'POSTED' || status === 'APPROVED'
-      ? 'posted'
-      : status === 'PENDING_APPROVAL'
-        ? 'pending_approval'
-        : status === 'DRAFT'
-          ? 'draft'
-          : 'reversed';
-  const t = useT();
-  return <span className={`badge badge--${tone}`}>{t(STATUS_LABEL[status])}</span>;
+/** A claim's status; one the page does not know is neutral and shown as it came. */
+export function StatusBadge({ status }: { status: string }) {
+  return <MappedStatusBadge map={CLAIM_STATUS} status={status} />;
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -152,9 +146,9 @@ export function ClaimsPage() {
           <label htmlFor="claim-status">{t('claims.claimPages.status')}</label>
           <select id="claim-status" value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">{t('common.all')}</option>
-            {(Object.keys(STATUS_LABEL) as ClaimStatus[]).map((s) => (
+            {(Object.keys(CLAIM_STATUS) as ClaimStatus[]).map((s) => (
               <option key={s} value={s}>
-                {t(STATUS_LABEL[s])}
+                {t(CLAIM_STATUS[s].key)}
               </option>
             ))}
           </select>
@@ -467,7 +461,7 @@ export function ClaimDetailPage() {
           <Link to={`/purchases/bills/${c.bill.id}`}>
             {c.bill.number ?? t('claims.claimPages.draft2')}
           </Link>{' '}
-          ({c.bill.status.toLowerCase()}).{' '}
+          ({statusLabel(t, c.bill.status)}).{' '}
           {c.bill.reimbursed
             ? t('claims.claimPages.reimbursed')
             : c.bill.amountDue !== null && c.status === 'POSTED'
