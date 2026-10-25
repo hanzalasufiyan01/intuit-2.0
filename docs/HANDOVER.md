@@ -1,10 +1,70 @@
 # Handover: Intuit 2.0
 
-Written 2026-10-19 so that someone who was not in the build can pick the project up. It states what exists, how to run and verify it, what is not done and what must be decided. It claims no production readiness. Where a fact can go stale, a command is given to re-check it.
+Written 2026-10-19 and refreshed after the merge of pull request #7 on 2026-10-25 (**read section 0 first**; sections 1 to 11 keep their original text, with dated corrections where a fact has since changed). It exists so that someone who was not in the build can pick the project up. It states what exists, how to run and verify it, what is not done and what must be decided. It claims no production readiness. Where a fact can go stale, a command is given to re-check it.
+
+## 0. Snapshot at 2026-10-25 (after pull request #7)
+
+This section is a dated snapshot, not a permanent state. Every fact has a command to re-check it; trust the command over this text.
+
+### Repository
+
+- `origin/main` was `b5ce5ef` ("Merge pull request #7 from hanzalasufiyan01/feat/ai-assistant-tutorials"), on top of the feature commit `1fa4814` and `042040e`. Re-check: `git fetch origin && git log --oneline -8 origin/main`.
+- Merged pull requests on `main` (merge commits): #1 `d13ddad` deployment smoke (M1, 2026-10-21), #2 `753b97a` depreciation methods (R-11, 2026-10-21), #3 `57ec9a7` browser reversals (R-05, 2026-10-22), #4 `d47c80e` browser refund sources (R-05, 2026-10-23), #6 `5c0847d` patched zod, #5 `042040e` UI redesign and navigation, #7 `b5ce5ef` AI assistant and tutorial centre (all 2026-10-25). Re-check: `git log --merges --oneline origin/main`.
+- Local worktrees on the development machine at this time (`git worktree list`; a snapshot only, none is the source of truth): `intuit-2.0` on `feat/ui-redesign` (`d7d2547`, behind `origin`), `intuit-2.0-assistant` on `feat/ai-assistant-tutorials` (`1fa4814`, merged), `intuit-2.0-r05` on `m4-r05-refund-sources`, `intuit-2.0-ui-update` on `ui-update`, `intuit-2.0-zod` on `fix/zod-audit`, and the worktree that holds this handover change. All merged feature branches can be removed once you no longer need them; nothing here was deleted.
+- The local branch `main` was stale (at `57ec9a7`, 9 commits behind `origin/main`) and checked out in no worktree. Bring it up to date with `git switch main && git merge --ff-only origin/main` from a worktree that is not on a feature branch. Do not reset or force anything.
+- The primary checkout has one untracked file, `e2e/refund-sources.spec.ts`. It is byte-identical to the version already in `main` (pull request #4), so it is redundant. Remove it only deliberately.
+
+### Migrations: in Git versus applied
+
+- **Migration `0096_tutorial_progress.sql` is in `main` (since `b5ce5ef`).** Being in Git says nothing about any database. The migration runner applies every pending file to whichever database `DATABASE_MIGRATION_URL` names, so running `pnpm db:setup`, `pnpm db:migrate` or any API test run applies 0096 to that database.
+- **Evidence of where it has been applied:** only to disposable databases: CI runners (the `db:setup` step of the pull request #7 `ci` runs passed) and throwaway PostgreSQL servers used for testing on 2026-10-25 (since deleted). **Whether it has been applied to `intuit2_dev`, `intuit2_trial` or `intuit2_restore_drill` was not checked and is not claimed.** To check, run read-only on each database: `SELECT version FROM schema_migrations WHERE version = '0096_tutorial_progress';` (no row means not applied).
+- Until 0096 is applied to a database, the Help centre still lists the tutorials, but progress cannot be saved or read there.
+- Total: 96 forward-only migrations (`0001` to `0096`); the next free number is **0097**.
+
+### Continuous integration (GitHub Actions, observed 2026-10-25)
+
+Confirmed from the Actions pages:
+
+- Pull request #7, `ci` [run 40201689898](https://github.com/hanzalasufiyan01/intuit-2.0/actions/runs/40201689898) (#21): the first attempt **failed in the Playwright step only**: format, lint, typecheck, the OpenAPI check, `pnpm test` (all API and web tests, including the assistant tests) and `pnpm build` passed; the dependency audit was skipped because of the failure. The run was then re-run **without any code change and passed** (11m 30s). The failing test is reported (by the owner, from the log, which was not independently read) as `e2e/restricted-user.spec.ts:32`, at `e2e/helpers.ts:159` in `refundCreditNote`; that line is the "Refund date" fill in the current file. The pull request changed no `e2e/`, workflow or refund code. See `docs/known-flaky-tests.md`.
+- Pull request #7, `deploy-smoke` [run 40201689947](https://github.com/hanzalasufiyan01/intuit-2.0/actions/runs/40201689947) (#17): passed.
+- After the merge, on `b5ce5ef`: `deploy-smoke` [run 40208833304](https://github.com/hanzalasufiyan01/intuit-2.0/actions/runs/40208833304) (#18) passed. `ci` [run 40208833293](https://github.com/hanzalasufiyan01/intuit-2.0/actions/runs/40208833293) (#22): **passed on its first attempt** (conclusion `success` from the GitHub API, last update 2026-10-25 16:07 UTC): every step, including `pnpm test`, the Playwright step and the dependency audit, completed without failure.
+- Warning on every run: GitHub's Node 20 deprecation notice for `actions/checkout@v4`, `actions/setup-node@v4` and `pnpm/action-setup@v4`; not yet addressed.
+
+### Assistant and tutorials (pull request #7)
+
+- What exists: a read-only help assistant (`POST /assistant/messages`, `GET /assistant/status`), a Help centre with ten tutorials and per-member progress (`GET /tutorials/progress`, `PUT` and `DELETE /tutorials/progress/:tutorialId`), a Help navigation group, a contextual help link and a first-sign-in prompt. Start with `docs/assistant.md` (developer guide: flow, configuration, security model, troubleshooting), `docs/assistant-user-guide.md` and `docs/tutorials.md`.
+- **The built-in help catalogue is the default** (`ASSISTANT_PROVIDER=docs`, or unset). AI wording is off unless `ASSISTANT_PROVIDER=anthropic` is set together with `ASSISTANT_API_KEY` and `ASSISTANT_MODEL` (startup fails naming the missing variable). The panel labels the mode honestly, and a failed provider call falls back to the built-in answer with a notice.
+- **The live Anthropic provider path has NOT been verified against a real provider.** It is covered only by unit tests with an injected `fetch`; no key or model was available. Do one manual check with a real key before relying on it.
+- Verified so far: unit and HTTP integration tests (the integration tests only on throwaway databases and in CI), web tests, and a manual browser pass against a throwaway database (desktop and mobile width, keyboard, console and network). Not verified: the full flow against a real provider and against the existing development database.
+- Outstanding limitations (also in `docs/known-limitations.md`): replies are English only; a fixed catalogue and three aggregate figures only (receivables, payables, year-to-date profit and loss); the conversation is not saved; progress needs migration 0096; the assistant status endpoint has no rate limit of its own.
+
+### Safe test environment (read before running any database test)
+
+- Every API test file runs `test/global-setup.ts`, which **migrates and seeds whichever database `DATABASE_URL` / `DATABASE_MIGRATION_URL` name** (from the environment or the repository-root `.env`), and the tests then insert organizations, users and audit rows that are never cleaned up. The root `pnpm test`, `pnpm test:api`, `pnpm verify`, `pnpm db:setup`, `pnpm db:migrate`, `pnpm db:seed` and `pnpm db:seed:dev` all act on that database.
+- **Never point them at `intuit2_dev`, `intuit2_trial` or `intuit2_restore_drill`** (the owner treats all three as protected; `intuit2_trial` holds fictional demonstration data).
+- Use an **isolated, disposable PostgreSQL server**: a separate data directory, bound to 127.0.0.1 on a **port other than 5432** (55432 was used), with its own roles and its own database, started and stopped by you, and deleted afterwards. Do not reuse the server on port 5432: `apps/api/src/database/bootstrap.sql` **resets the passwords of the cluster-wide roles `intuit_owner` and `intuit_app`**, so running it against a server that hosts a database you care about changes the credentials that database uses.
+- Put the connection settings in the process environment for one command (a worktree without a `.env` fails fast with "DATABASE_URL and DATABASE_MIGRATION_URL must be set", which is the safe default) and **abort unless the host is 127.0.0.1, the port is not 5432 and the database name is not a protected name** before anything runs. Never commit or print the generated credentials.
+- Seed note: `pnpm db:seed:dev` needs `DEV_SEED_PASSWORD` and a `DEV_SEED_TOTP_SECRET` of at least 16 bytes in base32 (26 or more characters); with a shorter secret it exits without creating users.
+- **The guard scripts used on 2026-10-25 are not in the repository.** They lived only in a session scratch folder and were not kept; this handover does not reconstruct them. Adding reviewed, reusable scripts for this (create, guard, run, tear down) is a separate task and the first item under "next steps". An older helper, `C:\Users\hanza\intuit-verify` (`verify.cjs`, `README.md`, `diagnose-run.ps1`), exists outside the repository; it was not reviewed for this handover. A stale run folder from it, `%LOCALAPPDATA%\Temp\intuit2-verify-20261023233731-41d1fb61`, was left in place on purpose and blocks its `create` command; do not remove it without the owner's say-so.
+- Tests that do not touch a database can be run directly: the web tests (`pnpm --filter @intuit-2/web exec vitest run`), `pnpm lint`, `pnpm format:check`, `pnpm typecheck` and `pnpm openapi:check`.
+
+### Current environment and blockers
+
+- Windows, Git Bash, Node 22, pnpm 10.28, a native PostgreSQL 16 server on port 5432 that holds the protected databases (`docs/development.md`). No container runtime on the development machine.
+- GitHub Actions is the only place the full verification (`pnpm verify` plus Playwright) is run in a clean environment. The Playwright step has `retries: 0` and one worker, and has failed intermittently (`docs/known-flaky-tests.md`).
+- Blocked on the owner: the open decisions in `docs/open-decisions.md` and `docs/remaining-scope.md` (Tier 2), MIRA rules, statutory payroll, real providers (payments, e-mail, storage, bank feeds, an AI provider key), Dhivehi translation.
+- Not executed anywhere: a real deployment, penetration test, write-path load test, clean-machine TLS tests.
+
+### Recommended next steps (in order)
+
+1. Add reviewed, reusable scripts (and a short section in `docs/development.md`) for the disposable PostgreSQL environment described above, with the target guard built in. Docs and scripts only; no application code.
+2. Apply migration 0096 to the development database with the normal process (owner run), then check the Help centre and the assistant end to end there. Optionally do one controlled manual check of `ASSISTANT_PROVIDER=anthropic` with a real key and model.
+3. Make the Playwright step diagnosable and steadier: when a run fails, read the `playwright-failure-…` artifact (screenshot, `error-context.md`, API request log) and record the failing test; then decide on an explicit wait for the refund form and/or one CI retry. Also update the three GitHub actions off the deprecated Node 20 runtime.
+4. Then the Tier 2 owner decisions in `docs/remaining-scope.md`, and the remaining R-05 browser coverage (the password re-confirmation prompt).
 
 ## 1. Repository state
 
-- **Branch:** `main`, at `58983e8` on `origin` (2026-10-21): the six commits below (`7a7bb4c`..`74add07`) and the CI fixes after them are pushed. The deployment smoke work (milestone M1: `c41f1e0`, `761de39`, `26391f3`) is on branch `m1-deploy-smoke`, pull request #1, not merged. Check with `git log --oneline origin/main` and `git status`.
+- **(Historical, as of 2026-10-21; the current state is in section 0.) Branch:** `main`, at `58983e8` on `origin` (2026-10-21): the six commits below (`7a7bb4c`..`74add07`) and the CI fixes after them are pushed. The deployment smoke work (milestone M1: `c41f1e0`, `761de39`, `26391f3`) is on branch `m1-deploy-smoke`, pull request #1, not merged. Check with `git log --oneline origin/main` and `git status`.
 - The six commits (approved 2026-10-20, pushed 2026-10-21): (1) migrations `0059`-`0094` (36 files, all new); (2) the API: the rest of `apps/api/` and `.env.example`; (3) the web app: `apps/web/` (features, English localization, tests); (4) root tooling and Playwright: `e2e/`, `playwright.config.ts`, `package.json`, `pnpm-lock.yaml`, `.gitignore`, `.prettierignore`; (5) ops and CI: `Dockerfile`, `.dockerignore`, `deploy/`, `.github/workflows/ci.yml`, `eslint.config.js`; (6) docs: `docs/` and `README.md`. The order matters: the API tests need the migrations, the root `openapi:check` script calls the API package's script, and CI runs `pnpm verify` and `pnpm e2e`. Finer splits are not possible without hunk staging because the work shares files (`app.ts`, `api/v1/index.ts`, the permission catalog, `messages.en.ts`).
 - `.claude/` was never touched. `.env` is git-ignored and holds local secrets; do not commit it.
 - **Stage files explicitly; do not use `git add -A` or `git add .`.** `.claude/` (local Claude Code settings such as `launch.json`) is now listed in `.gitignore`, but a blanket add can still pick up other local or generated files. Stage by path (for example `git add apps/api/src/database/migrations/0059_webhook_enabled_at.sql ...`), then check `git diff --cached --name-only` before committing: it must list no `.claude/` path and no `.env` file.
@@ -18,7 +78,7 @@ Prerequisites: Node 22.12+, pnpm 10.28, PostgreSQL 16 as the native service on p
 pnpm install
 cp .env.example .env        # replace every CHANGE_ME; see section 3
 pnpm db:bootstrap           # once: roles intuit_owner / intuit_app and database intuit2_dev (needs the postgres password)
-pnpm db:setup               # migrations (0001-0094) and reference-data seed
+pnpm db:setup               # migrations (0001-0096) and reference-data seed
 pnpm db:seed:dev            # optional example data (needs DEV_SEED_PASSWORD)
 pnpm dev                    # API :3000, web http://localhost:5173
 ```
@@ -70,7 +130,7 @@ Last recorded results (the matrix `docs/requirements-matrix.md` and `docs/securi
 
 ## 5. Migration status
 
-94 forward-only migrations, `0001` to `0094`, in `apps/api/src/database/migrations/`. Applied migrations are checksum-protected and are never edited: fix with a new migration. Every new migration must be added to the registry in `apps/api/test/s2-fixes.test.ts` and to the table in `docs/integration-plan.md` (next free number: **0095**).
+96 forward-only migrations, `0001` to `0096` (updated 2026-10-25; 0095 depreciation methods, 0096 tutorial progress), in `apps/api/src/database/migrations/`. Applied migrations are checksum-protected and are never edited: fix with a new migration. Every new migration must be added to the registry in `apps/api/test/s2-fixes.test.ts` and to the table in `docs/integration-plan.md` (next free number: **0097**). A migration file in Git is not the same as a migration applied to a database: see section 0.
 
 Recent ones: 0084 branch access, 0085 entity groups, 0086 clinic consent/retention, 0087 tax treatment, 0088 classification (groups, custom fields, categories, barcodes), 0089 payroll one-off amounts, 0090 variants and bins, 0091 delivery notes and reservations, 0092 expense policies, 0093 petty cash, 0094 expense trend export domain.
 
@@ -90,7 +150,7 @@ Modular monolith: Fastify API (`apps/api`), React/Vite web (`apps/web`), one Pos
 
 The authoritative lists are `docs/requirements-matrix.md` (finishing plan, FP-nn rows) and `docs/master-spec-coverage.md` (every bullet of the master specification). Summary:
 
-- **Complete and tested:** auth/MFA/RBAC/tenancy/audit; accounting core and statements; sales, purchases, banking, inventory (average cost, warehouses, lots/serials, landed cost, units, bundles, counts, returns); purchase orders, fixed assets (straight-line), expense claims; public API and webhooks; payroll (components, runs, salary history, leave, advances, payslips, one-off amounts, register); projects; clinic administrative/billing/consent/retention; customer portal v1 (statement links), simulated payment gateway; branch access, entity groups; tax treatment; classification; delivery/reservations; expense policies; petty cash.
+- **Complete and tested (assistant and tutorial centre added 2026-10-25, live AI provider unverified: section 0):** auth/MFA/RBAC/tenancy/audit; accounting core and statements; sales, purchases, banking, inventory (average cost, warehouses, lots/serials, landed cost, units, bundles, counts, returns); purchase orders, fixed assets (straight-line), expense claims; public API and webhooks; payroll (components, runs, salary history, leave, advances, payslips, one-off amounts, register); projects; clinic administrative/billing/consent/retention; customer portal v1 (statement links), simulated payment gateway; branch access, entity groups; tax treatment; classification; delivery/reservations; expense policies; petty cash.
 - **Partial:** localization (infrastructure done and English extraction complete on 2026-10-20: 99 of 100 pages use the catalog, the last one, `SalesSection.tsx`, renders no text; 3,437 English catalog keys; 0 Dhivehi on purpose: no qualified translator yet; translator notes and the strings kept in English on purpose are in `docs/design/localization.md`); management reports; clinic (no scheduling extras or clinical records); several master-spec rows listed there.
 - **Blocked on outside input:** every MIRA-dependent item (return layout, rates, withholding), statutory payroll rules, a real payment provider, real e-mail/S3 credentials, bank feeds/OCR/SMS providers, customer/vendor portal sign-in, Dhivehi translation (needs a qualified translator).
 - **Verified only on disposable CI runners:** container build and stack, CI (`docs/operations.md` section 9). **Not executed anywhere:** clean-environment TLS tests, production-scale restore, penetration test, write-path load test, a real deployment.
@@ -101,7 +161,7 @@ The exact questions, with a suggested default for each, are in `docs/open-decisi
 
 ## 10. Exact remaining requirements (from `docs/master-spec-coverage.md`)
 
-NOT DONE or NEEDS DECISION, in priority order:
+NOT DONE or NEEDS DECISION, in priority order. (Dated 2026-10-19. Since then R-02 (partly), R-03, R-04, R-05 (partly), R-06 and R-11 have been done or advanced: `docs/remaining-scope.md` is the current list and wins over this one.)
 
 1. MIRA-dependent: tax return data and reconciliation, tax types governed list, compound/multiple taxes, withholding, rounding rules, branch/entity tax applicability.
 2. Payroll: statutory rules, employment types, attendance, payout through a provider, payslip e-mail with the PDF (consent decision).

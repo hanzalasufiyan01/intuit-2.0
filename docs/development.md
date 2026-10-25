@@ -157,7 +157,11 @@ Open http://localhost:5173. The Vite dev server proxies `/api` to the API, so th
 
 ## Tests
 
-API integration tests run against the real `intuit2_dev` database, using the same two roles as the application:
+API integration tests run against the real database named by `DATABASE_URL` and `DATABASE_MIGRATION_URL` (by default `intuit2_dev`), using the same two roles as the application.
+
+> **Safety.** The global setup below **migrates and seeds whichever database those variables name**, and the tests add rows that are never removed. Do not point them (or `pnpm test`, `pnpm test:api`, `pnpm verify`, `pnpm db:setup`, `pnpm db:migrate`, `pnpm db:seed`, `pnpm db:seed:dev`) at a database you want to keep. For a safe run, use an isolated, disposable PostgreSQL server: its own data directory, bound to 127.0.0.1 on a port other than 5432, with its own roles and database, and a check that aborts unless the target is that server. Do not run `bootstrap.sql` against a server that hosts other databases: it resets the passwords of the shared roles `intuit_owner` and `intuit_app`. The details, and the fact that reviewed scripts for this are not yet in the repository, are in `docs/HANDOVER.md` section 0 ("Safe test environment").
+
+The setup and the tests behave as follows:
 
 - Global setup applies migrations and the seed as `intuit_owner`.
 - The app under test connects as `intuit_app` and is exercised through HTTP (`fastify.inject`).
