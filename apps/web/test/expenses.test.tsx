@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { App, createQueryClient } from '../src/app/App';
 import { routes } from '../src/app/routes';
 import { makeSession } from './fake-api';
+import { expectConfirmFlow } from './confirm-flow';
 
 /**
  * Phase 4B-9: the direct-expense pages (ADR 0004 P4-44). The server decides; the pages follow the
@@ -292,5 +293,36 @@ describe('expense detail', () => {
     await waitFor(() => expect(screen.getAllByText(/Expense EXP-00001/).length).toBeGreaterThan(0));
     expect(screen.queryByRole('button', { name: 'Void expense' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Post expense' })).toBeNull();
+  });
+});
+
+describe('delete a draft expense (confirmation dialog)', () => {
+  it('asks in a dialog first; cancelling by button, Escape or outside sends nothing', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi({
+      ...common(CREATE),
+      'GET /purchases/expenses/e1': ok(detail()),
+      'DELETE /purchases/expenses/e1': () => ({ status: 204 }),
+    });
+    renderAt('/purchases/expenses/e1');
+    await screen.findByRole('button', { name: 'Delete' });
+    await expectConfirmFlow({
+      user,
+      trigger: () => screen.getByRole('button', { name: 'Delete' }),
+      title: 'Delete this draft?',
+      message: 'Delete this draft expense?',
+      confirmName: 'Delete',
+      requestSent: () =>
+        calls.some(
+          (c) => c.method === 'DELETE' && c.url.pathname.endsWith('/purchases/expenses/e1'),
+        ),
+    });
+  });
+
+  it('does not offer Delete without expenses.create', async () => {
+    stubApi({ ...common(VIEW), 'GET /purchases/expenses/e1': ok(detail()) });
+    renderAt('/purchases/expenses/e1');
+    await screen.findAllByText(/Expense/);
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
 import { formatAmount } from '../../shared/money';
+import { Badge } from '../../shared/ui/Badge';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { ExportButton } from '../data-exchange/ExportButton';
@@ -105,7 +106,10 @@ function AccountName({
       {row.code ? `${row.code} ` : ''}
       {row.name}
       {row.archived ? (
-        <span className="badge badge--archived"> {t('reports.reportPages.archived')}</span>
+        <>
+          {' '}
+          <Badge tone="neutral">{t('reports.reportPages.archived')}</Badge>
+        </>
       ) : null}
     </span>
   );

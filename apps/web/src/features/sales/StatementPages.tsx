@@ -10,6 +10,7 @@ import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
+import { DataTable } from '../../shared/ui/Table';
 import { TextField } from '../../shared/ui/TextField';
 import { useT } from '../../i18n/i18n';
 
@@ -185,7 +186,9 @@ export function PublicStatementPage() {
           )}
           <ErrorAlert error={pay.error} />
           {s.invoices.length > 0 ? (
-            <table className="table">
+            <DataTable
+              label={t('sales.statementPages.statementFor', { customerName: s.customerName })}
+            >
               <thead>
                 <tr>
                   <th>{t('sales.statementPages.invoice')}</th>
@@ -231,12 +234,12 @@ export function PublicStatementPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </DataTable>
           ) : null}
           {s.receipts.length > 0 ? (
             <>
               <h3>{t('sales.statementPages.recentPaymentsReceived')}</h3>
-              <table className="table">
+              <DataTable label={t('sales.statementPages.recentPaymentsReceived')}>
                 <tbody>
                   {s.receipts.map((r) => (
                     <tr key={r.number}>
@@ -246,7 +249,7 @@ export function PublicStatementPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </DataTable>
             </>
           ) : null}
         </>

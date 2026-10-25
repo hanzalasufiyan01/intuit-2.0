@@ -6,6 +6,7 @@ import { Permission, usePermission } from '../../permissions/permissions';
 import { api, type ApiError } from '../../services/api-client';
 import { COMMON_CURRENCIES, sumAmounts } from '../../shared/money';
 import { ErrorAlert } from '../../shared/ui/Alert';
+import { Badge } from '../../shared/ui/Badge';
 import { Button } from '../../shared/ui/Button';
 import { TextField } from '../../shared/ui/TextField';
 import { requiredTypesFor, useAccountingSetup, useAccounts, useDimensions } from './shared';
@@ -315,11 +316,11 @@ export function JournalEditor({ journal, onSaved }: JournalEditorProps) {
             <th data-testid="total-debit">{totals.debit.toFixed()}</th>
             <th data-testid="total-credit">{totals.credit.toFixed()}</th>
             <th>
-              <span className={totals.balanced ? 'badge badge--posted' : 'badge badge--closed'}>
+              <Badge tone={totals.balanced ? 'success' : 'neutral'}>
                 {totals.balanced
                   ? translate('accounting.journalEditor.balanced')
                   : translate('accounting.journalEditor.notBalanced')}
-              </span>
+              </Badge>
             </th>
           </tr>
         </tfoot>

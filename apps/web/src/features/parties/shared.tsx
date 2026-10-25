@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../../services/api-client';
 import type { Country } from './types';
 import { useT } from '../../i18n/i18n';
+import { SelectField } from '../../shared/ui/SelectField';
 
 /** Country reference data (S4-05); cached for the session. */
 export function useCountries() {
@@ -32,24 +33,22 @@ export function CountrySelect({
   const countries = useCountries();
   const t = useT();
   return (
-    <div className="field">
-      <label htmlFor={id}>{label}</label>
-      <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">{t('parties.selectCountry')}</option>
-        {(countries.data ?? [])
-          .filter((c) => c.isActive || c.code === value)
-          .map((c) => (
-            <option key={c.code} value={c.code}>
-              {c.name}
-            </option>
-          ))}
-      </select>
-      {error ? (
-        <small className="field__error" role="alert">
-          {error}
-        </small>
-      ) : null}
-    </div>
+    <SelectField
+      id={id}
+      label={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      error={error}
+    >
+      <option value="">{t('parties.selectCountry')}</option>
+      {(countries.data ?? [])
+        .filter((c) => c.isActive || c.code === value)
+        .map((c) => (
+          <option key={c.code} value={c.code}>
+            {c.name}
+          </option>
+        ))}
+    </SelectField>
   );
 }
 

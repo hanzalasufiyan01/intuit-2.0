@@ -97,7 +97,7 @@ describe('stock counts text', () => {
       within(row)
         .getAllByRole('cell')
         .map((c) => c.textContent),
-    ).toEqual(['CNT-00001', '2026-03-31', '1', 'posted']);
+    ).toEqual(['CNT-00001', '2026-03-31', '1', 'Posted']);
     expect(screen.getAllByRole('columnheader').map((c) => c.textContent)).toEqual([
       'Number',
       'Date',
@@ -115,7 +115,7 @@ describe('stock counts text', () => {
     expect(await screen.findByText('No counts yet.')).toBeTruthy();
   });
 
-  it('shows a draft count, warns before posting unsaved figures, and asks why it is cancelled', async () => {
+  it('shows a draft count, warns inline before posting unsaved figures, and asks why it is cancelled', async () => {
     const user = userEvent.setup();
     const alert = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
     const prompt = vi.spyOn(window, 'prompt').mockReturnValue('Wrong shelf');
@@ -126,16 +126,25 @@ describe('stock counts text', () => {
     });
     renderAt('/inventory/counts/c1');
     expect(await screen.findByRole('heading', { name: 'Count CNT-00001' })).toBeTruthy();
-    expect(screen.getByText('2026-03-31 · draft')).toBeTruthy();
+    expect(screen.getByText('2026-03-31 · Draft')).toBeTruthy();
     expect(screen.getAllByRole('columnheader').map((c) => c.textContent)).toEqual([
       'Item',
       'Expected',
       'Counted',
       'Difference',
     ]);
+    expect(screen.queryByText('Save the counted quantities first.')).toBeNull();
     await user.type(screen.getByLabelText('Counted quantity for Coconut oil 1L'), '8');
     await user.click(screen.getByRole('button', { name: 'Post differences' }));
-    expect(alert).toHaveBeenCalledWith('Save the counted quantities first.');
+    // The warning is an inline alert, not a browser dialog, and nothing is posted.
+    expect(screen.getByRole('alert').textContent).toBe('Save the counted quantities first.');
+    expect(alert).not.toHaveBeenCalled();
+    expect(calls.filter((c) => c.method === 'POST')).toEqual([]);
+    // Changing a figure clears the warning again.
+    await user.type(screen.getByLabelText('Counted quantity for Coconut oil 1L'), '5');
+    expect(screen.queryByRole('alert')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Post differences' }));
+    expect(screen.getByRole('alert').textContent).toBe('Save the counted quantities first.');
     await user.click(screen.getByRole('button', { name: 'Cancel count' }));
     expect(prompt).toHaveBeenCalledWith('Why is this count cancelled?');
     await waitFor(() => {

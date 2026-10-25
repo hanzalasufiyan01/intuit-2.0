@@ -6,7 +6,7 @@ import { COMMON_CURRENCIES } from '../../shared/money';
 import { ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card } from '../../shared/ui/Card';
-import { Spinner } from '../../shared/ui/Spinner';
+import { LoadingState } from '../../shared/ui/LoadingState';
 import { TextField } from '../../shared/ui/TextField';
 import {
   orNull,
@@ -165,7 +165,7 @@ export function DocumentEditor({
     onSave(body);
   };
 
-  if (settings.isPending || customers.isPending) return <Spinner label={t('common.loading')} />;
+  if (settings.isPending || customers.isPending) return <LoadingState />;
   const activeCodes = (taxCodes.data ?? []).filter((c) => c.status === 'ACTIVE');
 
   return (

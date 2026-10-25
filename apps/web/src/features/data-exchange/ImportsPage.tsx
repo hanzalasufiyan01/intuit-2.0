@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useApiMutation } from '../../auth/auth-context';
 import { api } from '../../services/api-client';
 import { ErrorAlert } from '../../shared/ui/Alert';
+import { Badge, toneOf, type BadgeTone } from '../../shared/ui/Badge';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
@@ -17,6 +18,7 @@ import {
   type ImportDomainKey,
 } from './api';
 import { useT } from '../../i18n/i18n';
+import type { ImportStatus } from './api';
 
 /** Import history and the start of a new import (S6-44). */
 export function ImportsPage() {
@@ -133,9 +135,7 @@ export function ImportsPage() {
                     <td>{b.domainLabel}</td>
                     <td>{b.fileName ?? '—'}</td>
                     <td>
-                      <span className={`badge badge--import-${b.status}`}>
-                        {t(`imports.status.${b.status}`)}
-                      </span>
+                      <ImportStatusBadge status={b.status} />
                     </td>
                     <td>{b.counts.total || '—'}</td>
                   </tr>
@@ -146,5 +146,29 @@ export function ImportsPage() {
         )}
       </Card>
     </>
+  );
+}
+
+const IMPORT_STATUS_TONE: Record<ImportStatus, BadgeTone> = {
+  awaiting_file: 'neutral',
+  ready: 'info',
+  validating: 'info',
+  validated: 'success',
+  failed_file: 'danger',
+  committing: 'info',
+  committed: 'success',
+  needs_review: 'warning',
+  cancelled: 'neutral',
+  expired: 'neutral',
+};
+
+/** An import batch's status; one the page does not know is neutral and shown as it came. */
+export function ImportStatusBadge({ status }: { status: string }) {
+  const t = useT();
+  const known = Object.hasOwn(IMPORT_STATUS_TONE, status);
+  return (
+    <Badge tone={toneOf(IMPORT_STATUS_TONE, status)}>
+      {known ? t(`imports.status.${status as ImportStatus}`) : status}
+    </Badge>
   );
 }

@@ -23,18 +23,22 @@ export function createQueryClient(): QueryClient {
 
 type AppRouter = ReturnType<typeof createBrowserRouter> | ReturnType<typeof createMemoryRouter>;
 
-/** Application providers: TanStack Query -> authentication state -> router. */
+/**
+ * Application providers: TanStack Query -> authentication state -> locale -> re-authentication ->
+ * router. The locale sits above re-authentication so that its dialog (which renders text through
+ * `useT()`) follows the language the user chose; the locale provider depends on nothing below it.
+ */
 export function App({ router, queryClient }: { router?: AppRouter; queryClient?: QueryClient }) {
   const [client] = useState(() => queryClient ?? createQueryClient());
   const [appRouter] = useState(() => router ?? createBrowserRouter(routes));
   return (
     <QueryClientProvider client={client}>
       <AuthProvider>
-        <ReauthProvider>
-          <AppLocaleProvider>
+        <AppLocaleProvider>
+          <ReauthProvider>
             <RouterProvider router={appRouter} />
-          </AppLocaleProvider>
-        </ReauthProvider>
+          </ReauthProvider>
+        </AppLocaleProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

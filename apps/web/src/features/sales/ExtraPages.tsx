@@ -8,9 +8,11 @@ import { api } from '../../services/api-client';
 import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
+import { MappedStatusBadge, statusText, type StatusEntry } from '../../shared/ui/StatusBadge';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { PayOnlinePanel } from './PaymentPages';
 import { Spinner } from '../../shared/ui/Spinner';
+import { DataTable } from '../../shared/ui/Table';
 import { TextField } from '../../shared/ui/TextField';
 import { SalesNav, useCustomerOptions, useItemOptions } from './shared';
 import { DeliveryPanel } from './DeliveryPages';
@@ -122,7 +124,9 @@ export function SalesOrdersPage() {
                     <td>{nameOf(o.customerId)}</td>
                     <td>{o.orderDate}</td>
                     <td className="num">{formatAmount(o.netTotal, 'MVR')}</td>
-                    <td>{o.status.toLowerCase().replace('_', ' ')}</td>
+                    <td>
+                      <OrderStatusBadge status={o.status} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -265,7 +269,7 @@ export function SalesOrderDetailPage() {
       <SalesNav />
       <PageHeader
         title={o ? t('sales.extraPages.order', { number: o.number }) : t('sales.extraPages.order2')}
-        description={o ? o.status.toLowerCase().replace('_', ' ') : undefined}
+        description={o ? statusText(t, ORDER_STATUS, o.status) : undefined}
       />
       {order.isPending ? <Spinner /> : null}
       <ErrorAlert error={order.error} />
@@ -642,7 +646,9 @@ export function ShareLinksPanel({ invoiceId }: { invoiceId: string }) {
           <tbody>
             {links.data.map((l) => (
               <tr key={l.id}>
-                <td>{l.status}</td>
+                <td>
+                  <ShareLinkStatusBadge status={l.status} />
+                </td>
                 <td>{new Date(l.expiresAt).toLocaleDateString()}</td>
                 <td className="num">{l.viewCount}</td>
                 <td>
@@ -725,7 +731,7 @@ export function PublicInvoicePage() {
                     : '',
                 })}
               </p>
-              <table className="table">
+              <DataTable label={t('sales.extraPages.invoice2', { number: inv.number })}>
                 <thead>
                   <tr>
                     <th>{t('sales.extraPages.description')}</th>
@@ -758,7 +764,7 @@ export function PublicInvoicePage() {
                     <th className="num">{money(inv.amountDue)}</th>
                   </tr>
                 </tfoot>
-              </table>
+              </DataTable>
               <PayOnlinePanel
                 token={token}
                 currencyCode={inv.currencyCode}
@@ -770,4 +776,31 @@ export function PublicInvoicePage() {
       ) : null}
     </main>
   );
+}
+
+/** Sales-order statuses: confirmed is open (info), partially invoiced is partial (warning), invoiced is success, cancelled is danger. */
+const ORDER_STATUS = {
+  DRAFT: { key: 'sales.extraPages.orderStatus.DRAFT', tone: 'neutral' },
+  CONFIRMED: { key: 'sales.extraPages.orderStatus.CONFIRMED', tone: 'info' },
+  PARTIALLY_INVOICED: { key: 'sales.extraPages.orderStatus.PARTIALLY_INVOICED', tone: 'warning' },
+  INVOICED: { key: 'sales.extraPages.orderStatus.INVOICED', tone: 'success' },
+  CANCELLED: { key: 'sales.extraPages.orderStatus.CANCELLED', tone: 'danger' },
+} satisfies Record<
+  'DRAFT' | 'CONFIRMED' | 'PARTIALLY_INVOICED' | 'INVOICED' | 'CANCELLED',
+  StatusEntry
+>;
+
+export function OrderStatusBadge({ status }: { status: string }) {
+  return <MappedStatusBadge map={ORDER_STATUS} status={status} />;
+}
+
+/** Invoice share-link statuses: active is success, expired is neutral, revoked is danger. */
+const SHARE_LINK_STATUS = {
+  active: { key: 'sales.extraPages.linkStatus.active', tone: 'success' },
+  expired: { key: 'sales.extraPages.linkStatus.expired', tone: 'neutral' },
+  revoked: { key: 'sales.extraPages.linkStatus.revoked', tone: 'danger' },
+} satisfies Record<'active' | 'expired' | 'revoked', StatusEntry>;
+
+export function ShareLinkStatusBadge({ status }: { status: string }) {
+  return <MappedStatusBadge map={SHARE_LINK_STATUS} status={status} />;
 }

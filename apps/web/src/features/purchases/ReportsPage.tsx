@@ -5,6 +5,7 @@ import { useT, type MessageKey } from '../../i18n/i18n';
 import { api } from '../../services/api-client';
 import { COMMON_CURRENCIES, formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
+import { Badge } from '../../shared/ui/Badge';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
@@ -1014,7 +1015,7 @@ function StatusCell({ status }: { status: 'RECORDED' | 'VOID' }) {
   return (
     <td>
       {status === 'VOID' ? (
-        <span className="badge badge--void">{t('purchases.reports.statusVoid')}</span>
+        <Badge tone="danger">{t('purchases.reports.statusVoid')}</Badge>
       ) : (
         t('purchases.reports.statusRecorded')
       )}

@@ -7,6 +7,7 @@ import { Permission, usePermission } from '../../permissions/permissions';
 import { api } from '../../services/api-client';
 import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
+import { Badge } from '../../shared/ui/Badge';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
@@ -169,9 +170,7 @@ export function ExpiringLotsPage() {
                   <td>
                     {l.expiryDate}{' '}
                     {l.expired ? (
-                      <span className="badge badge--error">
-                        {t('inventory.advancedPages.expired')}
-                      </span>
+                      <Badge tone="danger">{t('inventory.advancedPages.expired')}</Badge>
                     ) : (
                       <small className="muted">
                         {t('inventory.advancedPages.inDays', { daysToExpiry: l.daysToExpiry })}

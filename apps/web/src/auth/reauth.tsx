@@ -8,11 +8,12 @@ import {
   type ReactNode,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useT } from '../i18n/i18n';
 import { api, ApiError } from '../services/api-client';
 import type { SessionState } from '../services/types';
 import { ErrorAlert } from '../shared/ui/Alert';
 import { Button } from '../shared/ui/Button';
-import { Card } from '../shared/ui/Card';
+import { Dialog } from '../shared/ui/Dialog';
 import { TextField } from '../shared/ui/TextField';
 import { SESSION_QUERY_KEY } from './auth-context';
 
@@ -29,6 +30,7 @@ const ReauthContext = createContext<Runner | null>(null);
  * retries the action.
  */
 export function ReauthProvider({ children }: { children: ReactNode }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const [value, setValue] = useState('');
@@ -85,8 +87,8 @@ export function ReauthProvider({ children }: { children: ReactNode }) {
     setPrompt(null);
     pending.current?.reject(
       kind === 'code'
-        ? new ApiError(403, 'MFA_STEP_UP_REQUIRED', 'Verification cancelled.', null)
-        : new ApiError(403, 'REAUTHENTICATION_REQUIRED', 'Password confirmation cancelled.', null),
+        ? new ApiError(403, 'MFA_STEP_UP_REQUIRED', t('reauth.cancelled.code'), null)
+        : new ApiError(403, 'REAUTHENTICATION_REQUIRED', t('reauth.cancelled.password'), null),
     );
   };
 
@@ -94,65 +96,55 @@ export function ReauthProvider({ children }: { children: ReactNode }) {
     <ReauthContext.Provider value={run}>
       {children}
       {prompt ? (
-        <div
-          className="modal-backdrop"
-          role="dialog"
-          aria-modal="true"
-          aria-label={prompt === 'password' ? 'Confirm your password' : 'Enter a verification code'}
+        <Dialog
+          title={prompt === 'password' ? t('reauth.password.title') : t('reauth.code.title')}
+          description={prompt === 'password' ? t('reauth.password.body') : t('reauth.code.body')}
+          onClose={cancel}
         >
-          <div className="modal">
-            <Card
-              title={prompt === 'password' ? 'Confirm your password' : 'Enter a verification code'}
-            >
-              <p className="muted">
-                {prompt === 'password'
-                  ? 'This is a sensitive action. Confirm your password to continue.'
-                  : 'This is a security change. Enter a code from your authenticator app to confirm it.'}
-              </p>
-              <form className="form" onSubmit={(e) => void submit(e)}>
-                <ErrorAlert error={error} />
-                {prompt === 'password' ? (
-                  <TextField
-                    label="Password"
-                    type="password"
-                    autoComplete="current-password"
-                    value={value}
-                    onChange={(e) => setValue(e.target.value)}
-                    autoFocus
-                  />
-                ) : (
-                  <>
-                    <TextField
-                      label={method === 'totp' ? 'Authenticator code' : 'Recovery code'}
-                      inputMode={method === 'totp' ? 'numeric' : 'text'}
-                      autoComplete={method === 'totp' ? 'one-time-code' : 'off'}
-                      value={value}
-                      onChange={(e) => setValue(e.target.value)}
-                      autoFocus
-                    />
-                    <button
-                      type="button"
-                      className="link-button"
-                      onClick={() => setMethod(method === 'totp' ? 'recovery_code' : 'totp')}
-                    >
-                      {method === 'totp'
-                        ? 'Use a recovery code instead'
-                        : 'Use your authenticator app'}
-                    </button>
-                  </>
-                )}
-                <div className="actions">
-                  <Button type="submit" busy={busy}>
-                    Confirm
-                  </Button>
-                  <Button variant="secondary" onClick={cancel}>
-                    Cancel
-                  </Button>
-                </div>
-              </form>
-            </Card>
-          </div>
-        </div>
+          <form className="form" onSubmit={(e) => void submit(e)}>
+            <ErrorAlert error={error} />
+            {prompt === 'password' ? (
+              <TextField
+                label={t('reauth.field.password')}
+                type="password"
+                autoComplete="current-password"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                autoFocus
+              />
+            ) : (
+              <>
+                <TextField
+                  label={
+                    method === 'totp'
+                      ? t('reauth.field.authenticatorCode')
+                      : t('reauth.field.recoveryCode')
+                  }
+                  inputMode={method === 'totp' ? 'numeric' : 'text'}
+                  autoComplete={method === 'totp' ? 'one-time-code' : 'off'}
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => setMethod(method === 'totp' ? 'recovery_code' : 'totp')}
+                >
+                  {method === 'totp' ? t('reauth.useRecovery') : t('reauth.useAuthenticator')}
+                </button>
+              </>
+            )}
+            <div className="actions">
+              <Button type="submit" busy={busy}>
+                {t('common.confirm')}
+              </Button>
+              <Button variant="secondary" onClick={cancel}>
+                {t('common.cancel')}
+              </Button>
+            </div>
+          </form>
+        </Dialog>
       ) : null}
     </ReauthContext.Provider>
   );

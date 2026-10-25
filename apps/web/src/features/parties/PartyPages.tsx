@@ -7,7 +7,13 @@ import { api, type ApiError } from '../../services/api-client';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
+import { EmptyState } from '../../shared/ui/EmptyState';
+import { LoadingState } from '../../shared/ui/LoadingState';
+import { Badge } from '../../shared/ui/Badge';
+import { DataTable, RowActions } from '../../shared/ui/Table';
 import { Spinner } from '../../shared/ui/Spinner';
+import { CheckboxField } from '../../shared/ui/CheckboxField';
+import { SelectField } from '../../shared/ui/SelectField';
 import { TextField } from '../../shared/ui/TextField';
 import { AttachmentsCard } from '../files/AttachmentsCard';
 import { ExportButton } from '../data-exchange/ExportButton';
@@ -102,30 +108,28 @@ export function PartiesPage() {
               ))}
             </select>
           </div>
-          <div className="field">
-            <label htmlFor="party-status-filter">{t('parties.partyPages.status')}</label>
-            <select
-              id="party-status-filter"
-              value={filters.status}
-              onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-            >
-              <option value="active">{t('parties.partyPages.active')}</option>
-              <option value="archived">{t('parties.partyPages.archived')}</option>
-              <option value="all">{t('common.all')}</option>
-            </select>
-          </div>
+          <SelectField
+            id="party-status-filter"
+            label={t('parties.partyPages.status')}
+            value={filters.status}
+            onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+          >
+            <option value="active">{t('parties.partyPages.active')}</option>
+            <option value="archived">{t('parties.partyPages.archived')}</option>
+            <option value="all">{t('common.all')}</option>
+          </SelectField>
           <Button type="submit">{t('common.search')}</Button>
         </form>
       </Card>
       <Card>
         {list.isPending ? (
-          <Spinner label={t('parties.partyPages.loadingContacts')} />
+          <LoadingState label={t('parties.partyPages.loadingContacts')} />
         ) : list.isError ? (
           <ErrorAlert error={list.error} />
         ) : items.length === 0 ? (
-          <p className="muted">{t('parties.partyPages.noContactsFound')}</p>
+          <EmptyState message={t('parties.partyPages.noContactsFound')} />
         ) : (
-          <table className="table">
+          <DataTable label={t('parties.partyPages.contacts')}>
             <thead>
               <tr>
                 <th>{t('parties.partyPages.name')}</th>
@@ -146,9 +150,7 @@ export function PartiesPage() {
                   <td>{p.email}</td>
                   <td>
                     {p.status === 'ARCHIVED' ? (
-                      <span className="badge badge--archived">
-                        {t('parties.partyPages.archived2')}
-                      </span>
+                      <Badge tone="neutral">{t('parties.partyPages.archived2')}</Badge>
                     ) : (
                       t('parties.partyPages.active')
                     )}
@@ -156,7 +158,7 @@ export function PartiesPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         )}
         {list.hasNextPage ? (
           <Button
@@ -273,21 +275,19 @@ function HeaderFields({
         <div>
           <strong>{t('parties.partyPages.roles')}</strong>
           {PARTY_ROLES.map((role) => (
-            <label key={role} className="checkbox">
-              <input
-                type="checkbox"
-                checked={draft.roles.includes(role)}
-                onChange={() =>
-                  onChange({
-                    ...draft,
-                    roles: draft.roles.includes(role)
-                      ? draft.roles.filter((r) => r !== role)
-                      : [...draft.roles, role],
-                  })
-                }
-              />{' '}
-              {ROLE_LABELS[role]}
-            </label>
+            <CheckboxField
+              key={role}
+              label={ROLE_LABELS[role]}
+              checked={draft.roles.includes(role)}
+              onChange={() =>
+                onChange({
+                  ...draft,
+                  roles: draft.roles.includes(role)
+                    ? draft.roles.filter((r) => r !== role)
+                    : [...draft.roles, role],
+                })
+              }
+            />
           ))}
         </div>
       </div>
@@ -402,7 +402,7 @@ function ContactsCard({
   );
   return (
     <Card title={t('parties.partyPages.contactPersons')}>
-      <table className="table">
+      <DataTable label={t('parties.partyPages.contactPersons')}>
         <thead>
           <tr>
             <th>{t('parties.partyPages.name')}</th>
@@ -427,7 +427,7 @@ function ContactsCard({
               <td>{c.jobTitle}</td>
               <td>{c.email}</td>
               <td>{c.phone}</td>
-              <td className="actions">
+              <RowActions>
                 {canUpdate && !c.isPrimary ? (
                   <Button
                     variant="ghost"
@@ -448,11 +448,11 @@ function ContactsCard({
                     {t('common.remove')}
                   </Button>
                 ) : null}
-              </td>
+              </RowActions>
             </tr>
           ))}
         </tbody>
-      </table>
+      </DataTable>
       <ErrorAlert error={change.error} />
       {canUpdate ? (
         <form
@@ -490,22 +490,16 @@ function ContactsCard({
             value={form.phone}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
           />
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={form.isPrimary}
-              onChange={(e) => setForm({ ...form, isPrimary: e.target.checked })}
-            />{' '}
-            {t('parties.partyPages.primary2')}
-          </label>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={form.receivesDocuments}
-              onChange={(e) => setForm({ ...form, receivesDocuments: e.target.checked })}
-            />{' '}
-            {t('parties.partyPages.receivesDocuments2')}
-          </label>
+          <CheckboxField
+            label={t('parties.partyPages.primary2')}
+            checked={form.isPrimary}
+            onChange={(e) => setForm({ ...form, isPrimary: e.target.checked })}
+          />
+          <CheckboxField
+            label={t('parties.partyPages.receivesDocuments2')}
+            checked={form.receivesDocuments}
+            onChange={(e) => setForm({ ...form, receivesDocuments: e.target.checked })}
+          />
           <Button type="submit" busy={add.isPending}>
             {t('parties.partyPages.addContactPerson')}
           </Button>
@@ -559,7 +553,7 @@ function AddressesCard({
   );
   return (
     <Card title={t('parties.partyPages.addresses')}>
-      <table className="table">
+      <DataTable label={t('parties.partyPages.addresses')}>
         <thead>
           <tr>
             <th>{t('parties.partyPages.kind')}</th>
@@ -585,7 +579,7 @@ function AddressesCard({
                   .join(', ')}
               </td>
               <td>{a.countryCode}</td>
-              <td className="actions">
+              <RowActions>
                 {canUpdate && !a.isDefault ? (
                   <Button
                     variant="ghost"
@@ -606,11 +600,11 @@ function AddressesCard({
                     {t('common.remove')}
                   </Button>
                 ) : null}
-              </td>
+              </RowActions>
             </tr>
           ))}
         </tbody>
-      </table>
+      </DataTable>
       <ErrorAlert error={change.error} />
       {canUpdate ? (
         <form
@@ -670,14 +664,11 @@ function AddressesCard({
             onChange={(countryCode) => setForm({ ...form, countryCode })}
             error={add.error?.fieldError('countryCode')}
           />
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={form.isDefault}
-              onChange={(e) => setForm({ ...form, isDefault: e.target.checked })}
-            />{' '}
-            {t('parties.partyPages.default2')}
-          </label>
+          <CheckboxField
+            label={t('parties.partyPages.default2')}
+            checked={form.isDefault}
+            onChange={(e) => setForm({ ...form, isDefault: e.target.checked })}
+          />
           <Button type="submit" busy={add.isPending}>
             {t('parties.partyPages.addAddress')}
           </Button>

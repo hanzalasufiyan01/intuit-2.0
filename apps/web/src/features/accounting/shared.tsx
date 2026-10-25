@@ -5,8 +5,9 @@ import { useAuth } from '../../auth/auth-context';
 import { Can, Permission, usePermission } from '../../permissions/permissions';
 import { api } from '../../services/api-client';
 import { Alert } from '../../shared/ui/Alert';
+import { Badge, toneOf, type BadgeTone } from '../../shared/ui/Badge';
 import type { Account, DimensionType, JournalStatus, SetupState } from './types';
-import { useT } from '../../i18n/i18n';
+import { useT, type Translate } from '../../i18n/i18n';
 
 export function useOrgKey(): string {
   return useAuth().activeOrganization?.id ?? 'none';
@@ -142,17 +143,44 @@ export function AccountingPage({ children }: { children: ReactNode }) {
   );
 }
 
-export function StatusBadge({
-  status,
-}: {
-  status: JournalStatus | 'OPEN' | 'CLOSED' | 'ACTIVE' | 'ARCHIVED';
-}) {
+/** The tone of each posting status, as the stylesheet colours them: stated here, not inferred. */
+export const POSTING_STATUS_TONES: Record<
+  'DRAFT' | 'PENDING_APPROVAL' | 'POSTED' | 'REVERSED',
+  BadgeTone
+> = {
+  DRAFT: 'neutral',
+  PENDING_APPROVAL: 'warning',
+  POSTED: 'success',
+  REVERSED: 'danger',
+};
+
+type AccountingStatus = JournalStatus | 'OPEN' | 'CLOSED' | 'ACTIVE' | 'ARCHIVED';
+
+const ACCOUNTING_STATUS_TONES: Record<AccountingStatus, BadgeTone> = {
+  ...POSTING_STATUS_TONES,
+  DISCARDED: 'neutral',
+  OPEN: 'success',
+  CLOSED: 'neutral',
+  ACTIVE: 'success',
+  ARCHIVED: 'neutral',
+};
+
+/** The translated label of a journal, period, account or dimension status, for running text. */
+export function accountingStatusLabel(t: Translate, status: string): string {
+  return Object.hasOwn(ACCOUNTING_STATUS_TONES, status)
+    ? t(`acct.status.${status as AccountingStatus}`)
+    : status;
+}
+
+/**
+ * A journal, period, account or dimension status, translated; one the page does not know is neutral and
+ * shown as it came. It takes a string because the server can name a status before this page knows it.
+ */
+export function StatusBadge({ status }: { status: string }) {
   const t = useT();
-  const journalStatuses = ['DRAFT', 'PENDING_APPROVAL', 'POSTED', 'REVERSED', 'DISCARDED'];
-  const label = journalStatuses.includes(status)
-    ? t(`acct.status.${status as JournalStatus}`)
-    : status.toLowerCase();
-  return <span className={`badge badge--${status.toLowerCase()}`}>{label}</span>;
+  return (
+    <Badge tone={toneOf(ACCOUNTING_STATUS_TONES, status)}>{accountingStatusLabel(t, status)}</Badge>
+  );
 }
 
 export function journalLabel(journal: { number: number | null; id: string }): string {

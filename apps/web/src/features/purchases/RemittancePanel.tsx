@@ -7,6 +7,7 @@ import { api } from '../../services/api-client';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card } from '../../shared/ui/Card';
+import { TextareaField } from '../../shared/ui/TextareaField';
 import { TextField } from '../../shared/ui/TextField';
 import { useOrgKey } from '../sales/shared';
 import type { PaymentStatus, RemittanceEmail, RemittanceStatus, VendorSummary } from './types';
@@ -140,16 +141,14 @@ export function RemittancePanel({
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
           />
-          <div className="field">
-            <label htmlFor={messageId}>{t('purchases.remittance.message')}</label>
-            <textarea
-              id={messageId}
-              rows={3}
-              maxLength={4000}
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-            />
-          </div>
+          <TextareaField
+            id={messageId}
+            label={t('purchases.remittance.message')}
+            rows={3}
+            maxLength={4000}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+          />
           {/* The button is busy while a request is in flight: no accidental double-click. */}
           <Button type="submit" variant="secondary" busy={send.isPending}>
             {t('purchases.remittance.send')}

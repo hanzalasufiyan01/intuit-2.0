@@ -109,6 +109,7 @@ describe('expense trend page', () => {
     });
     renderAt('/accounting/reports/expense-trend');
     await screen.findByText('5400 Utilities');
+    expect(screen.getByRole('search', { name: 'Filters' })).toBeTruthy();
     await user.clear(screen.getByLabelText('From'));
     await user.type(screen.getByLabelText('From'), '2025-07-01');
     await user.clear(screen.getByLabelText('To'));

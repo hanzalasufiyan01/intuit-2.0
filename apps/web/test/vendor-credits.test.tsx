@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { App, createQueryClient } from '../src/app/App';
 import { routes } from '../src/app/routes';
 import { makeSession } from './fake-api';
+import { expectConfirmFlow } from './confirm-flow';
 
 /** Phase 4B-1: the vendor credit / debit note UI (permission-aware; amounts from the server). */
 
@@ -281,5 +282,30 @@ describe('vendor credit detail', () => {
     expect(await screen.findByRole('heading', { name: 'Draft Debit note' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Post' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Edit' })).toBeNull();
+  });
+});
+
+describe('delete a draft vendor credit (confirmation dialog)', () => {
+  it('asks in a dialog first; cancelling by button, Escape or outside sends nothing', async () => {
+    const user = userEvent.setup();
+    const calls = stubApi({
+      ...common(ALL),
+      'GET /purchases/vendor-credits/vc-1': ok(credit()),
+      'GET /purchases/vendor-credits/vc-1/emails': ok([]),
+      'DELETE /purchases/vendor-credits/vc-1': () => ({ status: 204 }),
+    });
+    renderAt('/purchases/vendor-credits/vc-1');
+    await screen.findByRole('button', { name: 'Delete' });
+    await expectConfirmFlow({
+      user,
+      trigger: () => screen.getByRole('button', { name: 'Delete' }),
+      title: 'Delete this draft?',
+      message: 'Delete this draft vendor credit?',
+      confirmName: 'Delete',
+      requestSent: () =>
+        calls.some(
+          (c) => c.method === 'DELETE' && c.url.pathname.endsWith('/purchases/vendor-credits/vc-1'),
+        ),
+    });
   });
 });

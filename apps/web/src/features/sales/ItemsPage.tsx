@@ -7,7 +7,8 @@ import { api, ApiError } from '../../services/api-client';
 import { ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
-import { Spinner } from '../../shared/ui/Spinner';
+import { EmptyState } from '../../shared/ui/EmptyState';
+import { LoadingState } from '../../shared/ui/LoadingState';
 import { TextField } from '../../shared/ui/TextField';
 import { useAccounts } from '../accounting/shared';
 import { ExportButton } from '../data-exchange/ExportButton';
@@ -369,11 +370,11 @@ export function ItemsPage() {
         </form>
         <ErrorAlert error={toggle.error} />
         {list.isPending ? (
-          <Spinner label={t('common.loading')} />
+          <LoadingState />
         ) : list.isError ? (
           <ErrorAlert error={list.error} />
         ) : list.data.items.length === 0 ? (
-          <p className="muted">{t('sales.items.none')}</p>
+          <EmptyState message={t('sales.items.none')} />
         ) : (
           <table className="table">
             <thead>

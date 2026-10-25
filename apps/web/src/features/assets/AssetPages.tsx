@@ -7,6 +7,7 @@ import { Can, Permission, usePermission } from '../../permissions/permissions';
 import { api, ApiError } from '../../services/api-client';
 import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
+import { Badge, toneOf, type BadgeTone } from '../../shared/ui/Badge';
 import { Button } from '../../shared/ui/Button';
 import { Card, PageHeader } from '../../shared/ui/Card';
 import { Spinner } from '../../shared/ui/Spinner';
@@ -294,13 +295,7 @@ export function AssetsPage() {
                   <td className="num">{formatAmount(a.accumulatedDepreciation, 'MVR')}</td>
                   <td className="num">{formatAmount(a.bookValue, 'MVR')}</td>
                   <td>
-                    <span
-                      className={`badge badge--${a.status === 'ACTIVE' ? 'posted' : 'reversed'}`}
-                    >
-                      {a.status === 'ACTIVE'
-                        ? t('assets.assetPages.inUse')
-                        : t('assets.assetPages.disposed')}
-                    </span>
+                    <AssetStatusBadge status={a.status} />
                   </td>
                 </tr>
               ))}
@@ -598,9 +593,7 @@ export function AssetPage() {
       />
       <p>
         <Link to="/assets">{t('assets.assetPages.register2')}</Link>{' '}
-        <span className={`badge badge--${a.status === 'ACTIVE' ? 'posted' : 'reversed'}`}>
-          {a.status === 'ACTIVE' ? t('assets.assetPages.inUse') : t('assets.assetPages.disposed')}
-        </span>
+        <AssetStatusBadge status={a.status} />
       </p>
       <p className="muted">
         {a.depreciationMethod === 'declining_balance'
@@ -1162,4 +1155,21 @@ export function AssetReportsPage() {
       </Card>
     </>
   );
+}
+
+const ASSET_STATUS_TONE: Record<'ACTIVE' | 'DISPOSED', BadgeTone> = {
+  ACTIVE: 'success',
+  DISPOSED: 'danger',
+};
+
+/** An asset's status: in use is success, disposed is danger, any other status is neutral and shown as it came. */
+export function AssetStatusBadge({ status }: { status: string }) {
+  const t = useT();
+  const label =
+    status === 'ACTIVE'
+      ? t('assets.assetPages.inUse')
+      : status === 'DISPOSED'
+        ? t('assets.assetPages.disposed')
+        : status;
+  return <Badge tone={toneOf(ASSET_STATUS_TONE, status)}>{label}</Badge>;
 }

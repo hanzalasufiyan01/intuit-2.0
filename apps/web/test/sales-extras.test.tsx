@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
@@ -187,6 +187,14 @@ describe('public invoice page', () => {
     renderAt('/p/invoice/good');
     expect(await screen.findByText('Invoice INV-00001')).toBeTruthy();
     expect(screen.getByText('Support')).toBeTruthy();
+    // The lines table scrolls sideways inside its own region, so a phone page never widens.
+    const region = screen.getByRole('region', { name: 'Invoice INV-00001' });
+    expect(region.classList.contains('table-scroll')).toBe(true);
+    expect(within(region).getByRole('table')).toBeTruthy();
+    expect(within(region).getByText('Support')).toBeTruthy();
+    for (const table of document.querySelectorAll('table')) {
+      expect(table.closest('.table-scroll')).not.toBeNull();
+    }
     expect(screen.queryByRole('link', { name: /sign in/i })).toBeNull();
   });
 

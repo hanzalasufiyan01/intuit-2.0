@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
@@ -69,6 +69,10 @@ describe('sales trend page', () => {
     });
     renderAt('/sales/trend');
     expect(await screen.findByText('2026-03-01')).toBeTruthy();
+    // The period form is a labelled search form (FilterBar) that still runs the report on submit.
+    expect(screen.getByRole('search', { name: 'Filters' }).classList.contains('filters')).toBe(
+      true,
+    );
     await user.selectOptions(screen.getByLabelText('Group by'), 'week');
     await user.click(screen.getByRole('button', { name: 'Run report' }));
     await waitFor(() =>
@@ -137,8 +141,24 @@ describe('inventory reports page', () => {
     renderAt('/inventory/reports');
     expect(await screen.findByText('Shortfall')).toBeTruthy();
     expect(screen.getByText('Coconut oil 1L')).toBeTruthy();
+    const lowPanel = screen.getByRole('tabpanel', { name: 'Low stock' });
+    expect(within(lowPanel).getByText('Coconut oil 1L')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Low stock' }).getAttribute('aria-controls')).toBe(
+      lowPanel.id,
+    );
     await user.click(screen.getByRole('tab', { name: 'Slow-moving stock' }));
     expect(await screen.findByText('31–60 days')).toBeTruthy();
+    const slowPanel = screen.getByRole('tabpanel', { name: 'Slow-moving stock' });
+    expect(within(slowPanel).getByRole('search', { name: 'Filters' })).toBeTruthy();
+    // Arrow keys move between the views and the selected view's panel follows.
+    screen.getByRole('tab', { name: 'Slow-moving stock' }).focus();
+    await user.keyboard('{ArrowRight}');
+    expect(await screen.findAllByText('83.33')).toBeTruthy();
+    expect(screen.getByRole('tabpanel', { name: 'COGS and profitability' })).toBeTruthy();
+    await user.keyboard('{Home}');
+    expect(screen.getByRole('tab', { name: 'Low stock' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
     await user.click(screen.getByRole('tab', { name: 'COGS and profitability' }));
     expect(await screen.findAllByText('83.33')).toBeTruthy();
   });

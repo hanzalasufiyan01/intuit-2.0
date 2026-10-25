@@ -8,7 +8,9 @@ import { api } from '../../services/api-client';
 import { formatAmount } from '../../shared/money';
 import { Alert, ErrorAlert } from '../../shared/ui/Alert';
 import { Button } from '../../shared/ui/Button';
+import { MappedStatusBadge, type StatusEntry } from '../../shared/ui/StatusBadge';
 import { Card, PageHeader } from '../../shared/ui/Card';
+import { ConfirmDialog } from '../../shared/ui/ConfirmDialog';
 import { Spinner } from '../../shared/ui/Spinner';
 import { TextField } from '../../shared/ui/TextField';
 import { useCustomerOptions } from '../sales/shared';
@@ -209,7 +211,9 @@ export function AppointmentsPage() {
                         '—'}
                     </td>
                     <td>{services.data?.find((s) => s.id === a.serviceId)?.name ?? '—'}</td>
-                    <td>{a.status.toLowerCase().replace('_', ' ')}</td>
+                    <td>
+                      <AppointmentStatusBadge status={a.status} />
+                    </td>
                     <td>
                       {a.status === 'BOOKED' ? (
                         <>
@@ -445,7 +449,9 @@ export function PatientsPage() {
                     </td>
                     <td>{p.displayName}</td>
                     <td>{p.nationalId ?? '—'}</td>
-                    <td>{p.status.toLowerCase()}</td>
+                    <td>
+                      <PatientStatusBadge status={p.status} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -536,12 +542,10 @@ export function PatientDetailPage() {
     refetchOnWindowFocus: false,
     staleTime: Infinity,
   });
-  const anonymize = useApiMutation((p: PatientRow) => {
-    if (!window.confirm(t('clinic.clinicPages.anonymizingRemovesThisPersonS'))) {
-      return Promise.resolve(null);
-    }
-    return sensitive(() => api.post(`/clinic/patients/${p.id}/anonymize`, { version: p.version }));
-  });
+  const [confirmingAnonymize, setConfirmingAnonymize] = useState(false);
+  const anonymize = useApiMutation((p: PatientRow) =>
+    sensitive(() => api.post(`/clinic/patients/${p.id}/anonymize`, { version: p.version })),
+  );
   const p = patient.data;
   return (
     <>
@@ -554,7 +558,9 @@ export function PatientDetailPage() {
             <tbody>
               <tr>
                 <td>{t('clinic.clinicPages.status')}</td>
-                <td>{p.status.toLowerCase()}</td>
+                <td>
+                  <PatientStatusBadge status={p.status} />
+                </td>
               </tr>
               <tr>
                 <td>{t('clinic.clinicPages.dateOfBirth')}</td>
@@ -575,17 +581,35 @@ export function PatientDetailPage() {
             </tbody>
           </table>
           {canManage && p.status === 'ACTIVE' ? (
-            <Button
-              variant="ghost"
-              onClick={() =>
-                anonymize.mutate(p, {
-                  onSuccess: () =>
-                    void queryClient.invalidateQueries({ queryKey: ['clinic-patient', org, id] }),
-                })
-              }
-            >
-              {t('clinic.clinicPages.anonymizePatient')}
-            </Button>
+            <>
+              {/* While the request runs (including a password prompt) the button ignores clicks but
+                  stays focusable: a disabled opener could not take focus back when that prompt is
+                  cancelled, so aria-disabled and a guard are used instead of the busy prop. */}
+              <Button
+                variant="ghost"
+                aria-disabled={anonymize.isPending || undefined}
+                onClick={() => {
+                  if (!anonymize.isPending) setConfirmingAnonymize(true);
+                }}
+              >
+                {t('clinic.clinicPages.anonymizePatient')}
+              </Button>
+              <ConfirmDialog
+                open={confirmingAnonymize}
+                title={t('confirm.anonymizePatient.title')}
+                message={t('clinic.clinicPages.anonymizingRemovesThisPersonS')}
+                confirmLabel={t('clinic.clinicPages.anonymizePatient')}
+                destructive
+                onCancel={() => setConfirmingAnonymize(false)}
+                onConfirm={() => {
+                  setConfirmingAnonymize(false);
+                  anonymize.mutate(p, {
+                    onSuccess: () =>
+                      void queryClient.invalidateQueries({ queryKey: ['clinic-patient', org, id] }),
+                  });
+                }}
+              />
+            </>
           ) : null}
           <ErrorAlert error={anonymize.error} />
         </Card>
@@ -886,4 +910,27 @@ export function ClinicReportsPage() {
       ) : null}
     </>
   );
+}
+
+/** Appointment statuses: booked is info, checked in is waiting (warning), completed is success, cancelled and no-show are danger. */
+const APPOINTMENT_STATUS = {
+  BOOKED: { key: 'clinic.clinicPages.appointmentStatus.BOOKED', tone: 'info' },
+  CHECKED_IN: { key: 'clinic.clinicPages.appointmentStatus.CHECKED_IN', tone: 'warning' },
+  COMPLETED: { key: 'clinic.clinicPages.appointmentStatus.COMPLETED', tone: 'success' },
+  CANCELLED: { key: 'clinic.clinicPages.appointmentStatus.CANCELLED', tone: 'danger' },
+  NO_SHOW: { key: 'clinic.clinicPages.appointmentStatus.NO_SHOW', tone: 'danger' },
+} satisfies Record<'BOOKED' | 'CHECKED_IN' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW', StatusEntry>;
+
+export function AppointmentStatusBadge({ status }: { status: string }) {
+  return <MappedStatusBadge map={APPOINTMENT_STATUS} status={status} />;
+}
+
+/** Patient statuses: active is success, anonymized is neutral (out of use). */
+const PATIENT_STATUS = {
+  ACTIVE: { key: 'clinic.clinicPages.patientStatus.ACTIVE', tone: 'success' },
+  ANONYMIZED: { key: 'clinic.clinicPages.patientStatus.ANONYMIZED', tone: 'neutral' },
+} satisfies Record<'ACTIVE' | 'ANONYMIZED', StatusEntry>;
+
+export function PatientStatusBadge({ status }: { status: string }) {
+  return <MappedStatusBadge map={PATIENT_STATUS} status={status} />;
 }
