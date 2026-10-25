@@ -50,6 +50,9 @@ const ORIGINAL_DESTINATIONS = [
   '/settings/security',
 ];
 
+/** Added after the grouping: the Help centre group, visible to every signed-in member. */
+const ADDED_DESTINATIONS = ['/help'];
+
 const GROUPS: Record<string, { links: string[]; hrefs: string[] }> = {
   Finance: {
     links: ['Accounting', 'Banking', 'Fixed assets', 'Expense claims'],
@@ -94,6 +97,7 @@ const GROUPS: Record<string, { links: string[]; hrefs: string[] }> = {
     links: ['Audit log', 'Security'],
     hrefs: ['/audit', '/settings/security'],
   },
+  Help: { links: ['Help centre'], hrefs: ['/help'] },
 };
 
 function stubApi(permissions: string[], modules: Modules = NO_MODULES) {
@@ -174,9 +178,10 @@ describe('grouping and route coverage', () => {
     const { nav } = await renderShell(ALL_PERMISSIONS, { modules: ALL_MODULES });
 
     const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'));
-    expect(hrefs).toHaveLength(ORIGINAL_DESTINATIONS.length);
+    const expected = [...ORIGINAL_DESTINATIONS, ...ADDED_DESTINATIONS];
+    expect(hrefs).toHaveLength(expected.length);
     expect(new Set(hrefs).size).toBe(hrefs.length);
-    expect([...hrefs].sort()).toEqual([...ORIGINAL_DESTINATIONS].sort());
+    expect([...hrefs].sort()).toEqual([...expected].sort());
 
     for (const [name, expectedGroup] of Object.entries(GROUPS)) {
       const panel = document.getElementById(group(name).getAttribute('aria-controls')!)!;
@@ -195,7 +200,7 @@ describe('grouping and route coverage', () => {
   });
 
   it('points every destination at a route that exists', () => {
-    for (const to of ORIGINAL_DESTINATIONS) {
+    for (const to of [...ORIGINAL_DESTINATIONS, ...ADDED_DESTINATIONS]) {
       expect(matchRoutes(routes, to), to).not.toBeNull();
     }
   });
@@ -221,6 +226,7 @@ describe('permission and module gating', () => {
       'Ownership',
       'Entity groups',
       'Modules',
+      'Help centre',
     ]);
     expect(queryGroup('Data')).not.toBeNull();
     expect(queryGroup('Organization')).not.toBeNull();
@@ -264,11 +270,12 @@ describe('permission and module gating', () => {
     expect(queryGroup('People & projects')).toBeNull();
   });
 
-  it('shows only Overview and Exports to a user with no permissions', async () => {
+  it('shows only Overview, Exports and the Help centre to a user with no permissions', async () => {
     const { nav } = await renderShell([]);
     expect([...nav.querySelectorAll('a')].map((a) => a.textContent)).toEqual([
       'Overview',
       'Exports',
+      'Help centre',
     ]);
   });
 });
@@ -284,6 +291,7 @@ describe('active route and active group', () => {
       ['security', 'Security & audit'],
       ['data', 'Data'],
       ['integrations', 'Integrations'],
+      ['help', 'Help'],
     ] as const) {
       expect(expanded(label), label).toBe(NAV_DEFAULT_EXPANDED[id]);
     }

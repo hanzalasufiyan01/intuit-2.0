@@ -12,6 +12,7 @@ This document is the runbook for running Intuit 2.0 in a real environment. **Sta
 | File store | `STORAGE_PROVIDER=local` (`STORAGE_LOCAL_ROOT`) or `s3` (any S3-compatible service) | The S3 adapter is tested against a fake store only; never run against a real bucket.  |
 
 | E-mail | `EMAIL_PROVIDER=smtp` (required in production) | The server refuses to start in production with the mock provider. |
+| Help assistant | `ASSISTANT_PROVIDER=docs` (default) or `anthropic` | Optional AI wording; needs `ASSISTANT_API_KEY` and `ASSISTANT_MODEL`. Not exercised against a real provider yet. See `assistant.md`. |
 
 **One API instance.** The job worker, the outbox dispatcher and the maintenance polls use `SKIP LOCKED` queues and are safe to run twice, but the local file store is not shared. Scale vertically, or put `STORAGE_LOCAL_ROOT` on a shared volume, before running more than one instance.
 

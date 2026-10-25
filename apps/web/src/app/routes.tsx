@@ -117,6 +117,7 @@ import { SetupPage } from '../features/accounting/SetupPage';
 import { ApprovalPoliciesPage } from '../features/approvals/ApprovalPoliciesPage';
 import { AuditPage } from '../features/audit/AuditPage';
 import { DashboardPage } from '../features/dashboard/DashboardPage';
+import { HelpCentrePage, TutorialPage } from '../features/help/HelpPages';
 import { AcceptInvitationPage } from '../features/invitations/AcceptInvitationPage';
 import { MembersPage } from '../features/members/MembersPage';
 import { CreateOrganizationPage } from '../features/organizations/CreateOrganizationPage';
@@ -296,6 +297,9 @@ export const routes: RouteObject[] = [
           },
           { path: 'organizations/new', element: <CreateOrganizationPage /> },
           { path: 'account/security', element: <AccountSecurityPage /> },
+          // Help centre: open to every signed-in member (their own progress only).
+          { path: 'help', element: <HelpCentrePage /> },
+          { path: 'help/tutorials/:tutorialId', element: <TutorialPage /> },
           {
             path: 'settings/security',
             element: (

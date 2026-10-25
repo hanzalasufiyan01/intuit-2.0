@@ -6,65 +6,67 @@ Owned by the integrator. Streams record here, before they write code, every clai
 
 Migrations are strictly sequential (no reserved gaps). Before creating one, a stream reads the highest number here and in `apps/api/src/database/migrations`, claims the next, and adds a row. An applied migration is never edited.
 
-| Number | Name                            | Stream / stage   | Status                       |
-| ------ | ------------------------------- | ---------------- | ---------------------------- |
-| 0039   | `remittance_advice`             | A / 4B-7         | committed (`8d162be`)        |
-| 0040   | `purchases_exports`             | A / 4B-8         | committed (`f9cc34b`, local) |
-| 0041   | `expenses`                      | A / 4B-9         | committed (`501db90`, local) |
-| 0042   | `opening_ap_documents`          | A / opening AP   | committed (`cd44d29`, local) |
-| 0043   | `purchases_imports`             | A / imports      | committed (`0603922`, local) |
-| 0044   | `purchases_permission_backfill` | A / 4B-12        | committed (`01078df`, local) |
-| 0045   | `banking`                       | B / Banking      | committed (`003233f`, local) |
-| 0046   | `inventory`                     | B / Inventory    | committed (`dd25ce4`, local) |
-| 0047   | `purchase_orders`               | B / PO           | committed (`f25b305`, local) |
-| 0048   | `fixed_assets`                  | C / Fixed assets | committed (`8099887`, local) |
-| 0049   | `expense_claims`                | D / Claims       | committed (local)            |
-| 0050   | `customer_refunds`              | E / Refunds      | committed (local)            |
-| 0051   | `fixed_asset_source_bill`       | C / FA guard     | committed (local)            |
-| 0052   | `xlsx_format`                   | F / XLSX         | committed (local)            |
-| 0053   | `service_principals`            | G / Public API 1 | committed (local)            |
-| 0054   | `audit_api_token_actor`         | G / Public API 1 | committed (local)            |
-| 0055   | `public_api_permissions`        | G / Public API 2 | committed (local)            |
-| 0056   | `api_integrations`              | G / Public API 2 | committed (local)            |
-| 0057   | `api_rate_windows`              | G / Public API 3 | committed (local)            |
-| 0058   | `webhooks`                      | G / Public API 6 | committed (`c0b61cb`, local) |
-| 0059   | `webhook_enabled_at`            | G / Public API 6 | local only (uncommitted)     |
-| 0060   | `ownership_transfer_workflow`   | H / Completion 1 | local only (uncommitted)     |
-| 0061   | `operational_metrics`           | H / Completion 2 | local only (uncommitted)     |
-| 0062   | `inventory_returns`             | H / Completion 3 | local only (uncommitted)     |
-| 0063   | `vendor_returns`                | H / Completion 3 | local only (uncommitted)     |
-| 0064   | `storage_provider_s3`           | H / Completion 3 | local only (uncommitted)     |
-| 0065   | `organization_modules`          | H / Completion 3 | local only (uncommitted)     |
-| 0066   | `payroll`                       | H / Completion 3 | local only (uncommitted)     |
-| 0067   | `projects`                      | H / Completion 3 | local only (uncommitted)     |
-| 0068   | `quotes_recurring`              | H / Completion 3 | local only (uncommitted)     |
-| 0069   | `clinic`                        | H / Completion 3 | local only (uncommitted)     |
-| 0070   | `sales_extras`                  | H / Completion 3 | local only (uncommitted)     |
-| 0071   | `stock_counts`                  | H / Completion 3 | local only (uncommitted)     |
-| 0072   | `project_tasks`                 | H / Completion 3 | local only (uncommitted)     |
-| 0073   | `payroll_leave_advances`        | H / Completion 3 | local only (uncommitted)     |
-| 0074   | `leave_cancel_constraint`       | H / Completion 3 | local only (uncommitted)     |
-| 0075   | `payment_gateway`               | H / Completion 3 | local only (uncommitted)     |
-| 0076   | `customer_statement_links`      | H / Completion 3 | local only (uncommitted)     |
-| 0077   | `inventory_bundles`             | H / Completion 3 | local only (uncommitted)     |
-| 0078   | `warehouses`                    | H / Completion 3 | local only (uncommitted)     |
-| 0079   | `lots_serials`                  | H / Completion 3 | local only (uncommitted)     |
-| 0080   | `lot_levels_fix`                | H / Completion 3 | local only (uncommitted)     |
-| 0081   | `landed_cost`                   | H / Completion 3 | local only (uncommitted)     |
-| 0082   | `item_units`                    | H / Completion 3 | local only (uncommitted)     |
-| 0083   | `payroll_salary_history`        | H / Completion 3 | local only (uncommitted)     |
-| 0084   | `branch_scopes`                 | H / Completion 3 | local only (uncommitted)     |
-| 0085   | `organization_groups`           | H / Completion 3 | local only (uncommitted)     |
-| 0086   | `clinic_consent_retention`      | H / Completion 3 | local only (uncommitted)     |
-| 0087   | `tax_treatment`                 | H / Completion 3 | local only (uncommitted)     |
-| 0088   | `classification`                | H / Completion 3 | local only (uncommitted)     |
-| 0089   | `payroll_run_adjustments`       | H / Completion 3 | local only (uncommitted)     |
-| 0090   | `variants_bins`                 | H / Completion 3 | local only (uncommitted)     |
-| 0091   | `delivery_reservations`         | H / Completion 3 | local only (uncommitted)     |
-| 0092   | `expense_policies`              | H / Completion 3 | local only (uncommitted)     |
-| 0093   | `petty_cash`                    | H / Completion 3 | local only (uncommitted)     |
-| 0094   | `expense_trend_export`          | H / Completion 3 | local only (uncommitted)     |
-| 0095   | (next free: claim before use)   | —                |                              |
+| Number | Name                               | Stream / stage        | Status                       |
+| ------ | ---------------------------------- | --------------------- | ---------------------------- |
+| 0039   | `remittance_advice`                | A / 4B-7              | committed (`8d162be`)        |
+| 0040   | `purchases_exports`                | A / 4B-8              | committed (`f9cc34b`, local) |
+| 0041   | `expenses`                         | A / 4B-9              | committed (`501db90`, local) |
+| 0042   | `opening_ap_documents`             | A / opening AP        | committed (`cd44d29`, local) |
+| 0043   | `purchases_imports`                | A / imports           | committed (`0603922`, local) |
+| 0044   | `purchases_permission_backfill`    | A / 4B-12             | committed (`01078df`, local) |
+| 0045   | `banking`                          | B / Banking           | committed (`003233f`, local) |
+| 0046   | `inventory`                        | B / Inventory         | committed (`dd25ce4`, local) |
+| 0047   | `purchase_orders`                  | B / PO                | committed (`f25b305`, local) |
+| 0048   | `fixed_assets`                     | C / Fixed assets      | committed (`8099887`, local) |
+| 0049   | `expense_claims`                   | D / Claims            | committed (local)            |
+| 0050   | `customer_refunds`                 | E / Refunds           | committed (local)            |
+| 0051   | `fixed_asset_source_bill`          | C / FA guard          | committed (local)            |
+| 0052   | `xlsx_format`                      | F / XLSX              | committed (local)            |
+| 0053   | `service_principals`               | G / Public API 1      | committed (local)            |
+| 0054   | `audit_api_token_actor`            | G / Public API 1      | committed (local)            |
+| 0055   | `public_api_permissions`           | G / Public API 2      | committed (local)            |
+| 0056   | `api_integrations`                 | G / Public API 2      | committed (local)            |
+| 0057   | `api_rate_windows`                 | G / Public API 3      | committed (local)            |
+| 0058   | `webhooks`                         | G / Public API 6      | committed (`c0b61cb`, local) |
+| 0059   | `webhook_enabled_at`               | G / Public API 6      | local only (uncommitted)     |
+| 0060   | `ownership_transfer_workflow`      | H / Completion 1      | local only (uncommitted)     |
+| 0061   | `operational_metrics`              | H / Completion 2      | local only (uncommitted)     |
+| 0062   | `inventory_returns`                | H / Completion 3      | local only (uncommitted)     |
+| 0063   | `vendor_returns`                   | H / Completion 3      | local only (uncommitted)     |
+| 0064   | `storage_provider_s3`              | H / Completion 3      | local only (uncommitted)     |
+| 0065   | `organization_modules`             | H / Completion 3      | local only (uncommitted)     |
+| 0066   | `payroll`                          | H / Completion 3      | local only (uncommitted)     |
+| 0067   | `projects`                         | H / Completion 3      | local only (uncommitted)     |
+| 0068   | `quotes_recurring`                 | H / Completion 3      | local only (uncommitted)     |
+| 0069   | `clinic`                           | H / Completion 3      | local only (uncommitted)     |
+| 0070   | `sales_extras`                     | H / Completion 3      | local only (uncommitted)     |
+| 0071   | `stock_counts`                     | H / Completion 3      | local only (uncommitted)     |
+| 0072   | `project_tasks`                    | H / Completion 3      | local only (uncommitted)     |
+| 0073   | `payroll_leave_advances`           | H / Completion 3      | local only (uncommitted)     |
+| 0074   | `leave_cancel_constraint`          | H / Completion 3      | local only (uncommitted)     |
+| 0075   | `payment_gateway`                  | H / Completion 3      | local only (uncommitted)     |
+| 0076   | `customer_statement_links`         | H / Completion 3      | local only (uncommitted)     |
+| 0077   | `inventory_bundles`                | H / Completion 3      | local only (uncommitted)     |
+| 0078   | `warehouses`                       | H / Completion 3      | local only (uncommitted)     |
+| 0079   | `lots_serials`                     | H / Completion 3      | local only (uncommitted)     |
+| 0080   | `lot_levels_fix`                   | H / Completion 3      | local only (uncommitted)     |
+| 0081   | `landed_cost`                      | H / Completion 3      | local only (uncommitted)     |
+| 0082   | `item_units`                       | H / Completion 3      | local only (uncommitted)     |
+| 0083   | `payroll_salary_history`           | H / Completion 3      | local only (uncommitted)     |
+| 0084   | `branch_scopes`                    | H / Completion 3      | local only (uncommitted)     |
+| 0085   | `organization_groups`              | H / Completion 3      | local only (uncommitted)     |
+| 0086   | `clinic_consent_retention`         | H / Completion 3      | local only (uncommitted)     |
+| 0087   | `tax_treatment`                    | H / Completion 3      | local only (uncommitted)     |
+| 0088   | `classification`                   | H / Completion 3      | local only (uncommitted)     |
+| 0089   | `payroll_run_adjustments`          | H / Completion 3      | local only (uncommitted)     |
+| 0090   | `variants_bins`                    | H / Completion 3      | local only (uncommitted)     |
+| 0091   | `delivery_reservations`            | H / Completion 3      | local only (uncommitted)     |
+| 0092   | `expense_policies`                 | H / Completion 3      | local only (uncommitted)     |
+| 0093   | `petty_cash`                       | H / Completion 3      | local only (uncommitted)     |
+| 0094   | `expense_trend_export`             | H / Completion 3      | local only (uncommitted)     |
+| 0095   | `fixed_asset_depreciation_methods` | H / Completion 3      | merged to main (PR #2)       |
+| 0096   | `tutorial_progress`                | Assistant / Tutorials | this branch (not applied)    |
+| 0097   | (next free: claim before use)      | —                     |                              |
 
 0058 is committed in the local commit `c0b61cb` (not pushed). 0059 is an uncommitted file, applied to the local development/test database only; no migration has been deployed or pushed. ADR 0011 Step 6 (including CR-0011-S6-01) was accepted locally on 2026-10-15: not committed, not pushed, not deployed and not production-certified. Migration 0060 (ownership transfer workflow, ADR 0012) belongs to the completion mandate of 2026-10-17 and is also local only.
 

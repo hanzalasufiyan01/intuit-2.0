@@ -414,6 +414,7 @@ describe('Decision 90 — additive dimension permission backfill (migration 0008
       '0093_petty_cash', // petty cash funds and counts (spec section 13)
       '0094_expense_trend_export', // export domain for the expense trend (R-02)
       '0095_fixed_asset_depreciation_methods', // declining-balance methods per asset (R-11)
+      '0096_tutorial_progress', // per-member tutorial progress (Help centre)
     ]);
     const { rows } = await owner.query(
       `SELECT version FROM schema_migrations WHERE version = '0008_dimension_permission_backfill'`,

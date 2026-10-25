@@ -19,6 +19,8 @@ export class ApiError extends Error {
     message: string,
     readonly requestId: string | null,
     readonly issues: { path: string; message: string }[] = [],
+    /** Seconds the server asked the client to wait (the Retry-After header), when it sent one. */
+    readonly retryAfterSeconds: number | null = null,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -59,6 +61,11 @@ export function setSessionStateErrorHandler(handler: ((code: string) => void) | 
 export interface RequestOptions {
   /** Decision 23: a retried request with the same key replays the first result. */
   idempotencyKey?: string;
+}
+
+function parseRetryAfter(value: string | null): number | null {
+  const seconds = value === null ? NaN : Number(value);
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : null;
 }
 
 async function request<T>(
@@ -102,6 +109,7 @@ async function request<T>(
       error?.message ?? 'Something went wrong.',
       error?.requestId ?? response.headers.get('x-request-id'),
       error?.details?.issues ?? [],
+      parseRetryAfter(response.headers.get('retry-after')),
     );
   }
   return (parsed as { data: T }).data;

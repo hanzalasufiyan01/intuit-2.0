@@ -165,6 +165,18 @@ const envSchema = z.object({
     .default('true')
     .transform((v) => v === 'true'),
   EMAIL_FROM: z.email().default('no-reply@example.test'),
+
+  // In-app help assistant. `docs` (the default) answers from the built-in help catalogue and needs
+  // nothing. `anthropic` adds AI wording and needs a key and a model id from the environment; no
+  // model is assumed. The key is never logged, returned or sent to the browser.
+  ASSISTANT_PROVIDER: z.enum(['docs', 'anthropic']).default('docs'),
+  ASSISTANT_API_KEY: z.string().min(1).optional(),
+  ASSISTANT_MODEL: z.string().min(1).max(100).optional(),
+  ASSISTANT_BASE_URL: z.url().default('https://api.anthropic.com'),
+  ASSISTANT_TIMEOUT_MS: positiveInt.max(120_000).default(20_000),
+  ASSISTANT_MAX_OUTPUT_TOKENS: positiveInt.max(4096).default(700),
+  ASSISTANT_USER_PER_MINUTE: positiveInt.max(600).default(20),
+  ASSISTANT_ORG_PER_MINUTE: positiveInt.max(6000).default(120),
 });
 
 export type AppEnv = z.infer<typeof envSchema>['APP_ENV'];
@@ -281,6 +293,17 @@ export interface AppConfig {
       rejectUnauthorized: boolean;
     } | null;
   };
+  assistant: {
+    provider: 'docs' | 'anthropic';
+    /** Server-side only. Never logged or returned. */
+    apiKey: string | undefined;
+    model: string | undefined;
+    baseUrl: string;
+    timeoutMs: number;
+    maxOutputTokens: number;
+    userPerMinute: number;
+    orgPerMinute: number;
+  };
 }
 
 const MINUTE = 60_000;
@@ -335,6 +358,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     }
     if (e.SMTP_PASSWORD && !e.SMTP_USER) {
       problems.push('  - SMTP_USER: required when SMTP_PASSWORD is set');
+    }
+    if (problems.length > 0) {
+      throw new ConfigError(`Invalid environment configuration:\n${problems.join('\n')}`);
+    }
+  }
+  if (e.ASSISTANT_PROVIDER === 'anthropic') {
+    const problems: string[] = [];
+    if (!e.ASSISTANT_API_KEY)
+      problems.push('  - ASSISTANT_API_KEY: required when ASSISTANT_PROVIDER=anthropic');
+    if (!e.ASSISTANT_MODEL)
+      problems.push('  - ASSISTANT_MODEL: required when ASSISTANT_PROVIDER=anthropic');
+    if (e.APP_ENV === 'production' && !e.ASSISTANT_BASE_URL.startsWith('https://')) {
+      problems.push('  - ASSISTANT_BASE_URL: must use https in production');
     }
     if (problems.length > 0) {
       throw new ConfigError(`Invalid environment configuration:\n${problems.join('\n')}`);
@@ -494,6 +530,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
               rejectUnauthorized: e.SMTP_REJECT_UNAUTHORIZED,
             }
           : null,
+    },
+    assistant: {
+      provider: e.ASSISTANT_PROVIDER,
+      apiKey: e.ASSISTANT_API_KEY,
+      model: e.ASSISTANT_MODEL,
+      baseUrl: e.ASSISTANT_BASE_URL,
+      timeoutMs: e.ASSISTANT_TIMEOUT_MS,
+      maxOutputTokens: e.ASSISTANT_MAX_OUTPUT_TOKENS,
+      userPerMinute: e.ASSISTANT_USER_PER_MINUTE,
+      orgPerMinute: e.ASSISTANT_ORG_PER_MINUTE,
     },
   };
 }

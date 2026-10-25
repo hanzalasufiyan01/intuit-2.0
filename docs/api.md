@@ -331,6 +331,16 @@ Receipts are uploaded to `/files` with `linkType=expense_claim&linkId=<claim id>
 
 Import limits are the Decision 61 maxima for both formats (25 MB, 25,000 rows, 200 columns); a workbook that is macro-enabled, declares a DTD, or unpacks suspiciously (zip bomb) is refused with `400`.
 
+## Help assistant and tutorial progress (any signed-in member; see `assistant.md`)
+
+| Method | Path                      | Notes                                                                                                                                                                                     |
+| ------ | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/assistant/status`       | `{ mode: documentation or ai, provider, suggestions, limits }`; never configuration or secrets                                                                                            |
+| POST   | `/assistant/messages`     | `{ message (1 to 2000), history? (up to 10 turns), path? }`; reply `{ reply, mode, degraded, notice, figures, unavailable, sources, generatedAt }`; `429` with `Retry-After` over a limit |
+| GET    | `/tutorials/progress`     | the caller's own progress in the active organization                                                                                                                                      |
+| PUT    | `/tutorials/progress/:id` | `{ status: in_progress, completed or skipped, step 0 to 100 }`; `:id` matches `^[a-z0-9][a-z0-9-]{0,59}$`                                                                                 |
+| DELETE | `/tutorials/progress/:id` | forgets the caller's progress for that tutorial; `{ reset: boolean }`                                                                                                                     |
+
 ## API integrations (ADR 0011, management by administrators)
 
 | Method     | Path                                               | Notes                                                                                                                             |

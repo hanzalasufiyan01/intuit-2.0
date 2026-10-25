@@ -55,8 +55,8 @@ export interface TestContext extends BuiltApp {
 
 export async function createTestContext(
   overrides: Partial<Record<string, string>> = {},
-  /** Replaces collaborators of the composition root (the outbound webhook transport). */
-  build: Pick<BuildAppOptions, 'webhookTransport'> = {},
+  /** Replaces collaborators of the composition root (the webhook transport, the assistant provider). */
+  build: Pick<BuildAppOptions, 'webhookTransport' | 'assistantProvider'> = {},
 ): Promise<TestContext> {
   const config = loadConfig({
     ...process.env,

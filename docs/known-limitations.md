@@ -72,6 +72,14 @@ Honest list, kept next to `requirements-matrix.md`. Updated 2026-10-17.
 - A bundle is a non-tracked product with tracked components; revenue is the bundle line and the components leave stock at their own average cost when the invoice is issued. Bundles do not nest and cannot be tracked.
 - Selling a bundle and later crediting it does not return stock by itself: return the component items with a customer return.
 
+## Help assistant and tutorials (see `assistant.md`)
+
+- **Assistant replies are English only.** The help catalogue and the text the server returns are English. The interface around them (labels, notices, tutorial text) uses the message catalog, but the assistant's answers, and the "unavailable" notes it appends, are not translated.
+- **The live Anthropic provider path has not been verified against a real provider.** The adapter is covered by unit tests with an injected `fetch`, and the whole flow has been exercised only in built-in (documentation) mode, which is the default. No key or model was available, so a request to the real service, the model's actual wording and the provider's real error responses have never been seen. Do a manual check with a real key before relying on `ASSISTANT_PROVIDER=anthropic` (`operations.md`).
+- **The assistant is read-only and narrow by design.** It answers from a fixed catalogue and can quote only three aggregate figures (receivables, payables and year-to-date profit and loss). It cannot act on records, and it does not search your data.
+- **The conversation is not saved.** It lives in the browser tab and is cleared on sign-out or when the organization changes; it is not available on another device.
+- **Tutorial progress needs migration 0096** (`tutorial_progress`). Until it is applied the Help centre still lists the tutorials but cannot save progress.
+
 ## Not built (see the matrix)
 
 The authoritative, prioritized list is `docs/remaining-scope.md` (updated 2026-10-20). In short:
