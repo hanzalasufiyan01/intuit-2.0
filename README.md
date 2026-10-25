@@ -60,8 +60,10 @@ See [docs/development.md](docs/development.md) for details on each step, the env
 
 ```sh
 pnpm verify        # format:check + lint + typecheck + openapi:check + test + build
-pnpm test          # all tests (API integration tests use the real intuit2_dev database)
+pnpm test          # all tests (API integration tests use the database named by DATABASE_URL, see below)
 pnpm lint
 pnpm typecheck
 pnpm build
 ```
+
+> **Before running any API test or `pnpm db:*` command:** API test runs apply every pending migration and the seed to whichever database `DATABASE_URL` / `DATABASE_MIGRATION_URL` name (the environment, or the repository-root `.env`), and the tests then add data that is never cleaned up. Use an isolated, disposable PostgreSQL server for them, never a database you want to keep. See `docs/HANDOVER.md` section 0 ("Safe test environment") and `docs/development.md` ("Tests").
