@@ -2,7 +2,11 @@
  * The English message catalog (Phase 3B D13). Keys are stable identifiers; `{name}` marks a
  * parameter. Other locales provide a catalog with exactly these keys.
  */
+import { helpMessages } from './messages.help.en';
+
 export const en = {
+  // The Help centre, tutorials and assistant panel (their own file: it is long).
+  ...helpMessages,
   'policies.title': 'Expense policies',
   'policies.description':
     'Rules your organization sets and the server checks when an expense is posted. Nothing is built in: every amount is yours.',

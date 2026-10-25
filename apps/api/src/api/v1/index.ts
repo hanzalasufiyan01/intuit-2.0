@@ -39,6 +39,8 @@ import type { InventoryReportService } from '../../application/inventory-report-
 import type { ClinicConsentService } from '../../application/clinic-consent-service.js';
 import { registerClinicConsentRoutes } from './clinic-consent.routes.js';
 import type { ClinicService } from '../../application/clinic-service.js';
+import type { AssistantService } from '../../application/assistant/assistant-service.js';
+import type { TutorialProgressService } from '../../application/tutorial-progress-service.js';
 import type { ModuleService } from '../../application/module-service.js';
 import type { PayrollExtraService } from '../../application/payroll-extra-service.js';
 import type { PayrollService } from '../../application/payroll-service.js';
@@ -98,6 +100,7 @@ import { registerInventoryCountRoutes } from './inventory-counts.routes.js';
 import { registerInventoryRoutes } from './inventory.routes.js';
 import { registerClinicRoutes } from './clinic.routes.js';
 import { registerManagementReportRoutes } from './management-reports.routes.js';
+import { registerAssistantRoutes } from './assistant.routes.js';
 import { registerModuleRoutes } from './modules.routes.js';
 import { registerPayrollExtraRoutes } from './payroll-extra.routes.js';
 import { registerPayrollRoutes } from './payroll.routes.js';
@@ -183,6 +186,8 @@ export interface ApiV1Services {
   inventoryReports: InventoryReportService;
   inventoryCounts: InventoryCountService;
   modules: ModuleService;
+  assistant: AssistantService;
+  tutorialProgress: TutorialProgressService;
   payroll: PayrollService;
   payrollExtra: PayrollExtraService;
   projects: ProjectService;
@@ -287,6 +292,7 @@ export function apiV1(deps: AppDependencies, services: ApiV1Services) {
     registerInventoryLandedCostRoutes(app, services);
     registerManagementReportRoutes(app, services);
     registerModuleRoutes(app, services);
+    registerAssistantRoutes(app, services);
     registerPayrollRoutes(app, services);
     registerPayrollExtraRoutes(app, services);
     registerProjectRoutes(app, services);

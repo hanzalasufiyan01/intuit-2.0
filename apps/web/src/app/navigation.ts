@@ -35,7 +35,8 @@ export type NavGroupId =
   | 'data'
   | 'organization'
   | 'integrations'
-  | 'security';
+  | 'security'
+  | 'help';
 
 export interface NavGroup {
   id: NavGroupId;
@@ -58,6 +59,7 @@ export const NAV_DEFAULT_EXPANDED: Record<NavGroupId, boolean> = {
   organization: true,
   integrations: false,
   security: true,
+  help: true,
 };
 
 /** The responsive breakpoint at which the sidebar becomes a drawer; keep in step with styles.css. */
@@ -188,6 +190,13 @@ export function useNavigationGroups(): NavGroup[] {
         ...when(auditRead, { to: '/audit', label: 'shell.nav.audit' }),
         ...when(membersManage, { to: '/settings/security', label: 'shell.nav.security' }),
       ],
+    },
+    {
+      id: 'help',
+      label: 'help.nav.group',
+      icon: 'help',
+      defaultExpanded: NAV_DEFAULT_EXPANDED.help,
+      items: [{ to: '/help', label: 'help.nav.centre' }],
     },
   ];
 

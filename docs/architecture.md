@@ -27,7 +27,7 @@ Authentication → Organization membership → Roles → Permissions → Resourc
 - **The core is country-independent.** Tax, fiscal and statutory rules live in localization modules.
 - **The core is industry-independent.** Industry extensions (for example, clinics) consume shared platform services.
 - **External services sit behind provider interfaces** (email, payments, bank feeds, OCR, storage, SMS), with mock providers in development.
-- **AI is assistive only.** It never posts entries, changes records, tax rules or permissions, or touches audit history.
+- **AI is assistive only.** It never posts entries, changes records, tax rules or permissions, or touches audit history. The in-app help assistant (`assistant.md`) follows this: it has no tools, reads figures only through the report services under the member's permissions, and treats model output as untrusted text.
 
 ## Internal events (transactional outbox)
 

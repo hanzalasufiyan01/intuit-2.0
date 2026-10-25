@@ -38,6 +38,10 @@ import { InventoryCountService } from './application/inventory-count-service.js'
 import { InventoryReportService } from './application/inventory-report-service.js';
 import { ClinicService } from './application/clinic-service.js';
 import { ClinicConsentService } from './application/clinic-consent-service.js';
+import { AssistantService } from './application/assistant/assistant-service.js';
+import { createAssistantProvider } from './application/assistant/provider.js';
+import type { AssistantProvider } from './application/assistant/types.js';
+import { TutorialProgressService } from './application/tutorial-progress-service.js';
 import { ModuleService } from './application/module-service.js';
 import { PayrollExtraService } from './application/payroll-extra-service.js';
 import { PayrollService } from './application/payroll-service.js';
@@ -147,6 +151,8 @@ export interface BuildAppOptions {
   logStream?: LogDestination;
   /** The outbound webhook transport; tests inject a fake one. Default: pinned-address HTTPS. */
   webhookTransport?: WebhookTransport;
+  /** The help assistant's provider; tests inject a fake one. Default: chosen from configuration. */
+  assistantProvider?: AssistantProvider;
 }
 
 export interface BuiltApp {
@@ -190,6 +196,8 @@ export interface BuiltApp {
     inventoryReports: InventoryReportService;
     inventoryCounts: InventoryCountService;
     modules: ModuleService;
+    assistant: AssistantService;
+    tutorialProgress: TutorialProgressService;
     payroll: PayrollService;
     payrollExtra: PayrollExtraService;
     projects: ProjectService;
@@ -526,6 +534,14 @@ export async function buildApp(options: BuildAppOptions): Promise<BuiltApp> {
     inventoryReports,
     inventoryCounts,
     modules,
+    // Help centre: tutorial progress and the help assistant (reads figures only through the
+    // report services above, under the member's own permissions).
+    tutorialProgress: new TutorialProgressService(deps),
+    assistant: new AssistantService(deps, {
+      provider: options.assistantProvider ?? createAssistantProvider(config.assistant),
+      rateLimiter,
+      sources: { reports, arReports, apReports },
+    }),
     payroll,
     payrollExtra,
     projects,

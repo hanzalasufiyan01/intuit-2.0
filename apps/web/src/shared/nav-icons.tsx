@@ -14,6 +14,7 @@ export type NavIconName =
   | 'organization'
   | 'integrations'
   | 'security'
+  | 'help'
   | 'menu'
   | 'close'
   | 'chevron';
@@ -71,6 +72,13 @@ const SHAPES: Record<NavIconName, ReactNode> = {
     <>
       <path d="M12 3 4 6v6c0 4.5 3.2 8 8 9 4.8-1 8-4.5 8-9V6l-8-3Z" />
       <path d="m9 12 2 2 4-4" />
+    </>
+  ),
+  help: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.5 9.5a2.5 2.5 0 1 1 3.6 2.2c-.7.4-1.1.9-1.1 1.8" />
+      <path d="M12 17h.01" />
     </>
   ),
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,

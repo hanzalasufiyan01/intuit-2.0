@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '../auth/auth-context';
+import { AssistantButton, AssistantProvider } from '../features/help/AssistantPanel';
+import { ContextHelpLink, WelcomePrompt } from '../features/help/HelpLinks';
 import { MfaGate } from '../features/security/MfaGate';
 import { availableLocales, useLocale, useT } from '../i18n/i18n';
 import { NavIcon } from '../shared/nav-icons';
@@ -33,7 +35,7 @@ function LanguageSelect() {
 
 export function AppLayout() {
   const t = useT();
-  const { session, logout } = useAuth();
+  const { session, logout, activeOrganization } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const compact = useCompactLayout();
@@ -87,78 +89,84 @@ export function AppLayout() {
   };
 
   return (
-    <div className="app-shell">
-      {drawerOpen ? (
-        <button
-          type="button"
-          className="nav-backdrop"
-          tabIndex={-1}
-          aria-hidden="true"
-          onClick={() => setNavOpen(false)}
-        />
-      ) : null}
-      <aside
-        id="app-sidebar"
-        className={`sidebar${drawerOpen ? ' sidebar--open' : ''}`}
-        {...(drawerOpen
-          ? { role: 'dialog', 'aria-modal': true, 'aria-label': t('shell.nav.menu') }
-          : {})}
-      >
-        <div className="sidebar__header">
-          <div className="sidebar__brand">{t('shell.brand')}</div>
+    // Keyed by member and organization: the assistant conversation starts fresh for each.
+    <AssistantProvider key={`${session?.user.id ?? ''}:${activeOrganization?.id ?? ''}`}>
+      <div className="app-shell">
+        {drawerOpen ? (
           <button
             type="button"
-            ref={closeButton}
-            className="sidebar__close"
-            aria-label={t('shell.nav.close')}
+            className="nav-backdrop"
+            tabIndex={-1}
+            aria-hidden="true"
             onClick={() => setNavOpen(false)}
-          >
-            <NavIcon name="close" />
-          </button>
-        </div>
-        <OrganizationSwitcher />
-        <SidebarNav onNavigate={() => setNavOpen(false)} />
-      </aside>
-      <div className="main" inert={drawerOpen}>
-        <header className="topbar">
-          <div className="topbar__context">
+          />
+        ) : null}
+        <aside
+          id="app-sidebar"
+          className={`sidebar${drawerOpen ? ' sidebar--open' : ''}`}
+          {...(drawerOpen
+            ? { role: 'dialog', 'aria-modal': true, 'aria-label': t('shell.nav.menu') }
+            : {})}
+        >
+          <div className="sidebar__header">
+            <div className="sidebar__brand">{t('shell.brand')}</div>
             <button
               type="button"
-              ref={menuButton}
-              className="topbar__menu"
-              aria-label={t('shell.nav.open')}
-              aria-expanded={drawerOpen}
-              aria-controls="app-sidebar"
-              onClick={() => setNavOpen(true)}
+              ref={closeButton}
+              className="sidebar__close"
+              aria-label={t('shell.nav.close')}
+              onClick={() => setNavOpen(false)}
             >
-              <NavIcon name="menu" />
+              <NavIcon name="close" />
             </button>
-            <span className="muted">
-              {session?.activeOrganization?.name ?? t('shell.noOrganization')}
-            </span>
           </div>
-          <div className="topbar__user">
-            <span>{session?.user.displayName}</span>
-            <LanguageSelect />
-            <ThemeToggle />
-            <NavLink to="/account/security">{t('shell.nav.accountSecurity')}</NavLink>
-            <Button variant="secondary" onClick={() => void signOut()}>
-              {t('shell.signOut')}
-            </Button>
-          </div>
-        </header>
-        <main className="content">
-          {lowRecoveryCodes ? (
-            <Alert tone="info">
-              {lowRecoveryCodes === 'none' ? t('shell.recovery.none') : t('shell.recovery.low')}{' '}
-              <NavLink to="/account/security">{t('shell.recovery.generate')}</NavLink>
-            </Alert>
-          ) : null}
-          <MfaGate>
-            <Outlet />
-          </MfaGate>
-        </main>
+          <OrganizationSwitcher />
+          <SidebarNav onNavigate={() => setNavOpen(false)} />
+        </aside>
+        <div className="main" inert={drawerOpen}>
+          <header className="topbar">
+            <div className="topbar__context">
+              <button
+                type="button"
+                ref={menuButton}
+                className="topbar__menu"
+                aria-label={t('shell.nav.open')}
+                aria-expanded={drawerOpen}
+                aria-controls="app-sidebar"
+                onClick={() => setNavOpen(true)}
+              >
+                <NavIcon name="menu" />
+              </button>
+              <span className="muted">
+                {session?.activeOrganization?.name ?? t('shell.noOrganization')}
+              </span>
+            </div>
+            <div className="topbar__user">
+              <span>{session?.user.displayName}</span>
+              <ContextHelpLink />
+              <AssistantButton />
+              <LanguageSelect />
+              <ThemeToggle />
+              <NavLink to="/account/security">{t('shell.nav.accountSecurity')}</NavLink>
+              <Button variant="secondary" onClick={() => void signOut()}>
+                {t('shell.signOut')}
+              </Button>
+            </div>
+          </header>
+          <main className="content">
+            {lowRecoveryCodes ? (
+              <Alert tone="info">
+                {lowRecoveryCodes === 'none' ? t('shell.recovery.none') : t('shell.recovery.low')}{' '}
+                <NavLink to="/account/security">{t('shell.recovery.generate')}</NavLink>
+              </Alert>
+            ) : null}
+            <MfaGate>
+              <WelcomePrompt />
+              <Outlet />
+            </MfaGate>
+          </main>
+        </div>
       </div>
-    </div>
+    </AssistantProvider>
   );
 }
