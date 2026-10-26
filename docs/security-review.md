@@ -68,3 +68,12 @@ Still an internal review on disposable CI runners, NOT a penetration test, an ex
 4. **Backup and restore (verified on a small, fresh database):** restore into an empty database, row counts, migration checksums, ledger, inventory and RLS checks, 214 policies; an API on the restored copy served it.
 
 Not done: container image scan, penetration test, external audit, TLS termination and HSTS on a real host, real SMTP and S3, load test of write paths.
+
+## Addendum: dependency advisories and open items (2026-10-27)
+
+Still an internal review, NOT a penetration test, an external audit or a production deployment. Read-only audit of `origin/main` `2652a64` (`production-readiness-audit.md`).
+
+1. **The "no known vulnerabilities" result above is out of date.** `pnpm audit --prod` on 2026-10-26 reports **9 advisories (5 low, 4 moderate, none high)**, all through `fastify` and `@fastify/ajv-compiler`: several `fast-uri` advisories (scheme spoofing, host confusion, path equivalence, scheme injection; patched in 3.1.9 and 4.2.3) and a low `fastify` header-validation bypass (patched in 5.12.6). CI runs `pnpm audit --prod --audit-level high`, so it stays green. Not fixed yet.
+2. **Still not done:** container image scan, dependency bot, code scanning, penetration test, external audit, TLS and HSTS on a real host, real SMTP and S3, write-path load test, production-like restore drill, key backup and rotation drill, error reporting and alerting.
+3. **Web hardening:** `deploy/nginx.conf` sets four security headers but no HSTS and no Content-Security-Policy for the web app.
+4. **Registration and demo seed:** registration is public unless `REGISTRATION_MODE` is `code` or `closed` (proven through the running compose stack by `deploy-smoke`); the demo seed refuses `APP_ENV=production` and any database but `intuit2_review`, but the `APP_ENV=staging` override is an operator statement.
