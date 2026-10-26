@@ -25,6 +25,8 @@ export interface RegisterInput {
   password: string;
   displayName: string;
   organizationName: string;
+  /** Only needed when the server runs with REGISTRATION_MODE=code. */
+  accessCode?: string;
 }
 
 export interface ChallengeInput {

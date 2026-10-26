@@ -21,6 +21,7 @@ Honest list, kept next to `requirements-matrix.md`. Updated 2026-10-17.
 - One read-only load test was run locally (see `docs/operations.md`); it is not capacity evidence. No write-path load test, no penetration test.
 - The web app ships as one JavaScript bundle: 1,460.05 kB minified (323.68 kB gzip) in the 2026-10-20 build (run 18), over Vite's 500 kB warning limit, so every build prints the large-chunk warning. Nothing is code-split by route, and the whole English message catalog (3,437 keys) is in it. Not a functional defect; it costs first-load time on slow connections. Route-level `import()` splitting is the usual fix and has not been decided or measured.
 - The production e-mail vendor and credentials are not chosen.
+- **Public registration is open by default** (`REGISTRATION_MODE=open`, kept for backward compatibility). `code` and `closed` modes exist (2026-10-25, branch `feat/registration-access`); they are application-level checks, covered by unit and web tests, and an API integration test that has not yet been run. They do not replace a network-level gate in front of a review environment.
 
 ## Payroll
 

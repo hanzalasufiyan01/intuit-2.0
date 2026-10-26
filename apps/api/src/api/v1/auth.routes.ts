@@ -2,6 +2,12 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { AuthService, LoginResult } from '../../application/auth-service.js';
 import type { Principal } from '../../application/authorization.js';
+import {
+  assertRegistrationAllowed,
+  registrationPolicyView,
+  REGISTRATION_ATTEMPTS_PER_MINUTE,
+} from '../../application/registration-policy.js';
+import { RateLimitedError, type RateLimiter } from '../../application/rate-limiter.js';
 import type { AppConfig } from '../../infrastructure/config/config.js';
 import { fields, idParams, parseInput } from '../http/validation.js';
 import {
@@ -20,6 +26,8 @@ const registerBody = z.object({
   password: fields.password,
   displayName: fields.displayName,
   organizationName: fields.organizationName,
+  // Only read when REGISTRATION_MODE=code; never echoed back.
+  accessCode: z.string().max(200).optional(),
 });
 const loginBody = z.object({ email: fields.email, password: fields.password });
 const reauthBody = z.object({ password: fields.password });
@@ -60,12 +68,29 @@ function applyDeviceCookie(reply: FastifyReply, config: AppConfig, device: Login
 
 export function registerAuthRoutes(
   app: FastifyInstance,
-  deps: { auth: AuthService; config: AppConfig },
+  deps: { auth: AuthService; config: AppConfig; rateLimiter: RateLimiter },
 ): void {
-  const { auth, config } = deps;
+  const { auth, config, rateLimiter } = deps;
+
+  /** What the sign-up screen needs to know: the mode only, never the access code. */
+  app.get('/auth/registration-policy', async () => ({
+    data: registrationPolicyView(config.registration),
+  }));
 
   app.post('/auth/register', async (request, reply) => {
-    const body = parseInput(registerBody, request.body);
+    // Closed registration answers before anything else, so nothing about the body is revealed.
+    assertRegistrationAllowed(config.registration, undefined, { checkCode: false });
+    if (config.registration.mode === 'code') {
+      // Guessing the shared code is limited per address.
+      const key = `registration:${eventOrigin(request).ipAddress ?? 'unknown'}`;
+      const decision = await rateLimiter.consume(key, REGISTRATION_ATTEMPTS_PER_MINUTE);
+      if (!decision.allowed) {
+        void reply.header('Retry-After', String(decision.resetSeconds));
+        throw new RateLimitedError(decision);
+      }
+    }
+    const { accessCode, ...body } = parseInput(registerBody, request.body);
+    assertRegistrationAllowed(config.registration, accessCode);
     await endCurrentSession(request, auth);
     const { issued } = await auth.register(body, eventOrigin(request));
     setSessionCookie(reply, config, issued.token, issued.session.expiresAt);

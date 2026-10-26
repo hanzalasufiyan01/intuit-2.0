@@ -23,6 +23,7 @@ Everything is configured through environment variables (`.env.example` lists the
 - `APP_ENV=production`, `WEB_ORIGIN=https://<your host>`, `TRUST_PROXY=true` (behind the proxy), `API_HOST=0.0.0.0`.
 - `DATABASE_URL` (runtime role) and `DATABASE_MIGRATION_URL` (owner role). Use long random passwords.
 - `SESSION_SECRET` (32+ random characters), `MFA_ENCRYPTION_KEYS` / `MFA_ENCRYPTION_ACTIVE_KEY_ID`, and, if webhooks are used, `WEBHOOK_ENCRYPTION_KEYS` / `WEBHOOK_ENCRYPTION_ACTIVE_KEY_ID`. Generate with `openssl rand -base64 32`. **Back these keys up separately from the database**: without them, MFA secrets and webhook signing secrets cannot be read.
+- `REGISTRATION_MODE` (`open` by default). **Registration is public unless you change it.** For a private or review environment set `closed` (people join by invitation, which needs working e-mail) or `code` with `REGISTRATION_ACCESS_CODE` (at least 12 characters, shared out of band; a missing or wrong code is refused identically and guesses are limited per address). The code is a secret: keep it in the secret manager, not in Git. This is an application-level control; a network-level gate in front is still advisable for a review environment.
 - `EMAIL_PROVIDER=smtp`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY` (`starttls` or `tls`), `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM` (a verified sender of your SMTP service).
 - `STORAGE_LOCAL_ROOT` on a persistent, backed-up volume.
 - `deploy/nginx.conf` sets `X-Forwarded-For` to the address nginx sees (`$remote_addr`) instead of appending to the client's header, so a caller cannot choose the address the API rate-limits on. If a load balancer sits in front of nginx, configure nginx's `set_real_ip_from` (the balancer's address range) and `real_ip_header X-Forwarded-For` so that `$remote_addr` is the real client. That load-balancer setup is not tested.
@@ -35,7 +36,7 @@ Cookies are `Secure` in production: the site must be served over HTTPS.
 2. Build: `docker build --target api -t intuit2-api .` and `--target web -t intuit2-web .` (or use `deploy/docker-compose.prod.yml`).
 3. Migrate and seed reference data: `node dist/src/database/cli/migrate.js` then `node dist/src/database/cli/seed.js` (compose: `docker compose -f deploy/docker-compose.prod.yml run --rm migrate`). Migrations are checksummed; an applied migration is never edited.
 4. Start the API and the web container, then run `BASE_URL=https://<host> sh deploy/smoke.sh`.
-5. Register the first organization in the browser (the registering user becomes the Owner and must enroll two-step verification).
+5. Register the first organization in the browser (with `REGISTRATION_MODE=closed` nobody can; use `open` or `code` for the first registration, then switch to `closed` and restart) (the registering user becomes the Owner and must enroll two-step verification).
 
 ## 4. Upgrades and rollback
 

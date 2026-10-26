@@ -67,6 +67,8 @@ Choose strong, unique passwords for the two roles. `.env` is git-ignored. Never 
 
 The API validates its configuration at startup and exits with a list of problems if anything is invalid.
 
+`REGISTRATION_MODE` (`open` by default, or `code` with `REGISTRATION_ACCESS_CODE`, or `closed`) controls who may register a new account; `open` keeps registration public. Invitations are never affected. See `docs/operations.md` section 2.
+
 ## 3. Set up PostgreSQL (one time)
 
 The database uses two roles:
