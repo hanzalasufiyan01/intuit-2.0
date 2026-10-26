@@ -360,9 +360,9 @@ jobs:
   # and on failure. Commands receive secrets through environment variable NAMES, not on a command line.
   #
   # Cleanup: scoped to this job's unique compose project (run id and attempt in its name) by compose
-  # itself and then, as a fallback for partial setups, by that project's labels. Images that other
-  # jobs may share (postgres, mailpit) are never removed: only images carrying this project's label or
-  # named after this project.
+  # itself and then, as a fallback for partial setups, by that project's labels. No image is removed
+  # (one image ID can carry several names, and postgres and mailpit may be shared): the runner is
+  # disposable and discards its images.
   review-port:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -649,15 +649,12 @@ jobs:
           docker compose --env-file .env.production -p "$COMPOSE_PROJECT_NAME" --profile tools \
             down --volumes --remove-orphans || rc=$?
           # 2. Fallback by label, in case compose could not parse the project: only objects that carry
-          #    THIS project's label. Containers first, then networks, volumes and this project's own
-          #    built images (shared images such as postgres and mailpit carry no such label).
+          #    THIS project's label: containers, then networks and volumes. Images are left in place:
+          #    an image ID can be tagged in several repositories (the built images share layers and may
+          #    share an ID), so removing by ID could refuse or take a shared tag with it.
           docker ps -aq --filter "$label" | xargs -r docker rm -f > /dev/null || rc=$?
           docker network ls -q --filter "$label" | xargs -r docker network rm > /dev/null || rc=$?
           docker volume ls -q --filter "$label" | xargs -r docker volume rm > /dev/null || rc=$?
-          docker image ls -q --filter "$label" | xargs -r docker image rm > /dev/null || rc=$?
-          # The images compose built are named after this project (run id and attempt), so no other
-          # job shares them; postgres, mailpit and the base images do not match this name.
-          docker image ls -q --filter "reference=${COMPOSE_PROJECT_NAME}-*" | xargs -r docker image rm > /dev/null || rc=$?
           # 3. The secret files, on success and on failure alike.
           rm -f .env.production
           rm -rf -- "$REVIEW_DIR"
