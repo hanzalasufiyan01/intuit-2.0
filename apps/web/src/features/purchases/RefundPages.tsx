@@ -154,7 +154,11 @@ function RefundTable({
   );
 }
 
-/** The refunds taken from a payment or a vendor credit, with a link to record another. */
+/**
+ * The refunds taken from a payment or a vendor credit, with a link to record another. The link
+ * sits in the card header, above the list, so the list loading cannot move it (see the customer
+ * counterpart in sales/RefundPages.tsx).
+ */
 export function RefundHistory({
   sourceType,
   sourceId,
@@ -167,7 +171,21 @@ export function RefundHistory({
   const t = useT();
   const refunds = useRefundsOf(sourceType, sourceId);
   return (
-    <Card title={t('purchases.refunds.history')}>
+    <Card
+      title={t('purchases.refunds.history')}
+      actions={
+        canRefund ? (
+          <Link
+            className="btn btn--secondary"
+            to={`/purchases/refunds/new?sourceType=${sourceType}&sourceId=${sourceId}`}
+          >
+            {sourceType === 'payment'
+              ? t('purchases.refunds.refundPrepayment')
+              : t('purchases.refunds.refundCredit')}
+          </Link>
+        ) : undefined
+      }
+    >
       {refunds.isPending ? (
         <Spinner label={t('common.loading')} />
       ) : refunds.isError ? (
@@ -177,18 +195,6 @@ export function RefundHistory({
       ) : (
         <RefundTable rows={refunds.data.items} showVendor={false} />
       )}
-      {canRefund ? (
-        <p className="actions">
-          <Link
-            className="btn btn--secondary"
-            to={`/purchases/refunds/new?sourceType=${sourceType}&sourceId=${sourceId}`}
-          >
-            {sourceType === 'payment'
-              ? t('purchases.refunds.refundPrepayment')
-              : t('purchases.refunds.refundCredit')}
-          </Link>
-        </p>
-      ) : null}
     </Card>
   );
 }
