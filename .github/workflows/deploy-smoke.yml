@@ -346,3 +346,323 @@ jobs:
           echo "containers left in project $COMPOSE_PROJECT_NAME: $remaining"
           [ "$remaining" = 0 ] || rc=1
           exit "$rc"
+
+  # Review database on a NON-default port. The demo-seed wrapper refuses port 5432, so a review
+  # environment runs PostgreSQL on another port (INTUIT_DB_PORT). This job proves, on a disposable
+  # runner and in its own compose project, that: the default stays 5432; a fresh bootstrap works on
+  # 5433 (the PGPORT behaviour of the official image is verified HERE, not assumed); the built API
+  # image contains the demo-seed wrapper and its guard; the wrapper still refuses 5432 inside the
+  # stack; the seed reaches only `intuit2_review`; and the API serves the seeded database.
+  #
+  # Secrets: throwaway values only, generated per run and masked. They live in two files with mode
+  # 600 (.env.production in the workspace, seed.env in a 700 directory under RUNNER_TEMP), are never
+  # printed, never uploaded (this job has no upload step), and are deleted by the teardown on success
+  # and on failure. Commands receive secrets through environment variable NAMES, not on a command line.
+  #
+  # Cleanup: scoped to this job's unique compose project (run id and attempt in its name) by compose
+  # itself and then, as a fallback for partial setups, by that project's labels. No image is removed
+  # (one image ID can carry several names, and postgres and mailpit may be shared): the runner is
+  # disposable and discards its images.
+  review-port:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      COMPOSE_PROJECT_NAME: intuit2-review-${{ github.run_id }}-${{ github.run_attempt }}
+      COMPOSE_FILE: deploy/docker-compose.prod.yml:deploy/docker-compose.smoke.yml
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Helpers and throwaway secrets (database intuit2_review on port 5433)
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          REVIEW_DIR="$RUNNER_TEMP/intuit2-review"
+          # A path, not a secret: made available to the later steps.
+          echo "REVIEW_DIR=$REVIEW_DIR" >> "$GITHUB_ENV"
+          mkdir -p "$REVIEW_DIR"
+          chmod 700 "$REVIEW_DIR"
+          cat > "$REVIEW_DIR/lib.sh" <<'LIB'
+          # Sourced by later steps. Reads values from files; never prints them.
+          set +x
+          umask 077
+          envval() { grep -m1 "^$1=" .env.production | cut -d= -f2-; }
+          seedval() { grep -m1 "^$1=" "$REVIEW_DIR/seed.env" | cut -d= -f2-; }
+          dc() { docker compose --env-file .env.production "$@"; }
+          psql_owner() { PGPASSWORD="$(envval INTUIT_OWNER_PASSWORD)" psql -h 127.0.0.1 -p 55432 -U intuit_owner -v ON_ERROR_STOP=1 -At "$@"; }
+          # Secrets reach the containers by variable NAME (never on a command line).
+          seed() { dc --profile tools run --rm -T --no-deps -e DEMO_SEED_CONFIRM=intuit2_review -e DEV_SEED_PASSWORD -e DEV_SEED_TOTP_SECRET migrate node dist/src/database/cli/seed-demo.js; }
+          # After a failure show only lines of known-safe shapes from a captured output.
+          safe_lines() { grep -E '^(Target:|Verified |Demo data|Development seed|The demo seed refused|  - )' "$1" || true; }
+          # Fails (without printing any value) if the value is empty or occurs in the file.
+          scan_for() {
+            local name="$1" value="$2" file="$3" rc=0
+            [ -n "$value" ] || { echo "FAIL: no value to scan for ($name)"; return 1; }
+            [ -f "$file" ] || { echo "FAIL: nothing to scan ($(basename "$file"))"; return 1; }
+            grep -qF -e "$value" "$file" 2> /dev/null || rc=$?
+            case "$rc" in
+              0) echo "LEAK: $name appears in $(basename "$file")"; return 1 ;;
+              1) return 0 ;;
+              *) echo "FAIL: the scan could not run ($name)"; return 1 ;;
+            esac
+          }
+          LIB
+          hex() { openssl rand -hex 24; }
+          pg_super=$(hex); owner=$(hex); app=$(hex)
+          session=$(openssl rand -hex 32)
+          mfa=$(openssl rand -base64 32)
+          seedpw="$(openssl rand -hex 16)Aa1!"
+          totp=$(openssl rand 32 | base32 | tr -d '=\n' | head -c 32)
+          for s in "$pg_super" "$owner" "$app" "$session" "$mfa" "$seedpw" "$totp"; do
+            echo "::add-mask::$s"
+          done
+          {
+            echo "POSTGRES_PASSWORD=$pg_super"
+            echo "INTUIT_DB_NAME=intuit2_review"
+            echo "INTUIT_DB_PORT=5433"
+            echo "INTUIT_OWNER_PASSWORD=$owner"
+            echo "INTUIT_APP_PASSWORD=$app"
+            echo "APP_ENV=production"
+            echo "WEB_ORIGIN=http://localhost:8080"
+            echo "TRUST_PROXY=true"
+            echo "DATABASE_URL=postgres://intuit_app:$app@postgres:5433/intuit2_review"
+            echo "DATABASE_MIGRATION_URL=postgres://intuit_owner:$owner@postgres:5433/intuit2_review"
+            echo "SESSION_SECRET=$session"
+            echo "MFA_ENCRYPTION_KEYS=review1:$mfa"
+            echo "MFA_ENCRYPTION_ACTIVE_KEY_ID=review1"
+            echo "EMAIL_PROVIDER=smtp"
+            echo "SMTP_HOST=mailpit"
+            echo "SMTP_PORT=1025"
+            echo "SMTP_SECURITY=none"
+            echo "EMAIL_FROM=no-reply@review.example.test"
+          } > .env.production
+          # The demo credentials stay out of .env.production: only the seeding command receives them.
+          {
+            echo "DEV_SEED_PASSWORD=$seedpw"
+            echo "DEV_SEED_TOTP_SECRET=$totp"
+          } > "$REVIEW_DIR/seed.env"
+          # Restrictive permissions are enforced, not assumed (modes only; nothing else is printed).
+          [ "$(stat -c %a "$REVIEW_DIR")" = 700 ] || { echo "FAIL: the secret directory is not mode 700"; exit 1; }
+          for f in .env.production "$REVIEW_DIR/seed.env" "$REVIEW_DIR/lib.sh"; do
+            [ "$(stat -c %a "$f")" = 600 ] || { echo "FAIL: a secret file is not mode 600"; exit 1; }
+          done
+          echo "secret files: mode 600 in a mode 700 directory"
+          # The URLs must carry exactly the bootstrap credentials, the review database and port 5433
+          # (checked without printing any value).
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const env = Object.fromEntries(
+            fs.readFileSync('.env.production', 'utf8').split('\n').filter(Boolean)
+              .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
+          );
+          const check = (name, user, passwordKey) => {
+            const u = new URL(env[name]);
+            if (u.username !== user) throw new Error(`${name}: wrong role`);
+            if (decodeURIComponent(u.password) !== env[passwordKey]) throw new Error(`${name}: password differs from ${passwordKey}`);
+            if (decodeURIComponent(u.pathname.slice(1)) !== 'intuit2_review') throw new Error(`${name}: database differs`);
+            if (u.hostname !== 'postgres') throw new Error(`${name}: host is not the compose service`);
+            if (u.port !== '5433' || env.INTUIT_DB_PORT !== '5433') throw new Error(`${name}: port is not 5433`);
+          };
+          check('DATABASE_URL', 'intuit_app', 'INTUIT_APP_PASSWORD');
+          check('DATABASE_MIGRATION_URL', 'intuit_owner', 'INTUIT_OWNER_PASSWORD');
+          console.log('credentials, database and port consistent (values not shown)');
+          NODE
+
+      - name: Compose configuration (default port unchanged, review port set, PostgreSQL never public)
+        run: |
+          set -euo pipefail
+          . "$REVIEW_DIR/lib.sh"
+          # Every `config` output is discarded or reduced by jq to a yes or no: it would contain secrets.
+          dc --profile tools config --quiet
+          # Production file alone: PostgreSQL is never published, on any port.
+          docker compose --env-file .env.production -f deploy/docker-compose.prod.yml config --format json \
+            | jq -e '(.services.postgres.ports // []) | length == 0' > /dev/null
+          echo "production compose: postgres publishes no port"
+          docker compose --env-file .env.production -f deploy/docker-compose.prod.yml config --format json \
+            | jq -e '.services.postgres.environment.PGPORT == "5433" and .services.postgres.command == ["postgres","-p","5433"]' > /dev/null
+          echo "review settings: PGPORT and the server command use 5433"
+          # Without INTUIT_DB_PORT the port is the unchanged default.
+          grep -v '^INTUIT_DB_PORT=' .env.production > "$REVIEW_DIR/default.env"
+          docker compose --env-file "$REVIEW_DIR/default.env" -f deploy/docker-compose.prod.yml config --format json \
+            | jq -e '.services.postgres.environment.PGPORT == "5432" and .services.postgres.command == ["postgres","-p","5432"]' > /dev/null
+          echo "default settings: port 5432, as before"
+          # The CI-only override publishes on this runner's loopback only, to the review port.
+          dc --profile tools config --format json \
+            | jq -e '(.services.postgres.ports | length > 0)
+              and ([.services.postgres.ports[] | .host_ip] | all(. == "127.0.0.1"))
+              and ([.services.postgres.ports[] | .target] | all(. == 5433))' > /dev/null
+          echo "smoke override: loopback only, container port 5433"
+
+      - name: Build the API image
+        run: |
+          set -euo pipefail
+          . "$REVIEW_DIR/lib.sh"
+          dc --profile tools build migrate
+
+      - name: The API image contains the demo-seed wrapper and its guard
+        run: |
+          set -euo pipefail
+          . "$REVIEW_DIR/lib.sh"
+          dc --profile tools run --rm -T --no-deps --entrypoint sh migrate -c \
+            'test -f dist/src/database/cli/seed-demo.js && test -f dist/src/database/cli/demo-seed-guard.js && test -f dist/src/database/cli/seed-dev.js'
+          echo "image holds seed-demo.js, demo-seed-guard.js and seed-dev.js"
+          # The guard loads with only the image's production dependencies (no database involved).
+          dc --profile tools run --rm -T --no-deps --entrypoint node migrate --input-type=module -e \
+            "const m = await import('/app/dist/src/database/cli/demo-seed-guard.js'); if (m.DEMO_DATABASE !== 'intuit2_review' || !m.PROTECTED_DATABASES.includes('intuit2_dev')) process.exit(1); console.log('guard module loads: ' + m.DEMO_DATABASE)"
+
+      - name: Fresh bootstrap on port 5433 and proof that the database is isolated
+        run: |
+          set -euo pipefail
+          . "$REVIEW_DIR/lib.sh"
+          dc up -d --wait --wait-timeout 120 postgres
+          port=$(psql_owner -d intuit2_review -c "show port")
+          echo "server port seen by the server itself: $port"; [ "$port" = 5433 ]
+          if dc exec -T postgres pg_isready -h 127.0.0.1 -p 5432 > /dev/null 2>&1; then
+            echo "FAIL: something answers on 5432 inside the database container"; exit 1
+          fi
+          echo "nothing listens on 5432 inside the database container"
+          names=$(psql_owner -d intuit2_review -c "select string_agg(datname, ',' order by datname) from pg_database")
+          echo "databases in this cluster: $names"
+          [ "$names" = "intuit2_review,postgres,template0,template1" ]
+          roles=$(psql_owner -d intuit2_review -c "select string_agg(format('%s:%s%s%s', rolname, rolsuper::int, rolbypassrls::int, rolcreaterole::int), ',' order by rolname) from pg_roles where rolname like 'intuit_%'")
+          echo "roles (superuser, bypassrls, createrole as 1/0): $roles"
+          [ "$roles" = "intuit_app:000,intuit_owner:000" ]
+
+      - name: Migrations
+        run: |
+          set -euo pipefail
+          . "$REVIEW_DIR/lib.sh"
+          dc --profile tools run --rm -T migrate
+          files=$(ls apps/api/src/database/migrations/*.sql | wc -l)
+          applied=$(psql_owner -d intuit2_review -c "select count(*) from schema_migrations")
+          echo "migrations applied: $applied of $files files"
+          [ "$applied" = "$files" ]
+
+      - name: The wrapper still refuses unsafe settings inside the stack
+        run: |
+          set -euo pipefail
+          . "$REVIEW_DIR/lib.sh"
+          set -a; . "$REVIEW_DIR/seed.env"; set +a
+          # 1. Port 5432 in the URLs (the database does not listen there): refused before any
+          #    connection. The URLs reach the container by variable name, not on a command line.
+          DATABASE_URL="postgres://intuit_app:$(envval INTUIT_APP_PASSWORD)@postgres:5432/intuit2_review"
+          DATABASE_MIGRATION_URL="postgres://intuit_owner:$(envval INTUIT_OWNER_PASSWORD)@postgres:5432/intuit2_review"
+          export DATABASE_URL DATABASE_MIGRATION_URL
+          rc=0
+          dc --profile tools run --rm -T --no-deps \
+            -e DEMO_SEED_CONFIRM=intuit2_review -e DEV_SEED_PASSWORD -e DEV_SEED_TOTP_SECRET \
+            -e DATABASE_URL -e DATABASE_MIGRATION_URL \
+            migrate node dist/src/database/cli/seed-demo.js > "$REVIEW_DIR/refuse-1.out" 2>&1 || rc=$?
+          unset DATABASE_URL DATABASE_MIGRATION_URL
+          safe_lines "$REVIEW_DIR/refuse-1.out" | head -5
+          if [ "$rc" -eq 0 ] || ! grep -q "5432" "$REVIEW_DIR/refuse-1.out" || grep -q "Verified" "$REVIEW_DIR/refuse-1.out"; then
+            echo "FAIL: port 5432 was not refused before connecting (exit $rc)"; exit 1
+          fi
+          echo "ok: port 5432 refused before any connection (exit $rc)"
+          # 2. A wrong confirmation.
+          rc=0
+          dc --profile tools run --rm -T --no-deps \
+            -e DEMO_SEED_CONFIRM=intuit2_dev -e DEV_SEED_PASSWORD -e DEV_SEED_TOTP_SECRET \
+            migrate node dist/src/database/cli/seed-demo.js > "$REVIEW_DIR/refuse-2.out" 2>&1 || rc=$?
+          safe_lines "$REVIEW_DIR/refuse-2.out" | head -5
+          if [ "$rc" -eq 0 ] || ! grep -q "DEMO_SEED_CONFIRM" "$REVIEW_DIR/refuse-2.out" || grep -q "Verified" "$REVIEW_DIR/refuse-2.out"; then
+            echo "FAIL: a wrong confirmation was not refused before connecting (exit $rc)"; exit 1
+          fi
+          echo "ok: wrong confirmation refused before any connection (exit $rc)"
+
+      - name: Seed the review database, twice
+        run: |
+          set -euo pipefail
+          . "$REVIEW_DIR/lib.sh"
+          set -a; . "$REVIEW_DIR/seed.env"; set +a
+          counts() { psql_owner -d intuit2_review -c "select (select count(*) from organizations) || ',' || (select count(*) from users) || ',' || (select count(*) from accounting_journal_entries) || ',' || (select count(*) from sales_invoices) || ',' || (select count(*) from purchases_bills)"; }
+          seed > "$REVIEW_DIR/seed-1.out" 2>&1 || { safe_lines "$REVIEW_DIR/seed-1.out"; echo "FAIL: the first seed run failed"; exit 1; }
+          grep -q "Verified runtime connection: database intuit2_review on port 5433 as intuit_app" "$REVIEW_DIR/seed-1.out"
+          grep -q "Verified migration connection: database intuit2_review on port 5433 as intuit_owner" "$REVIEW_DIR/seed-1.out"
+          first=$(counts)
+          echo "organizations, users, journal entries, invoices, bills after the first run: $first"
+          [ "$(echo "$first" | cut -d, -f1,2)" = "1,3" ]
+          seed > "$REVIEW_DIR/seed-2.out" 2>&1 || { safe_lines "$REVIEW_DIR/seed-2.out"; echo "FAIL: the second seed run failed"; exit 1; }
+          grep -q "nothing changed" "$REVIEW_DIR/seed-2.out"
+          second=$(counts)
+          echo "after the second run: $second"
+          [ "$first" = "$second" ]
+
+      - name: The API serves the seeded database on port 5433
+        run: |
+          set -euo pipefail
+          . "$REVIEW_DIR/lib.sh"
+          dc up -d --wait --wait-timeout 180 api mailpit
+          dc exec -T api node -e "fetch('http://127.0.0.1:3000/api/v1/health').then(async (r) => { const b = await r.json(); console.log('health', r.status, JSON.stringify(b)); process.exit(r.ok && b.data.database === 'ok' ? 0 : 1); })"
+          # The password reaches the container by variable name; only a status code is printed.
+          SEEDPW="$(seedval DEV_SEED_PASSWORD)"
+          export SEEDPW
+          code=$(dc exec -T -e SEEDPW api node -e "fetch('http://127.0.0.1:3000/api/v1/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'member@intuit2-dev.test', password: process.env.SEEDPW }) }).then((r) => console.log(r.status))")
+          unset SEEDPW
+          echo "sign-in as the seeded member through the API: $code"; [ "$code" = 200 ]
+
+      - name: No secret appears in the captured outputs
+        run: |
+          set -euo pipefail
+          . "$REVIEW_DIR/lib.sh"
+          # Failures name the secret, never its value. An empty value, a missing file or a scan that
+          # cannot run is a failure, not a pass.
+          for f in "$REVIEW_DIR"/seed-1.out "$REVIEW_DIR"/seed-2.out "$REVIEW_DIR"/refuse-1.out "$REVIEW_DIR"/refuse-2.out; do
+            for k in POSTGRES_PASSWORD INTUIT_OWNER_PASSWORD INTUIT_APP_PASSWORD SESSION_SECRET MFA_ENCRYPTION_KEYS; do
+              scan_for "$k" "$(envval "$k")" "$f"
+            done
+            for k in DEV_SEED_PASSWORD DEV_SEED_TOTP_SECRET; do
+              scan_for "$k" "$(seedval "$k")" "$f"
+            done
+            rc=0
+            grep -qiE 'postgres(ql)?://' "$f" 2> /dev/null || rc=$?
+            case "$rc" in
+              1) ;;
+              0) echo "LEAK: a connection string appears in $(basename "$f")"; exit 1 ;;
+              *) echo "FAIL: the connection-string scan could not run"; exit 1 ;;
+            esac
+          done
+          echo "no generated secret and no connection string in the captured outputs"
+
+      - name: Teardown (this job's compose project only; also after a failure)
+        if: always()
+        run: |
+          set -u
+          set +x
+          rc=0
+          REVIEW_DIR="${REVIEW_DIR:-$RUNNER_TEMP/intuit2-review}"
+          # Safety: act only on a project name of exactly this job's shape. An empty or different
+          # name would make the label filters below match other jobs' resources.
+          case "$COMPOSE_PROJECT_NAME" in
+            intuit2-review-[0-9]*-[0-9]*) ;;
+            *) echo "refusing to clean up: unexpected project name"; exit 1 ;;
+          esac
+          label="label=com.docker.compose.project=$COMPOSE_PROJECT_NAME"
+          # 1. Through compose, which knows the project's containers, networks and volumes. If an
+          #    early step never wrote the env file (partial setup), an empty one and placeholder
+          #    values let compose parse the project; the values are irrelevant for removal. Images
+          #    are NOT removed here, so nothing another job may share is touched.
+          [ -f .env.production ] || : > .env.production
+          for v in POSTGRES_PASSWORD INTUIT_DB_NAME INTUIT_OWNER_PASSWORD INTUIT_APP_PASSWORD; do
+            grep -q "^$v=" .env.production || export "$v=unused"
+          done
+          docker compose --env-file .env.production -p "$COMPOSE_PROJECT_NAME" --profile tools \
+            down --volumes --remove-orphans || rc=$?
+          # 2. Fallback by label, in case compose could not parse the project: only objects that carry
+          #    THIS project's label: containers, then networks and volumes. Images are left in place:
+          #    an image ID can be tagged in several repositories (the built images share layers and may
+          #    share an ID), so removing by ID could refuse or take a shared tag with it.
+          docker ps -aq --filter "$label" | xargs -r docker rm -f > /dev/null || rc=$?
+          docker network ls -q --filter "$label" | xargs -r docker network rm > /dev/null || rc=$?
+          docker volume ls -q --filter "$label" | xargs -r docker volume rm > /dev/null || rc=$?
+          # 3. The secret files, on success and on failure alike.
+          rm -f .env.production
+          rm -rf -- "$REVIEW_DIR"
+          if [ -e .env.production ] || [ -e "$REVIEW_DIR" ]; then echo "FAIL: a secret file was not removed"; rc=1; fi
+          # 4. Nothing of this project may remain.
+          left_c=$(docker ps -aq --filter "$label" | wc -l)
+          left_n=$(docker network ls -q --filter "$label" | wc -l)
+          left_v=$(docker volume ls -q --filter "$label" | wc -l)
+          echo "left in project $COMPOSE_PROJECT_NAME: containers $left_c, networks $left_n, volumes $left_v"
+          [ "$left_c" = 0 ] && [ "$left_n" = 0 ] && [ "$left_v" = 0 ] || rc=1
+          exit "$rc"

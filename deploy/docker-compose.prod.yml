@@ -8,9 +8,16 @@ services:
   postgres:
     image: postgres:16
     restart: unless-stopped
+    # The port defaults to 5432, so nothing changes unless INTUIT_DB_PORT is set. A review
+    # environment sets it (for example 5433) because the demo seed refuses port 5432; then
+    # INTUIT_DB_PORT, the server command and PGPORT below, and the port in DATABASE_URL and
+    # DATABASE_MIGRATION_URL must all agree. PGPORT also makes the image's first-start init server,
+    # psql and pg_isready use the same port (checked by the review-port job of deploy-smoke).
+    command: ['postgres', '-p', '${INTUIT_DB_PORT:-5432}']
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      PGPORT: ${INTUIT_DB_PORT:-5432}
       # First start on an empty volume: postgres-init/10-intuit-bootstrap.sh creates the roles and
       # the database with these values. They must match DATABASE_URL and DATABASE_MIGRATION_URL.
       INTUIT_DB_NAME: ${INTUIT_DB_NAME:?set INTUIT_DB_NAME}
