@@ -488,7 +488,9 @@ jobs:
           echo "default settings: port 5432, as before"
           # The CI-only override publishes on this runner's loopback only, to the review port.
           dc --profile tools config --format json \
-            | jq -e '[.services.postgres.ports[] | .host_ip] | all(. == "127.0.0.1") and ([.services.postgres.ports[] | .target] | all(. == 5433))' > /dev/null
+            | jq -e '(.services.postgres.ports | length > 0)
+              and ([.services.postgres.ports[] | .host_ip] | all(. == "127.0.0.1"))
+              and ([.services.postgres.ports[] | .target] | all(. == 5433))' > /dev/null
           echo "smoke override: loopback only, container port 5433"
 
       - name: Build the API image
