@@ -196,7 +196,11 @@ function RefundTable({
   );
 }
 
-/** The refunds taken from a receipt or a credit note, with a link to record another. */
+/**
+ * The refunds taken from a receipt or a credit note, with a link to record another. The link sits
+ * in the card header, above the list: if it followed the list, the list loading (spinner, then
+ * rows or an empty note) would move it while someone, or a test, is about to click it.
+ */
 export function CustomerRefundHistory({
   sourceType,
   sourceId,
@@ -216,7 +220,21 @@ export function CustomerRefundHistory({
       ),
   });
   return (
-    <Card title={t('sales.refundPages.refunds')}>
+    <Card
+      title={t('sales.refundPages.refunds')}
+      actions={
+        canRefund ? (
+          <Link
+            className="btn btn--secondary"
+            to={`/sales/refunds/new?sourceType=${sourceType}&sourceId=${sourceId}`}
+          >
+            {sourceType === 'receipt'
+              ? t('sales.refundPages.refundUnallocatedAmount')
+              : t('sales.refundPages.refundCredit')}
+          </Link>
+        ) : undefined
+      }
+    >
       {refunds.isPending ? (
         <Spinner label={t('common.loading')} />
       ) : refunds.isError ? (
@@ -226,18 +244,6 @@ export function CustomerRefundHistory({
       ) : (
         <RefundTable rows={refunds.data.items} showCustomer={false} />
       )}
-      {canRefund ? (
-        <p className="actions">
-          <Link
-            className="btn btn--secondary"
-            to={`/sales/refunds/new?sourceType=${sourceType}&sourceId=${sourceId}`}
-          >
-            {sourceType === 'receipt'
-              ? t('sales.refundPages.refundUnallocatedAmount')
-              : t('sales.refundPages.refundCredit')}
-          </Link>
-        </p>
-      ) : null}
     </Card>
   );
 }
