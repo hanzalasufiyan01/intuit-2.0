@@ -351,11 +351,15 @@ jobs:
   # environment runs PostgreSQL on another port (INTUIT_DB_PORT). This job proves, on a disposable
   # runner and in its own compose project, that: the default stays 5432; a fresh bootstrap works on
   # 5433 (the PGPORT behaviour of the official image is verified HERE, not assumed); the built API
-  # image contains the demo-seed wrapper and its guard; the wrapper still refuses 5432 inside the
-  # stack; the seed reaches only `intuit2_review`; and the API serves the seeded database.
+  # image contains the demo-seed wrapper and its guard; the wrapper still refuses 5432, a wrong
+  # confirmation, APP_ENV=production and an empty APP_ENV inside the stack (the image bakes in
+  # APP_ENV=production, so the seed commands pass APP_ENV=staging explicitly); the seed reaches only
+  # `intuit2_review`; the API serves the seeded database; and the real REGISTRATION_MODE gate works
+  # through the running API (open registers, code needs the valid code, closed refuses). The
+  # registration checks run last and write only to this job's throwaway database.
   #
-  # Secrets: throwaway values only, generated per run and masked. They live in two files with mode
-  # 600 (.env.production in the workspace, seed.env in a 700 directory under RUNNER_TEMP), are never
+  # Secrets: throwaway values only, generated per run and masked. They live in files with mode
+  # 600 (.env.production in the workspace; seed.env and reg.env in a 700 directory under RUNNER_TEMP), are never
   # printed, never uploaded (this job has no upload step), and are deleted by the teardown on success
   # and on failure. Commands receive secrets through environment variable NAMES, not on a command line.
   #
@@ -388,10 +392,22 @@ jobs:
           umask 077
           envval() { grep -m1 "^$1=" .env.production | cut -d= -f2-; }
           seedval() { grep -m1 "^$1=" "$REVIEW_DIR/seed.env" | cut -d= -f2-; }
+          regval() { grep -m1 "^$1=" "$REVIEW_DIR/reg.env" | cut -d= -f2-; }
           dc() { docker compose --env-file .env.production "$@"; }
+          # Rewrites the registration settings of .env.production in place (so its mode 600 is kept);
+          # nothing is printed. $1 is the mode, $2 the access code (only for mode code).
+          set_registration() {
+            grep -v -e '^REGISTRATION_MODE=' -e '^REGISTRATION_ACCESS_CODE=' .env.production > "$REVIEW_DIR/env.next"
+            echo "REGISTRATION_MODE=$1" >> "$REVIEW_DIR/env.next"
+            if [ -n "${2:-}" ]; then echo "REGISTRATION_ACCESS_CODE=$2" >> "$REVIEW_DIR/env.next"; fi
+            cat "$REVIEW_DIR/env.next" > .env.production
+            rm -f "$REVIEW_DIR/env.next"
+          }
           psql_owner() { PGPASSWORD="$(envval INTUIT_OWNER_PASSWORD)" psql -h 127.0.0.1 -p 55432 -U intuit_owner -v ON_ERROR_STOP=1 -At "$@"; }
           # Secrets reach the containers by variable NAME (never on a command line).
-          seed() { dc --profile tools run --rm -T --no-deps -e DEMO_SEED_CONFIRM=intuit2_review -e DEV_SEED_PASSWORD -e DEV_SEED_TOTP_SECRET migrate node dist/src/database/cli/seed-demo.js; }
+          # The image bakes in APP_ENV=production, which the seed refuses; this one command says
+          # explicitly that it is a review environment (staging).
+          seed() { dc --profile tools run --rm -T --no-deps -e APP_ENV=staging -e DEMO_SEED_CONFIRM=intuit2_review -e DEV_SEED_PASSWORD -e DEV_SEED_TOTP_SECRET migrate node dist/src/database/cli/seed-demo.js; }
           # After a failure show only lines of known-safe shapes from a captured output.
           safe_lines() { grep -E '^(Target:|Verified |Demo data|Development seed|The demo seed refused|  - )' "$1" || true; }
           # Fails (without printing any value) if the value is empty or occurs in the file.
@@ -413,7 +429,11 @@ jobs:
           mfa=$(openssl rand -base64 32)
           seedpw="$(openssl rand -hex 16)Aa1!"
           totp=$(openssl rand 32 | base32 | tr -d '=\n' | head -c 32)
-          for s in "$pg_super" "$owner" "$app" "$session" "$mfa" "$seedpw" "$totp"; do
+          # Throwaway values for the registration checks: a password for the test accounts, the access
+          # code, and a wrong code.
+          regpw="$(openssl rand -hex 16)Aa1!"
+          regcode=$(hex); regwrong=$(hex)
+          for s in "$pg_super" "$owner" "$app" "$session" "$mfa" "$seedpw" "$totp" "$regpw" "$regcode" "$regwrong"; do
             echo "::add-mask::$s"
           done
           {
@@ -441,9 +461,14 @@ jobs:
             echo "DEV_SEED_PASSWORD=$seedpw"
             echo "DEV_SEED_TOTP_SECRET=$totp"
           } > "$REVIEW_DIR/seed.env"
+          {
+            echo "REG_PASSWORD=$regpw"
+            echo "REG_CODE=$regcode"
+            echo "REG_WRONG=$regwrong"
+          } > "$REVIEW_DIR/reg.env"
           # Restrictive permissions are enforced, not assumed (modes only; nothing else is printed).
           [ "$(stat -c %a "$REVIEW_DIR")" = 700 ] || { echo "FAIL: the secret directory is not mode 700"; exit 1; }
-          for f in .env.production "$REVIEW_DIR/seed.env" "$REVIEW_DIR/lib.sh"; do
+          for f in .env.production "$REVIEW_DIR/seed.env" "$REVIEW_DIR/reg.env" "$REVIEW_DIR/lib.sh"; do
             [ "$(stat -c %a "$f")" = 600 ] || { echo "FAIL: a secret file is not mode 600"; exit 1; }
           done
           echo "secret files: mode 600 in a mode 700 directory"
@@ -550,7 +575,7 @@ jobs:
           export DATABASE_URL DATABASE_MIGRATION_URL
           rc=0
           dc --profile tools run --rm -T --no-deps \
-            -e DEMO_SEED_CONFIRM=intuit2_review -e DEV_SEED_PASSWORD -e DEV_SEED_TOTP_SECRET \
+            -e APP_ENV=staging -e DEMO_SEED_CONFIRM=intuit2_review -e DEV_SEED_PASSWORD -e DEV_SEED_TOTP_SECRET \
             -e DATABASE_URL -e DATABASE_MIGRATION_URL \
             migrate node dist/src/database/cli/seed-demo.js > "$REVIEW_DIR/refuse-1.out" 2>&1 || rc=$?
           unset DATABASE_URL DATABASE_MIGRATION_URL
@@ -562,13 +587,39 @@ jobs:
           # 2. A wrong confirmation.
           rc=0
           dc --profile tools run --rm -T --no-deps \
-            -e DEMO_SEED_CONFIRM=intuit2_dev -e DEV_SEED_PASSWORD -e DEV_SEED_TOTP_SECRET \
+            -e APP_ENV=staging -e DEMO_SEED_CONFIRM=intuit2_dev -e DEV_SEED_PASSWORD -e DEV_SEED_TOTP_SECRET \
             migrate node dist/src/database/cli/seed-demo.js > "$REVIEW_DIR/refuse-2.out" 2>&1 || rc=$?
           safe_lines "$REVIEW_DIR/refuse-2.out" | head -5
           if [ "$rc" -eq 0 ] || ! grep -q "DEMO_SEED_CONFIRM" "$REVIEW_DIR/refuse-2.out" || grep -q "Verified" "$REVIEW_DIR/refuse-2.out"; then
             echo "FAIL: a wrong confirmation was not refused before connecting (exit $rc)"; exit 1
           fi
           echo "ok: wrong confirmation refused before any connection (exit $rc)"
+          # 3. APP_ENV=production, with everything else valid: the stack's own URLs (the review
+          #    database, port 5433, the right roles), the exact confirmation and long shared secrets.
+          #    This alone must be refused, before any connection.
+          rc=0
+          dc --profile tools run --rm -T --no-deps \
+            -e APP_ENV=production -e DEMO_SEED_CONFIRM=intuit2_review -e DEV_SEED_PASSWORD -e DEV_SEED_TOTP_SECRET \
+            migrate node dist/src/database/cli/seed-demo.js > "$REVIEW_DIR/refuse-3.out" 2>&1 || rc=$?
+          safe_lines "$REVIEW_DIR/refuse-3.out" | head -5
+          if [ "$rc" -eq 0 ] || ! grep -q "APP_ENV=production is refused" "$REVIEW_DIR/refuse-3.out" || grep -q "Verified" "$REVIEW_DIR/refuse-3.out"; then
+            echo "FAIL: APP_ENV=production was not refused before connecting (exit $rc)"; exit 1
+          fi
+          echo "ok: APP_ENV=production refused before any connection (exit $rc)"
+          # 4. An empty APP_ENV fails closed too (if compose drops an empty value the image's own
+          #    production value applies, which is refused as well, so only "APP_ENV" is required here).
+          rc=0
+          dc --profile tools run --rm -T --no-deps \
+            -e APP_ENV= -e DEMO_SEED_CONFIRM=intuit2_review -e DEV_SEED_PASSWORD -e DEV_SEED_TOTP_SECRET \
+            migrate node dist/src/database/cli/seed-demo.js > "$REVIEW_DIR/refuse-4.out" 2>&1 || rc=$?
+          safe_lines "$REVIEW_DIR/refuse-4.out" | head -5
+          if [ "$rc" -eq 0 ] || ! grep -q "APP_ENV" "$REVIEW_DIR/refuse-4.out" || grep -q "Verified" "$REVIEW_DIR/refuse-4.out"; then
+            echo "FAIL: an empty APP_ENV was not refused before connecting (exit $rc)"; exit 1
+          fi
+          echo "ok: an empty APP_ENV refused before any connection (exit $rc)"
+          # None of the four refusals may have written anything.
+          orgs=$(psql_owner -d intuit2_review -c "select count(*) from organizations")
+          echo "organizations after the four refusals: $orgs"; [ "$orgs" = 0 ]
 
       - name: Seed the review database, twice
         run: |
@@ -601,18 +652,84 @@ jobs:
           unset SEEDPW
           echo "sign-in as the seeded member through the API: $code"; [ "$code" = 200 ]
 
+      - name: Registration gate in the running stack (open, code, closed)
+        run: |
+          set -euo pipefail
+          . "$REVIEW_DIR/lib.sh"
+          # The real API in the production stack, with the real REGISTRATION_MODE from the env file.
+          # Only status codes and counts are printed. Test data lives in this job's own throwaway
+          # database (intuit2_review in the compose project); the teardown removes its volume.
+          : > "$REVIEW_DIR/reg.out"
+          : > "$REVIEW_DIR/api.log"
+          say() { echo "$*" | tee -a "$REVIEW_DIR/reg.out"; }
+          register() {
+            # $1: e-mail local part; $2: yes or no (send an access code); $3: the code to send.
+            # The password and code reach the container by variable name. Prints the HTTP status.
+            export REG_EMAIL="$1-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}@review.example.test" REG_SEND_CODE="$2" REG_CODE="$3"
+            export REG_PASSWORD; REG_PASSWORD="$(regval REG_PASSWORD)"
+            dc exec -T -e REG_EMAIL -e REG_SEND_CODE -e REG_CODE -e REG_PASSWORD api node -e 'const e = process.env; const body = { email: e.REG_EMAIL, password: e.REG_PASSWORD, displayName: "Registration check", organizationName: "Registration check " + e.REG_EMAIL.split("@")[0] }; if (e.REG_SEND_CODE === "yes") body.accessCode = e.REG_CODE; fetch("http://127.0.0.1:3000/api/v1/auth/register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => console.log(r.status))'
+          }
+          policy() {
+            dc exec -T api node -e 'fetch("http://127.0.0.1:3000/api/v1/auth/registration-policy").then(async (r) => { const b = await r.json(); console.log(r.status + " " + Object.keys(b.data).join(",") + " " + b.data.mode); })'
+          }
+          use_mode() {
+            # A recreated container starts with an empty log, so keep the old one for the secret scan.
+            dc logs --no-color api >> "$REVIEW_DIR/api.log" 2>&1
+            set_registration "$@"
+            # --wait returns once the image's health check (which also queries the database) passes.
+            dc up -d --force-recreate --no-deps --wait --wait-timeout 180 api
+          }
+          count() { psql_owner -d intuit2_review -c "select count(*) from $1"; }
+          expect() {
+            # $1 label, $2 expected, $3 actual: names both on a mismatch (statuses and counts only).
+            if [ "$2" != "$3" ]; then say "FAIL: $1: expected $2, got $3"; exit 1; fi
+            say "ok: $1 ($3)"
+          }
+          expect "seeded organizations and users before the checks" "1,3" "$(count organizations),$(count users)"
+
+          # open: registration succeeds without a code.
+          use_mode open
+          expect "open: the policy shows only the mode" "200 mode open" "$(policy)"
+          expect "open: registering without a code" 201 "$(register reg-open no '')"
+          expect "open: organizations" 2 "$(count organizations)"
+
+          # code: a missing, an empty and a wrong code are rejected; the valid code succeeds.
+          use_mode code "$(regval REG_CODE)"
+          expect "code: the policy shows only the mode" "200 mode code" "$(policy)"
+          expect "code: no code" 403 "$(register reg-code-none no '')"
+          expect "code: an empty code" 403 "$(register reg-code-empty yes '')"
+          expect "code: a wrong code" 403 "$(register reg-code-wrong yes "$(regval REG_WRONG)")"
+          expect "code: nothing was created by the rejected attempts" 2 "$(count organizations)"
+          expect "code: the valid code" 201 "$(register reg-code-ok yes "$(regval REG_CODE)")"
+          expect "code: organizations" 3 "$(count organizations)"
+
+          # closed: public registration is rejected, even with the code that was valid before.
+          use_mode closed
+          expect "closed: the policy shows only the mode" "200 mode closed" "$(policy)"
+          expect "closed: no code" 403 "$(register reg-closed-none no '')"
+          expect "closed: with the earlier code" 403 "$(register reg-closed-code yes "$(regval REG_CODE)")"
+
+          # Exactly the two accepted registrations created data (one organization and one user each).
+          expect "organizations and users after all three modes" "3,5" "$(count organizations),$(count users)"
+          # The seed's APP_ENV=staging was for its one-off containers only: the API still runs as production.
+          expect "the API still runs with APP_ENV=production" production "$(dc exec -T api node -e 'console.log(process.env.APP_ENV)')"
+          dc logs --no-color api >> "$REVIEW_DIR/api.log" 2>&1
+
       - name: No secret appears in the captured outputs
         run: |
           set -euo pipefail
           . "$REVIEW_DIR/lib.sh"
           # Failures name the secret, never its value. An empty value, a missing file or a scan that
           # cannot run is a failure, not a pass.
-          for f in "$REVIEW_DIR"/seed-1.out "$REVIEW_DIR"/seed-2.out "$REVIEW_DIR"/refuse-1.out "$REVIEW_DIR"/refuse-2.out; do
+          for f in "$REVIEW_DIR"/seed-1.out "$REVIEW_DIR"/seed-2.out "$REVIEW_DIR"/refuse-1.out "$REVIEW_DIR"/refuse-2.out "$REVIEW_DIR"/refuse-3.out "$REVIEW_DIR"/refuse-4.out "$REVIEW_DIR"/reg.out "$REVIEW_DIR"/api.log; do
             for k in POSTGRES_PASSWORD INTUIT_OWNER_PASSWORD INTUIT_APP_PASSWORD SESSION_SECRET MFA_ENCRYPTION_KEYS; do
               scan_for "$k" "$(envval "$k")" "$f"
             done
             for k in DEV_SEED_PASSWORD DEV_SEED_TOTP_SECRET; do
               scan_for "$k" "$(seedval "$k")" "$f"
+            done
+            for k in REG_PASSWORD REG_CODE REG_WRONG; do
+              scan_for "$k" "$(regval "$k")" "$f"
             done
             rc=0
             grep -qiE 'postgres(ql)?://' "$f" 2> /dev/null || rc=$?

@@ -19,6 +19,7 @@ const TOTP = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP'; // 20 bytes of base32
 const PASSWORD = 'throwaway-demo-pass-1';
 
 const good = {
+  APP_ENV: 'staging',
   DEMO_SEED_CONFIRM: DEMO_DATABASE,
   DATABASE_URL: `postgres://intuit_app:pw@127.0.0.1:55432/${DEMO_DATABASE}`,
   DATABASE_MIGRATION_URL: `postgres://intuit_owner:pw@127.0.0.1:55432/${DEMO_DATABASE}`,
@@ -70,6 +71,48 @@ describe('validateDemoSeedEnvironment', () => {
         'DEMO_SEED_CONFIRM',
       );
     }
+  });
+
+  it('accepts each non-production APP_ENV with an otherwise valid review configuration', () => {
+    for (const appEnv of ['development', 'testing', 'staging']) {
+      expect(problemsOf({ ...good, APP_ENV: appEnv }), appEnv).toEqual([]);
+    }
+  });
+
+  it('refuses APP_ENV=production even when the database, port and confirmation are all valid', () => {
+    // `good` names intuit2_review on the non-default port 55432 with the exact confirmation:
+    // everything but APP_ENV is acceptable, and that alone must be enough to refuse.
+    expect(problemsOf({ ...good, APP_ENV: 'staging' })).toEqual([]);
+    for (const appEnv of ['production', 'Production', 'PRODUCTION', ' production', 'production ']) {
+      const problems = problemsOf({ ...good, APP_ENV: appEnv });
+      expect(problems, JSON.stringify(appEnv)).toHaveLength(1);
+      expect(problems[0], JSON.stringify(appEnv)).toContain('APP_ENV=production is refused');
+    }
+    // A container service name on a port such as 5433, as in the review stack, is no exception.
+    expect(
+      problemsOf({
+        ...good,
+        APP_ENV: 'production',
+        DATABASE_URL: `postgres://intuit_app:pw@postgres:5433/${DEMO_DATABASE}`,
+        DATABASE_MIGRATION_URL: `postgres://intuit_owner:pw@postgres:5433/${DEMO_DATABASE}`,
+      }).join(),
+    ).toContain('APP_ENV=production is refused');
+  });
+
+  it('refuses a missing, empty or unknown APP_ENV (fail closed)', () => {
+    for (const appEnv of [undefined, '', ' ', 'prod', 'live', 'Staging', 'development ', 'dev']) {
+      const problems = problemsOf({ ...good, APP_ENV: appEnv });
+      expect(problems, JSON.stringify(appEnv)).toHaveLength(1);
+      expect(problems[0], JSON.stringify(appEnv)).toContain(
+        'APP_ENV must be set to exactly one of',
+      );
+    }
+  });
+
+  it('lists a production configuration together with every other problem, not instead of them', () => {
+    const problems = problemsOf({ ...good, APP_ENV: 'production', DEMO_SEED_CONFIRM: 'no' });
+    expect(problems.join('\n')).toContain('APP_ENV=production is refused');
+    expect(problems.join('\n')).toContain('DEMO_SEED_CONFIRM');
   });
 
   it('refuses every database but intuit2_review, and names the protected ones', () => {

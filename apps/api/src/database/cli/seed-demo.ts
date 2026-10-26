@@ -4,8 +4,9 @@
  * Seeds the same fictional "Maldives Demo Trading" data as `seed-dev.ts` (which stays untouched,
  * with its own APP_ENV guard) into ONE exactly named database, `intuit2_review`. Nothing else can
  * be targeted. Before the seed starts, and again after it ends, this command:
- *   - validates the environment (exact confirmation, URLs, roles, port, database, no `.env`,
- *     no redirecting libpq variables, long shared secrets); and
+ *   - validates the environment (APP_ENV set to development, testing or staging and never
+ *     production, exact confirmation, URLs, roles, port, database, no `.env`, no redirecting libpq
+ *     variables, long shared secrets); and
  *   - asks the database server itself which database, port and role it is (and that no protected
  *     database exists in that cluster), for both the runtime and the migration connection.
  * Only then does it run `seed-dev` with APP_ENV=testing for this one process; `seed-dev` keeps

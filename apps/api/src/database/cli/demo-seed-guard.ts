@@ -17,6 +17,14 @@ export const PROTECTED_DATABASES = [
   'intuit2_restore_drill',
 ] as const;
 
+/**
+ * The only configurations the demo seed accepts, written exactly (no case folding). `production`
+ * is refused whatever else is configured, and so is a missing or unknown value: the seed must be
+ * told, explicitly, that this is not a production configuration. (The production images bake in
+ * APP_ENV=production, so a review stack passes `staging` for the one seed command.)
+ */
+export const ALLOWED_APP_ENVS = ['development', 'testing', 'staging'] as const;
+
 const RUNTIME_ROLE = 'intuit_app';
 const OWNER_ROLE = 'intuit_owner';
 
@@ -98,6 +106,16 @@ export function validateDemoSeedEnvironment(
 ): DemoSeedTarget {
   const problems: string[] = [];
 
+  // Independent of everything else: no database name, port or confirmation makes a production
+  // configuration acceptable. The value itself is not printed.
+  const appEnv = env.APP_ENV;
+  if (appEnv?.trim().toLowerCase() === 'production') {
+    problems.push(
+      'APP_ENV=production is refused: the demo seed never runs in a production configuration',
+    );
+  } else if (!(ALLOWED_APP_ENVS as readonly (string | undefined)[]).includes(appEnv)) {
+    problems.push(`APP_ENV must be set to exactly one of: ${ALLOWED_APP_ENVS.join(', ')}`);
+  }
   if (env.DEMO_SEED_CONFIRM !== DEMO_DATABASE) {
     problems.push(`DEMO_SEED_CONFIRM must be exactly "${DEMO_DATABASE}"`);
   }
