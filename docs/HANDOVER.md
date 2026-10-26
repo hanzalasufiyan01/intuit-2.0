@@ -1,5 +1,7 @@
 # Handover: Intuit 2.0
 
+> **Superseded for current state (2026-10-27):** read `FINAL_HANDOVER.md`, `PROJECT_CONTEXT.md` and `RESUME.md` in the repository root first, and `docs/README.md` for the document index. Everything below is a dated snapshot; its commit hashes and CI statements describe `b5ce5ef` (2026-10-25), not the current `main`.
+
 Written 2026-10-19 and refreshed after the merge of pull request #7 on 2026-10-25 (**read section 0 first**; sections 1 to 11 keep their original text, with dated corrections where a fact has since changed). It exists so that someone who was not in the build can pick the project up. It states what exists, how to run and verify it, what is not done and what must be decided. It claims no production readiness. Where a fact can go stale, a command is given to re-check it.
 
 ## 0. Snapshot at 2026-10-25 (after pull request #7)
