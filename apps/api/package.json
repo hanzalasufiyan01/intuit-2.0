@@ -18,6 +18,7 @@
     "db:seed": "tsx src/database/cli/seed.ts",
     "db:setup": "tsx src/database/cli/migrate.ts && tsx src/database/cli/seed.ts",
     "db:seed:dev": "tsx src/database/cli/seed-dev.ts",
+    "db:seed:demo": "tsx src/database/cli/seed-demo.ts",
     "mfa:rotate-keys": "tsx src/database/cli/mfa-rotate-keys.ts",
     "revaluation:dev-run": "tsx src/database/cli/revaluation-dev-run.ts"
   },

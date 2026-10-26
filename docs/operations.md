@@ -38,6 +38,18 @@ Cookies are `Secure` in production: the site must be served over HTTPS.
 4. Start the API and the web container, then run `BASE_URL=https://<host> sh deploy/smoke.sh`.
 5. Register the first organization in the browser (with `REGISTRATION_MODE=closed` nobody can; use `open` or `code` for the first registration, then switch to `closed` and restart) (the registering user becomes the Owner and must enroll two-step verification).
 
+### Demo data for a private review environment
+
+`pnpm --filter @intuit-2/api db:seed:demo` (compiled: `node dist/src/database/cli/seed-demo.js`) puts the same fictional "Maldives Demo Trading" data as `db:seed:dev` (sales and purchases samples, three users) into **one exactly named database, `intuit2_review`**. It is for a network-restricted review environment, never for real data.
+
+- It runs only if `DEMO_SEED_CONFIRM` is exactly `intuit2_review`; `DATABASE_URL` (role `intuit_app`) and `DATABASE_MIGRATION_URL` (role `intuit_owner`) both name that database on the same host and an **explicit port other than 5432**, with no query parameters; no `.env` file exists in the repository root; and no libpq variable (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGSERVICE`, `PGOPTIONS`) is set. `intuit2_dev`, `intuit2_trial` and `intuit2_restore_drill` are refused by name.
+- Before it writes anything, and again after it finishes, it asks the database server itself which database, port and role it is reached as, and refuses if the cluster holds any protected database name.
+- `db:seed:dev` is not changed and still refuses every `APP_ENV` but `development` and `testing`; the wrapper runs it with `APP_ENV=testing` for that one process after the checks pass. It must run with the same `MFA_ENCRYPTION_KEYS` as the API, because the authenticator secrets are sealed with them.
+- **Database port.** The demo seed refuses port 5432, and the compose database listens on 5432 by default. For a review environment set `INTUIT_DB_PORT=5433` in `.env.production` and use `:5433` in both `DATABASE_URL` and `DATABASE_MIGRATION_URL`; the compose file then starts PostgreSQL with `-p 5433` and `PGPORT=5433`, and the database stays unpublished. Without `INTUIT_DB_PORT` nothing changes (5432). The `review-port` job of `deploy-smoke` proves, on a disposable runner, a fresh bootstrap on 5433, that the built API image contains the wrapper and its guard, that the wrapper still refuses 5432 inside the stack, and that the seed reaches only `intuit2_review`.
+- Shared credentials: every demo user has the password in `DEV_SEED_PASSWORD` (at least 16 characters) and the owner and administrator share the authenticator key in `DEV_SEED_TOTP_SECRET` (a base32 key of at least 20 bytes). Supply them from a secret manager; never commit them, never print them. They are acceptable **only** behind a network gate. Rotate them, or remove the demo users, before any wider exposure.
+- It is idempotent. To reset the demo, drop and recreate the review database (an operator action on that database only, never on real data) and run the migrations and the seed again.
+- It is not production data and not a test of production readiness. Banking, inventory and payroll samples are not part of it.
+
 ## 4. Upgrades and rollback
 
 1. Take a backup first (section 5).
