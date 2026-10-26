@@ -10,7 +10,7 @@
 #   - api-restored (profile restore): the same API image against the restored database copy.
 services:
   postgres:
-    ports: ['127.0.0.1:55432:5432']
+    ports: ['127.0.0.1:55432:${INTUIT_DB_PORT:-5432}']
 
   api:
     networks: [default, smtp-sandbox]
