@@ -5,6 +5,7 @@ import { Button } from '../../shared/ui/Button';
 import { Card } from '../../shared/ui/Card';
 import { TextField } from '../../shared/ui/TextField';
 import { useApiMutation, useAuth } from '../auth-context';
+import { useRegistrationMode } from '../registration-policy';
 
 export const PASSWORD_HINT = 'At least 12 characters. A passphrase works well.';
 
@@ -16,7 +17,9 @@ export function RegisterPage() {
     email: '',
     password: '',
     organizationName: '',
+    accessCode: '',
   });
+  const mode = useRegistrationMode();
   const mutation = useApiMutation(register);
   const update = (key: keyof typeof form) => (e: { target: { value: string } }) =>
     setForm((current) => ({ ...current, [key]: e.target.value }));
@@ -25,9 +28,28 @@ export function RegisterPage() {
   // continues into the app; navigating from the mutation callback raced the session update.
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    mutation.mutate(form);
+    const { accessCode, ...account } = form;
+    mutation.mutate(mode === 'code' ? { ...account, accessCode } : account);
   };
   const fieldError = (path: string) => mutation.error?.fieldError(path);
+
+  if (mode === 'closed') {
+    return (
+      <main className="auth-page">
+        <div className="auth-card">
+          <Card title="Registration is closed">
+            <p>
+              New accounts are not being created here. If you have been invited, open the link in
+              your invitation. Otherwise ask the person who runs this Intuit 2.0 for an invitation.
+            </p>
+            <p className="muted">
+              Already have an account? <Link to="/login">Sign in</Link>
+            </p>
+          </Card>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="auth-page">
@@ -66,6 +88,17 @@ export function RegisterPage() {
               onChange={update('organizationName')}
               error={fieldError('organizationName')}
             />
+            {mode === 'code' ? (
+              <TextField
+                label="Access code"
+                type="password"
+                autoComplete="off"
+                value={form.accessCode}
+                onChange={update('accessCode')}
+                error={fieldError('accessCode')}
+                hint="Registration needs the access code you were given."
+              />
+            ) : null}
             <Button type="submit" busy={mutation.isPending}>
               Create account
             </Button>

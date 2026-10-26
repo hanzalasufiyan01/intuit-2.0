@@ -251,7 +251,11 @@ export function apiV1(deps: AppDependencies, services: ApiV1Services) {
       }
     });
     registerMetricsRoute(app, { deps, metrics: services.metrics });
-    registerAuthRoutes(app, { auth: services.auth, config: deps.config });
+    registerAuthRoutes(app, {
+      auth: services.auth,
+      config: deps.config,
+      rateLimiter: services.rateLimiter,
+    });
     registerMfaRoutes(app, { auth: services.auth, mfa: services.mfa, config: deps.config });
     registerOrganizationRoutes(app, services);
     registerOwnershipRoutes(app, services);

@@ -5,6 +5,7 @@ import { Button } from '../../shared/ui/Button';
 import { Card } from '../../shared/ui/Card';
 import { TextField } from '../../shared/ui/TextField';
 import { useApiMutation, useAuth } from '../auth-context';
+import { useRegistrationMode } from '../registration-policy';
 import { safeRedirectTarget } from '../RequireAuth';
 
 export function LoginPage() {
@@ -14,6 +15,7 @@ export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const mutation = useApiMutation(login);
+  const registrationMode = useRegistrationMode();
 
   // No navigation here: once the session is complete, the route guard (RedirectIfAuthenticated)
   // continues to `from`. Navigating from the mutation callback raced the session update and could
@@ -55,8 +57,13 @@ export function LoginPage() {
               Sign in
             </Button>
             <p className="muted">
-              <Link to="/forgot-password">Forgot your password?</Link> ·{' '}
-              <Link to="/register">Create an account</Link>
+              <Link to="/forgot-password">Forgot your password?</Link>
+              {registrationMode === 'closed' ? null : (
+                <>
+                  {' '}
+                  · <Link to="/register">Create an account</Link>
+                </>
+              )}
             </p>
           </form>
         </Card>

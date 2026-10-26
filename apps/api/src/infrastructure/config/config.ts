@@ -177,6 +177,13 @@ const envSchema = z.object({
   ASSISTANT_MAX_OUTPUT_TOKENS: positiveInt.max(4096).default(700),
   ASSISTANT_USER_PER_MINUTE: positiveInt.max(600).default(20),
   ASSISTANT_ORG_PER_MINUTE: positiveInt.max(6000).default(120),
+
+  // Who may create a new account and organization through /auth/register. `open` (the default)
+  // keeps registration public. `code` also needs REGISTRATION_ACCESS_CODE, shared out of band.
+  // `closed` refuses public registration; people then join only by invitation. Invitations are
+  // never affected. The access code is a secret: it is never logged or returned.
+  REGISTRATION_MODE: z.enum(['open', 'code', 'closed']).default('open'),
+  REGISTRATION_ACCESS_CODE: z.string().min(12).max(200).optional(),
 });
 
 export type AppEnv = z.infer<typeof envSchema>['APP_ENV'];
@@ -293,6 +300,11 @@ export interface AppConfig {
       rejectUnauthorized: boolean;
     } | null;
   };
+  registration: {
+    mode: 'open' | 'code' | 'closed';
+    /** Server-side only. Present exactly when mode is `code`. Never logged or returned. */
+    accessCode: string | undefined;
+  };
   assistant: {
     provider: 'docs' | 'anthropic';
     /** Server-side only. Never logged or returned. */
@@ -362,6 +374,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     if (problems.length > 0) {
       throw new ConfigError(`Invalid environment configuration:\n${problems.join('\n')}`);
     }
+  }
+  if (e.REGISTRATION_MODE === 'code' && !e.REGISTRATION_ACCESS_CODE) {
+    throw new ConfigError(
+      'Invalid environment configuration:\n  - REGISTRATION_ACCESS_CODE: required when REGISTRATION_MODE=code',
+    );
+  }
+  if (e.REGISTRATION_MODE !== 'code' && e.REGISTRATION_ACCESS_CODE) {
+    // A code that is set but not enforced would give a false sense of protection.
+    throw new ConfigError(
+      'Invalid environment configuration:\n  - REGISTRATION_ACCESS_CODE: only used when REGISTRATION_MODE=code',
+    );
   }
   if (e.ASSISTANT_PROVIDER === 'anthropic') {
     const problems: string[] = [];
@@ -531,6 +554,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
             }
           : null,
     },
+    registration: { mode: e.REGISTRATION_MODE, accessCode: e.REGISTRATION_ACCESS_CODE },
     assistant: {
       provider: e.ASSISTANT_PROVIDER,
       apiKey: e.ASSISTANT_API_KEY,

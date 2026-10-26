@@ -39,7 +39,8 @@
 | Method  | Path                                                     | Auth                                   | Permission / notes                                               |
 | ------- | -------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------- |
 | GET     | `/health`                                                | —                                      | Includes a database check                                        |
-| POST    | `/auth/register`                                         | —                                      | Creates user + organization (Owner)                              |
+| POST    | `/auth/register`                                         | —                                      | Creates user + organization (Owner); see the note below          |
+| GET     | `/auth/registration-policy`                              | —                                      | `{ mode }` only; never the access code                           |
 | POST    | `/auth/login`                                            | —                                      | Login protection applies                                         |
 | POST    | `/auth/logout`                                           | ✓                                      | Revokes the session                                              |
 | GET     | `/auth/session`                                          | ✓                                      | Session state + CSRF token                                       |
@@ -79,6 +80,8 @@
 | GET     | `/organizations/current/audit-events?limit&before`       | ✓                                      | `audit.read`                                                     |
 | POST    | `/invitations/lookup`                                    | —                                      | Token in the body                                                |
 | POST    | `/invitations/accept`                                    | opt.                                   | Signed in: the email must match. Signed out: creates the account |
+
+**Registration modes (`REGISTRATION_MODE`).** `open` (default): public. `code`: `POST /auth/register` also needs `accessCode`; a missing or wrong code is a 403 with the same message, and more than 10 attempts a minute from one address is a 429 with `Retry-After`. `closed`: always 403 `FORBIDDEN` before the body is read. Invitations (`POST /invitations/accept`) are not affected by any mode.
 
 ## Accounting endpoints (Phase 2, `/api/v1/accounting`)
 
